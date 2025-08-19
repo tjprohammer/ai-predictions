@@ -14,6 +14,10 @@ import os
 import json
 import argparse
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 def get_engine():
     """Get database engine"""

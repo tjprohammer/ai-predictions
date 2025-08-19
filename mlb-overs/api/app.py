@@ -20,6 +20,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def format_game_time(utc_time_str, timezone_str):
+    """Format game time from UTC to local timezone"""
+    if not utc_time_str or not timezone_str:
+        return None
+    try:
+        # Parse UTC time and convert to local time
+        utc_time = datetime.fromisoformat(utc_time_str.replace('Z', '+00:00'))
+        # Simple timezone offset mapping (could be enhanced)
+        timezone_offsets = {
+            'ET': -5, 'CT': -6, 'MT': -7, 'PT': -8,
+            'EDT': -4, 'CDT': -5, 'MDT': -6, 'PDT': -7
+        }
+        offset = timezone_offsets.get(timezone_str, 0)
+        local_time = utc_time + timedelta(hours=offset)
+        return local_time.strftime('%I:%M %p')
+    except:
+        return None
+
 def get_engine():
     """Get database engine"""
     url = os.environ.get('DATABASE_URL', 'postgresql://mlbuser:mlbpass@localhost:5432/mlb')
@@ -282,29 +300,47 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
         try:
             engine = get_engine()
             with engine.begin() as conn:
-                # Use enhanced_games table for all dates - it has all the data we need
+                # Use enhanced_games table with probability predictions and odds joined
+                # FIXED: Use subquery to get single odds entry per game (prioritize FanDuel)
                 db_query = """
                 SELECT 
-                    game_id, home_team, away_team, venue_name, venue_id,
-                    temperature, wind_speed, wind_direction, weather_condition,
-                    home_sp_name, away_sp_name, home_sp_season_era, away_sp_season_era,
-                    home_sp_whip, away_sp_whip,
-                    home_sp_season_k, away_sp_season_k, home_sp_season_bb, away_sp_season_bb,
-                    home_sp_season_ip, away_sp_season_ip,
-                    home_sp_k, home_sp_bb, home_sp_ip, home_sp_h,
-                    away_sp_k, away_sp_bb, away_sp_ip, away_sp_h,
-                    home_team_avg, away_team_avg,
-                    predicted_total, confidence, recommendation, edge,
-                    market_total, over_odds, under_odds,
-                    home_score, away_score, total_runs,
-                    day_night, game_type,
-                    -- Default NULL for EV fields (can be added later if needed)
-                    NULL as over_probability, NULL as under_probability,
-                    NULL as expected_value_over, NULL as expected_value_under,
-                    NULL as kelly_fraction_over, NULL as kelly_fraction_under
-                FROM enhanced_games 
-                WHERE date = :target_date
-                ORDER BY game_id
+                    eg.game_id, eg.home_team, eg.away_team, eg.venue_name, eg.venue_id,
+                    eg.temperature, eg.wind_speed, eg.wind_direction, eg.weather_condition,
+                    eg.home_sp_name, eg.away_sp_name, eg.home_sp_season_era, eg.away_sp_season_era,
+                    eg.home_sp_whip, eg.away_sp_whip,
+                    eg.home_sp_season_k, eg.away_sp_season_k, eg.home_sp_season_bb, eg.away_sp_season_bb,
+                    eg.home_sp_season_ip, eg.away_sp_season_ip,
+                    eg.home_sp_k, eg.home_sp_bb, eg.home_sp_ip, eg.home_sp_h,
+                    eg.away_sp_k, eg.away_sp_bb, eg.away_sp_ip, eg.away_sp_h,
+                    eg.home_team_avg, eg.away_team_avg,
+                    eg.predicted_total, eg.confidence, eg.recommendation, eg.edge,
+                    eg.market_total, 
+                    COALESCE(to_odds.over_odds, -110) as over_odds, 
+                    COALESCE(to_odds.under_odds, -110) as under_odds,
+                    eg.home_score, eg.away_score, eg.total_runs,
+                    eg.day_night, eg.game_type, eg.game_time_utc, eg.game_timezone,
+                    -- Get real betting probabilities from latest_probability_predictions
+                    lpp.p_over as over_probability, lpp.p_under as under_probability,
+                    lpp.ev_over as expected_value_over, lpp.ev_under as expected_value_under,
+                    lpp.kelly_over as kelly_fraction_over, lpp.kelly_under as kelly_fraction_under
+                FROM enhanced_games eg
+                LEFT JOIN latest_probability_predictions lpp ON eg.game_id = lpp.game_id
+                LEFT JOIN (
+                    SELECT DISTINCT ON (game_id) game_id, over_odds, under_odds
+                    FROM totals_odds
+                    WHERE date = :target_date 
+                        AND over_odds IS NOT NULL 
+                        AND under_odds IS NOT NULL
+                    ORDER BY game_id, 
+                        CASE 
+                            WHEN book = 'FanDuel' THEN 1
+                            WHEN book = 'BetOnline.ag' THEN 2
+                            WHEN book = 'espn_api' THEN 3
+                            ELSE 4
+                        END
+                ) to_odds ON eg.game_id = to_odds.game_id
+                WHERE eg.date = :target_date
+                ORDER BY eg.game_id
                 """
                 
                 result = conn.execute(text(db_query), {'target_date': target_date})
@@ -409,7 +445,7 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
                                 'city': stadium_info.get('city', 'Unknown')
                             },
                             'game_state': 'Final' if game.total_runs is not None else 'Scheduled',
-                            'start_time': f"{game.day_night} Game" if game.day_night else 'TBD',
+                            'start_time': format_game_time(game.game_time_utc, game.game_timezone) or (f"{game.day_night} Game" if game.day_night else 'TBD'),
                             'team_stats': {
                                 'home': {
                                     'runs': game.home_score if game.home_score is not None else 0,

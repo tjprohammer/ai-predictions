@@ -14,6 +14,10 @@ import statsapi
 import os
 from sqlalchemy import create_engine, text
 import psycopg2
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 def get_engine():
     """Get PostgreSQL database engine"""
@@ -87,7 +91,10 @@ def fetch_todays_games(target_date=None):
                 print(f"⚠️ Skipping game - no ID found: {game.get('away_name')} @ {game.get('home_name')}")
                 continue
                 
-            # Get basic game info
+            # Get basic game info with proper time handling
+            game_datetime = game.get('game_datetime')  # Full datetime from MLB API
+            game_time_str = game.get('game_date')  # Game time string
+            
             game_data = {
                 'game_id': str(game_id),
                 'date': game_date.strftime('%Y-%m-%d'),
@@ -98,7 +105,10 @@ def fetch_todays_games(target_date=None):
                 'venue_name': game.get('venue_name', ''),
                 'venue_id': game.get('venue_id'),
                 'game_type': 'R',  # Regular season
-                'day_night': 'D' if 'day' in game.get('game_date', '').lower() else 'N'
+                'day_night': 'D' if 'day' in game.get('game_date', '').lower() else 'N',
+                # Add proper game time fields
+                'game_time_utc': game_datetime if game_datetime else None,
+                'game_timezone': 'ET'  # Default to Eastern, could be enhanced
             }
             
             # Try to get scores if game is final
@@ -138,14 +148,14 @@ def upsert_games(games):
                 ).fetchone()
                 
                 if not existing:
-                    # Insert new game
+                    # Insert new game with time data
                     insert_sql = text("""
                         INSERT INTO enhanced_games (
                             game_id, date, home_team, away_team, home_team_id, away_team_id,
-                            venue_name, venue_id, game_type, day_night, created_at
+                            venue_name, venue_id, game_type, day_night, game_time_utc, game_timezone, created_at
                         ) VALUES (
                             :game_id, :date, :home_team, :away_team, :home_team_id, :away_team_id,
-                            :venue_name, :venue_id, :game_type, :day_night, NOW()
+                            :venue_name, :venue_id, :game_type, :day_night, :game_time_utc, :game_timezone, NOW()
                         )
                     """)
                     
@@ -159,7 +169,9 @@ def upsert_games(games):
                         'venue_name': game['venue_name'],
                         'venue_id': game.get('venue_id'),
                         'game_type': game.get('game_type', 'R'),
-                        'day_night': game.get('day_night', 'N')
+                        'day_night': game.get('day_night', 'N'),
+                        'game_time_utc': game.get('game_time_utc'),
+                        'game_timezone': game.get('game_timezone', 'ET')
                     })
                     print(f"[OK] Inserted: {game['away_team']} @ {game['home_team']}")
                 else:
