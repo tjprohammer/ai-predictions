@@ -120,7 +120,11 @@ def main():
     print(f"🎯 Brier score: {brier:.4f}   |   ECE: {ece:.4f}")
     print(f"📈 Model version: {args.model_version or 'all'}")
     print("\nPer-bin calibration:")
-    print(calib.fillna(0).round(4).to_string(index=False))
+    # Convert categorical columns to string before fillna to avoid TypeError
+    calib_copy = calib.copy()
+    for col in calib_copy.select_dtypes(include=['category']).columns:
+        calib_copy[col] = calib_copy[col].astype(str)
+    print(calib_copy.fillna('0').round(4).to_string(index=False))
 
     # Save CSV files
     calib_csv = f"{args.outfile_prefix}_bins_{end_dt}.csv".replace(" ", "_")

@@ -100,14 +100,18 @@ def add_pitcher_rolling_stats(games_df, engine):
     
     # Final verification that would catch edge cases
     if len(home_roll) > 0:
+        # Force explicit sorting and check
+        home_roll = home_roll.sort_values(["home_sp_id","stat_date"], ascending=[True, True]).reset_index(drop=True)
         group_check = home_roll.groupby("home_sp_id")["stat_date"].apply(lambda x: x.is_monotonic_increasing).all()
         if not group_check:
-            logger.error("Home roll data failed final monotonic sort check - this should not happen")
-            # Force one more sort as last resort
-            home_roll = home_roll.sort_values(["home_sp_id","stat_date"]).reset_index(drop=True)
+            logger.error("Home roll data failed final monotonic sort check - attempting aggressive fix")
+            # More aggressive fix: sort each group individually
+            home_roll = (home_roll.groupby("home_sp_id", group_keys=False)
+                        .apply(lambda g: g.sort_values("stat_date"))
+                        .reset_index(drop=True))
     try:
         home_join = pd.merge_asof(
-            home,
+            home.sort_values(["home_sp_id", "date"]),  # Ensure left side is also sorted
             home_roll[["home_sp_id","stat_date","era","whip","k_per_9","bb_per_9","gs"]],
             left_on="date", right_on="stat_date",
             left_by="home_sp_id", right_by="home_sp_id",
@@ -138,18 +142,20 @@ def add_pitcher_rolling_stats(games_df, engine):
     
     # Force a fresh sort and remove any duplicates
     away_roll = away_roll.drop_duplicates(subset=["away_sp_id", "stat_date"], keep="last")
-    away_roll = away_roll.sort_values(["away_sp_id","stat_date"]).reset_index(drop=True)
+    away_roll = away_roll.sort_values(["away_sp_id","stat_date"], ascending=[True, True]).reset_index(drop=True)
     
     # Final verification that would catch edge cases
     if len(away_roll) > 0:
         group_check = away_roll.groupby("away_sp_id")["stat_date"].apply(lambda x: x.is_monotonic_increasing).all()
         if not group_check:
-            logger.error("Away roll data failed final monotonic sort check - this should not happen")
-            # Force one more sort as last resort
-            away_roll = away_roll.sort_values(["away_sp_id","stat_date"]).reset_index(drop=True)
+            logger.error("Away roll data failed final monotonic sort check - attempting aggressive fix")
+            # More aggressive fix: sort each group individually
+            away_roll = (away_roll.groupby("away_sp_id", group_keys=False)
+                        .apply(lambda g: g.sort_values("stat_date"))
+                        .reset_index(drop=True))
     try:
         away_join = pd.merge_asof(
-            away,
+            away.sort_values(["away_sp_id", "date"]),  # Ensure left side is also sorted
             away_roll[["away_sp_id","stat_date","era","whip","k_per_9","bb_per_9","gs"]],
             left_on="date", right_on="stat_date",
             left_by="away_sp_id", right_by="away_sp_id",
@@ -1370,13 +1376,22 @@ class EnhancedBullpenPredictor:
             # Persist joined pitcher stats back to enhanced_games for auditing & downstream use
             try:
                 if not games_df.empty and {'home_sp_era','away_sp_era'}.issubset(games_df.columns):
-                    up_cols = [
-                        'home_sp_era','away_sp_era','home_sp_whip','away_sp_whip',
-                        'home_sp_k_per_9','away_sp_k_per_9','home_sp_bb_per_9','away_sp_bb_per_9',
-                        'home_sp_starts','away_sp_starts','home_sp_season_era','away_sp_season_era',
-                        'home_sp_season_whip','away_sp_season_whip'
-                    ]
+                    # Map rolling stats to season columns in enhanced_games table
+                    col_mapping = {
+                        'home_sp_era': 'home_sp_season_era',
+                        'away_sp_era': 'away_sp_season_era',
+                        'home_sp_whip': 'home_sp_whip',
+                        'away_sp_whip': 'away_sp_whip'
+                    }
+                    up_cols = ['home_sp_whip','away_sp_whip','home_sp_season_era','away_sp_season_era']
                     subset = games_df[['game_id','date'] + [c for c in up_cols if c in games_df.columns]].copy()
+                    
+                    # Add mapped columns from rolling stats
+                    if 'home_sp_era' in games_df.columns:
+                        subset['home_sp_season_era'] = games_df['home_sp_era']
+                    if 'away_sp_era' in games_df.columns:
+                        subset['away_sp_season_era'] = games_df['away_sp_era']
+                    
                     with engine.begin() as conn:
                         for rec in subset.to_dict(orient='records'):
                             set_fragments = []

@@ -106,10 +106,4 @@ This is an active development project. Key areas for contribution:
 - Enhance feature engineering with additional data sources
 - Improve model calibration and uncertainty quantification
 
-## 📧 Contact
 
-For questions or collaboration: prohammer1@gmail.com
-
----
-*Last updated: December 2024*
-*System Status: Production-ready with ongoing optimizations*

@@ -105,3 +105,6 @@ credentials/
 *.p12
 config.ini
 settings.ini
+
+# UI subproject (separate repository)
+mlb-predictions-ui/
