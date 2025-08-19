@@ -183,7 +183,10 @@ def collect_team_performance_stats(target_date=None):
                         combined_team_woba = :combined_woba,
                         home_team_power = :home_power,
                         away_team_power = :away_power,
-                        combined_team_power = :combined_power
+                        combined_team_power = :combined_power,
+                        home_team_wrcplus = :home_wrcplus,
+                        away_team_wrcplus = :away_wrcplus,
+                        combined_team_wrcplus = :combined_wrcplus
                     WHERE game_id = :game_id
                       {date_condition}
                 """)
@@ -202,13 +205,18 @@ def collect_team_performance_stats(target_date=None):
                     'home_rpg': home_rpg,
                     'away_rpg': away_rpg,
                     'combined_offense': (home_rpg + away_rpg) / 2,
-                    'home_woba': home_stats.get('ops', 0.700) * 0.8,  # Approximate wOBA from OPS
-                    'away_woba': away_stats.get('ops', 0.700) * 0.8,
-                    'combined_woba': (home_stats.get('ops', 0.700) + away_stats.get('ops', 0.700)) * 0.4,
+                    # 🔧 FIXED: Better OPS to wOBA conversion - OPS*0.4 gives realistic range 0.26-0.36
+                    'home_woba': max(0.250, min(0.370, home_stats.get('ops', 0.700) * 0.4)),
+                    'away_woba': max(0.250, min(0.370, away_stats.get('ops', 0.700) * 0.4)),
+                    'combined_woba': max(0.250, min(0.370, (home_stats.get('ops', 0.700) + away_stats.get('ops', 0.700)) * 0.2)),
                     'home_power': home_stats.get('hr', 20) / home_stats.get('games', 162),  # HR per game
                     'away_power': away_stats.get('hr', 20) / away_stats.get('games', 162),
                     'combined_power': ((home_stats.get('hr', 20) + away_stats.get('hr', 20)) / 
-                                     (home_stats.get('games', 162) + away_stats.get('games', 162)))
+                                     (home_stats.get('games', 162) + away_stats.get('games', 162))),
+                    # wRC+ approximation: (OPS-0.65)*150 + 100 gives realistic 70-140 range
+                    'home_wrcplus': max(70, min(140, (home_stats.get('ops', 0.700) - 0.65) * 150 + 100)),
+                    'away_wrcplus': max(70, min(140, (away_stats.get('ops', 0.700) - 0.65) * 150 + 100)),
+                    'combined_wrcplus': max(70, min(140, ((home_stats.get('ops', 0.700) + away_stats.get('ops', 0.700)) / 2 - 0.65) * 150 + 100))
                 }
                 
                 # Add target_date to params if specified
