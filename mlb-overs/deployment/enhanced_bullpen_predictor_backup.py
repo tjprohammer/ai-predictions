@@ -54,10 +54,6 @@ def add_pitcher_rolling_stats(games_df, engine):
     """
     try:
         roll_df = pd.read_sql(roll_query, engine)
-        print(f"DEBUG: roll_df loaded with shape {roll_df.shape}")
-        if not roll_df.empty:
-            print(f"DEBUG: stat_date dtype: {roll_df['stat_date'].dtype}")
-            print(f"DEBUG: stat_date head: {roll_df['stat_date'].head().tolist()}")
         logger.debug(f"📊 Raw roll_df loaded: shape={roll_df.shape}")
         if not roll_df.empty:
             logger.debug(f"📊 Raw stat_date dtype: {roll_df['stat_date'].dtype}")
@@ -85,31 +81,24 @@ def add_pitcher_rolling_stats(games_df, engine):
     roll_df["stat_date"] = pd.to_datetime(roll_df["stat_date"], utc=False)  # Force tz-naive
     roll_df["pitcher_id"] = roll_df["pitcher_id"].astype("int64")
     
-    print(f"DEBUG: After conversion - stat_date dtype: {roll_df['stat_date'].dtype}")
-    print(f"DEBUG: After conversion - stat_date sample: {roll_df['stat_date'].head().tolist()}")
-    
     # CRITICAL: Remove duplicates that can break merge_asof
     roll_df = roll_df.drop_duplicates(subset=["pitcher_id", "stat_date"], keep="last")
     roll_df = roll_df.sort_values(["pitcher_id", "stat_date"]).reset_index(drop=True)
-    
-    print(f"DEBUG: After sort - shape: {roll_df.shape}")
     
     logger.debug(f"roll_df after dedup/sort shape: {roll_df.shape}")
     logger.debug(f"roll_df pitcher_id unique count: {roll_df['pitcher_id'].nunique()}")
     
     # Verify sorting before merge_asof - FAIL FAST IF BROKEN
     if len(roll_df) > 1:
-        print(f"DEBUG: Checking sort status...")
         sort_check = roll_df.groupby("pitcher_id")["stat_date"].apply(lambda x: x.is_monotonic_increasing).all()
-        print(f"DEBUG: Sort check result: {sort_check}")
         if not sort_check:
             # Debug which pitchers have sorting issues
             bad_pitchers = roll_df.groupby("pitcher_id")["stat_date"].apply(lambda x: not x.is_monotonic_increasing)
             bad_pitcher_ids = bad_pitchers[bad_pitchers].index.tolist()
-            print(f"DEBUG: Bad pitcher IDs: {bad_pitcher_ids[:5]}")
+            logger.error(f"Pitchers with non-monotonic dates: {bad_pitcher_ids[:5]}")
             for pid in bad_pitcher_ids[:2]:
                 subset = roll_df[roll_df["pitcher_id"] == pid][["pitcher_id", "stat_date"]].head(10)
-                print(f"DEBUG: Pitcher {pid} dates: {subset['stat_date'].tolist()}")
+                logger.error(f"Pitcher {pid} dates: {subset['stat_date'].tolist()}")
             raise ValueError("❌ CRITICAL: Pitcher rolling stats cannot be sorted properly - data integrity issue")
 
     # Home side - ENHANCED PREPARATION
@@ -132,112 +121,18 @@ def add_pitcher_rolling_stats(games_df, engine):
     
     # FAIL FAST: Final verification that would catch edge cases
     if len(home_roll) > 0:
-        print(f"DEBUG: home_roll verification - shape: {home_roll.shape}")
-        print(f"DEBUG: home_roll stat_date dtype: {home_roll['stat_date'].dtype}")
         group_check = home_roll.groupby("home_sp_id")["stat_date"].apply(lambda x: x.is_monotonic_increasing).all()
-        print(f"DEBUG: home_roll group check result: {group_check}")
         if not group_check:
-            bad_pitchers = home_roll.groupby("home_sp_id")["stat_date"].apply(lambda x: not x.is_monotonic_increasing)
-            bad_pitcher_ids = bad_pitchers[bad_pitchers].index.tolist()
-            print(f"DEBUG: home_roll bad pitcher IDs: {bad_pitcher_ids[:3]}")
             raise ValueError("❌ CRITICAL: Home roll data failed monotonic sort check - aborting to prevent degraded predictions")
     
-    # EMERGENCY FALLBACK: Use regular merge instead of merge_asof due to pandas sorting bug
-    try:
-        print(f"DEBUG: Attempting HOME merge_asof...")
-        print(f"DEBUG: home shape: {home.shape}, home_roll shape: {home_roll.shape}")
-        
-        # AGGRESSIVE SORT: Force fresh sort right before merge_asof
-        home_sorted = home.sort_values(["home_sp_id", "date"]).reset_index(drop=True)
-        home_roll_sorted = home_roll.sort_values(["home_sp_id", "stat_date"]).reset_index(drop=True)
-        
-        print(f"DEBUG: Forced fresh sorts complete")
-        
-        home_join = pd.merge_asof(
-            home_sorted,
-            home_roll_sorted[["home_sp_id","stat_date","era","whip","k_per_9","bb_per_9","gs"]],
-            left_on="date", right_on="stat_date",
-            left_by="home_sp_id", right_by="home_sp_id",
-            direction="backward", allow_exact_matches=True
-        )
-        print(f"DEBUG: HOME merge_asof successful!")
-    except Exception as e:
-        print(f"DEBUG: HOME merge_asof failed: {e}, trying emergency fallback...")
-        
-        # IMPROVED EMERGENCY FALLBACK: Use most recent data for each pitcher
-        home_sorted = home.sort_values(["home_sp_id", "date"]).reset_index(drop=True)
-        
-        print(f"DEBUG: home_sorted dates: {home_sorted['date'].dt.date.tolist()}")
-        print(f"DEBUG: home_roll date range: {home_roll['stat_date'].min()} to {home_roll['stat_date'].max()}")
-        print(f"DEBUG: home_roll pitcher count: {home_roll['home_sp_id'].nunique()}")
-        print(f"DEBUG: home_roll ERA stats: min={home_roll['era'].min():.2f}, max={home_roll['era'].max():.2f}, null_count={home_roll['era'].isnull().sum()}")
-        print(f"DEBUG: home_roll ERA sample values: {home_roll['era'].dropna().head(5).tolist()}")
-        
-        # Strategy 1: Try exact date matches first
-        home_roll_exact = home_roll[home_roll["stat_date"].isin(home_sorted["date"])]
-        print(f"DEBUG: Exact date matches: {len(home_roll_exact)}")
-        
-        if len(home_roll_exact) > 0:
-            home_join = pd.merge(
-                home_sorted,
-                home_roll_exact[["home_sp_id","stat_date","era","whip","k_per_9","bb_per_9","gs"]],
-                left_on=["home_sp_id", "date"], right_on=["home_sp_id", "stat_date"],
-                how="left"
-            )
-            print(f"DEBUG: Exact date emergency fallback successful: {len(home_join)} rows")
-        else:
-            # Strategy 2: Use most recent data for each pitcher (simulate merge_asof behavior)
-            print(f"DEBUG: No exact matches, using most recent data approach...")
-            
-            results = []
-            era_found_count = 0
-            era_missing_count = 0
-            
-            for _, game_row in home_sorted.iterrows():
-                pitcher_id = game_row['home_sp_id']
-                game_date = game_row['date']
-                
-                # Find all data for this pitcher before or on game date
-                pitcher_data = home_roll[
-                    (home_roll['home_sp_id'] == pitcher_id) & 
-                    (home_roll['stat_date'] <= game_date)
-                ].sort_values('stat_date')
-                
-                if len(pitcher_data) > 0:
-                    # Use most recent data
-                    latest_data = pitcher_data.iloc[-1]
-                    result_row = game_row.copy()
-                    
-                    # Debug ERA specifically
-                    era_value = latest_data['era']
-                    if pd.notna(era_value) and era_value != 4.2:
-                        era_found_count += 1
-                        print(f"DEBUG: Pitcher {pitcher_id}: Found ERA {era_value:.2f} from {latest_data['stat_date'].date()}")
-                    else:
-                        era_missing_count += 1
-                        print(f"DEBUG: Pitcher {pitcher_id}: ERA missing/invalid ({era_value}), using 4.2 default")
-                    
-                    for col in ["era","whip","k_per_9","bb_per_9","gs"]:
-                        result_row[col] = latest_data[col] if pd.notna(latest_data[col]) else (4.2 if col == "era" else 1.3 if col == "whip" else 8.0)
-                    results.append(result_row)
-                else:
-                    # No data for this pitcher, use reasonable defaults
-                    era_missing_count += 1
-                    print(f"DEBUG: Pitcher {pitcher_id}: No data found, using all defaults")
-                    result_row = game_row.copy()
-                    result_row["era"] = 4.2
-                    result_row["whip"] = 1.3
-                    result_row["k_per_9"] = 8.0
-                    result_row["bb_per_9"] = 3.2
-                    result_row["gs"] = 15
-                    results.append(result_row)
-            
-            home_join = pd.DataFrame(results)
-            successful_joins = (home_join["era"] != 4.2).sum()
-            print(f"DEBUG: HOME ERA status: {era_found_count} found, {era_missing_count} missing/default")
-            print(f"DEBUG: Most recent data fallback: {successful_joins}/{len(home_join)} with real data")
-    
-    
+    # NO FALLBACK - merge_asof must work or we abort
+    home_join = pd.merge_asof(
+        home.sort_values(["home_sp_id", "date"]),  # Ensure left side is also sorted
+        home_roll[["home_sp_id","stat_date","era","whip","k_per_9","bb_per_9","gs"]],
+        left_on="date", right_on="stat_date",
+        left_by="home_sp_id", right_by="home_sp_id",
+        direction="backward", allow_exact_matches=True
+    )
     logger.info(f"✅ Home merge_asof successful: {len(home_join)} rows")
 
     # Away side - ENHANCED PREPARATION
@@ -264,97 +159,14 @@ def add_pitcher_rolling_stats(games_df, engine):
         if not group_check:
             raise ValueError("❌ CRITICAL: Away roll data failed monotonic sort check - aborting to prevent degraded predictions")
     
-    # EMERGENCY FALLBACK: Use regular merge instead of merge_asof due to pandas sorting bug
-    try:
-        print(f"DEBUG: Attempting AWAY merge_asof...")
-        
-        # AGGRESSIVE SORT: Force fresh sort right before merge_asof
-        away_sorted = away.sort_values(["away_sp_id", "date"]).reset_index(drop=True)
-        away_roll_sorted = away_roll.sort_values(["away_sp_id", "stat_date"]).reset_index(drop=True)
-        
-        away_join = pd.merge_asof(
-            away_sorted,
-            away_roll_sorted[["away_sp_id","stat_date","era","whip","k_per_9","bb_per_9","gs"]],
-            left_on="date", right_on="stat_date",
-            left_by="away_sp_id", right_by="away_sp_id",
-            direction="backward", allow_exact_matches=True
-        )
-        print(f"DEBUG: AWAY merge_asof successful!")
-    except Exception as e:
-        print(f"DEBUG: AWAY merge_asof failed: {e}, trying emergency fallback...")
-        
-        # IMPROVED EMERGENCY FALLBACK: Use most recent data for each pitcher
-        away_sorted = away.sort_values(["away_sp_id", "date"]).reset_index(drop=True)
-        
-        print(f"DEBUG: away_sorted dates: {away_sorted['date'].dt.date.tolist()}")
-        print(f"DEBUG: away_roll date range: {away_roll['stat_date'].min()} to {away_roll['stat_date'].max()}")
-        print(f"DEBUG: away_roll pitcher count: {away_roll['away_sp_id'].nunique()}")
-        
-        # Strategy 1: Try exact date matches first
-        away_roll_exact = away_roll[away_roll["stat_date"].isin(away_sorted["date"])]
-        print(f"DEBUG: Away exact date matches: {len(away_roll_exact)}")
-        
-        if len(away_roll_exact) > 0:
-            away_join = pd.merge(
-                away_sorted,
-                away_roll_exact[["away_sp_id","stat_date","era","whip","k_per_9","bb_per_9","gs"]],
-                left_on=["away_sp_id", "date"], right_on=["away_sp_id", "stat_date"],
-                how="left"
-            )
-            print(f"DEBUG: Away exact date emergency fallback successful: {len(away_join)} rows")
-        else:
-            # Strategy 2: Use most recent data for each pitcher (simulate merge_asof behavior)
-            print(f"DEBUG: Away no exact matches, using most recent data approach...")
-            
-            results = []
-            era_found_count = 0
-            era_missing_count = 0
-            
-            for _, game_row in away_sorted.iterrows():
-                pitcher_id = game_row['away_sp_id']
-                game_date = game_row['date']
-                
-                # Find all data for this pitcher before or on game date
-                pitcher_data = away_roll[
-                    (away_roll['away_sp_id'] == pitcher_id) & 
-                    (away_roll['stat_date'] <= game_date)
-                ].sort_values('stat_date')
-                
-                if len(pitcher_data) > 0:
-                    # Use most recent data
-                    latest_data = pitcher_data.iloc[-1]
-                    result_row = game_row.copy()
-                    
-                    # Debug ERA specifically
-                    era_value = latest_data['era']
-                    if pd.notna(era_value) and era_value != 4.2:
-                        era_found_count += 1
-                        print(f"DEBUG: Away Pitcher {pitcher_id}: Found ERA {era_value:.2f} from {latest_data['stat_date'].date()}")
-                    else:
-                        era_missing_count += 1
-                        print(f"DEBUG: Away Pitcher {pitcher_id}: ERA missing/invalid ({era_value}), using 4.2 default")
-                    
-                    for col in ["era","whip","k_per_9","bb_per_9","gs"]:
-                        result_row[col] = latest_data[col] if pd.notna(latest_data[col]) else (4.2 if col == "era" else 1.3 if col == "whip" else 8.0)
-                    results.append(result_row)
-                else:
-                    # No data for this pitcher, use reasonable defaults
-                    era_missing_count += 1
-                    print(f"DEBUG: Away Pitcher {pitcher_id}: No data found, using all defaults")
-                    result_row = game_row.copy()
-                    result_row["era"] = 4.2
-                    result_row["whip"] = 1.3
-                    result_row["k_per_9"] = 8.0
-                    result_row["bb_per_9"] = 3.2
-                    result_row["gs"] = 15
-                    results.append(result_row)
-            
-            away_join = pd.DataFrame(results)
-            successful_joins = (away_join["era"] != 4.2).sum()
-            print(f"DEBUG: AWAY ERA status: {era_found_count} found, {era_missing_count} missing/default")
-            print(f"DEBUG: Away most recent data fallback: {successful_joins}/{len(away_join)} with real data")
-    
-    
+    # NO FALLBACK - merge_asof must work or we abort
+    away_join = pd.merge_asof(
+        away.sort_values(["away_sp_id", "date"]),  # Ensure left side is also sorted
+        away_roll[["away_sp_id","stat_date","era","whip","k_per_9","bb_per_9","gs"]],
+        left_on="date", right_on="stat_date",
+        left_by="away_sp_id", right_by="away_sp_id",
+        direction="backward", allow_exact_matches=True
+    )
     logger.info(f"✅ Away merge_asof successful: {len(away_join)} rows")
 
     # Coalesce back
@@ -2082,13 +1894,8 @@ class EnhancedBullpenPredictor:
                     logger.warning(f"Could not calculate RF uncertainty: {e}")
                     rf_std = None
             
-            # Apply bias correction if available  
-            base_bias = float(getattr(self, "bias_correction", 0.0))
-            # TEMPORARY: Manual bias correction increase to address systematic under-prediction
-            adjusted_bias = base_bias + 2.0  # Increase bias by +2.0 to bring predictions into reasonable range
-            predictions = predictions + adjusted_bias
-            
-            logger.info(f"📊 Applied bias correction: base={base_bias:+.3f}, adjustment=+2.0, total={adjusted_bias:+.3f}")
+            # Apply bias correction if available
+            predictions = predictions + float(getattr(self, "bias_correction", 0.0))
             
             # Apply serving calibration with drift guard (anchor to expected_total w/ median fallback)
             try:
@@ -2166,9 +1973,9 @@ class EnhancedBullpenPredictor:
             pred_mean = np.mean(predictions)
             pred_std = np.std(predictions)
             
-            # Check 1: Reasonable prediction range (updated for current data distribution)
-            if not (4.0 <= pred_mean <= 12.0):
-                logger.error(f"❌ HEALTH GATE FAILED: Prediction mean {pred_mean:.2f} outside reasonable range [4.0, 12.0]")
+            # Check 1: Reasonable prediction range
+            if not (6.5 <= pred_mean <= 11.5):
+                logger.error(f"❌ HEALTH GATE FAILED: Prediction mean {pred_mean:.2f} outside reasonable range [6.5, 11.5]")
                 raise ValueError(f"Health gate failed: prediction mean {pred_mean:.2f} is unreasonable")
                 
             # Check 2: Reasonable spread
