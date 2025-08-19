@@ -8,18 +8,21 @@ Tracks model performance against actual game outcomes
 
 import pandas as pd
 import numpy as np
-import sqlite3
+from sqlalchemy import create_engine, text
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 import json
+import os
 import warnings
 warnings.filterwarnings('ignore')
 
 class PredictionAccuracyTracker:
     def __init__(self):
-        self.db_path = "S:/Projects/AI_Predictions/mlb-overs/data/mlb_data.db"
+        # Use PostgreSQL connection
+        DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb")
+        self.engine = create_engine(DATABASE_URL, pool_pre_ping=True)
         self.predictions_file = "S:/Projects/AI_Predictions/daily_predictions.json"
         
     def get_recent_games_with_outcomes(self, days=10):
@@ -28,12 +31,10 @@ class PredictionAccuracyTracker:
         print("=" * 50)
         
         try:
-            conn = sqlite3.connect(self.db_path)
-            
             end_date = datetime.now().date()
             start_date = end_date - timedelta(days=days)
             
-            query = """
+            query = text("""
             SELECT 
                 date,
                 game_id,
@@ -49,15 +50,17 @@ class PredictionAccuracyTracker:
                 home_sp_id,
                 away_sp_id
             FROM enhanced_games 
-            WHERE date BETWEEN ? AND ?
+            WHERE date BETWEEN :start_date AND :end_date
             AND total_runs IS NOT NULL
             AND home_score IS NOT NULL
             AND away_score IS NOT NULL
             ORDER BY date DESC, game_id
-            """
+            """)
             
-            games_df = pd.read_sql(query, conn, params=[start_date.isoformat(), end_date.isoformat()])
-            conn.close()
+            games_df = pd.read_sql(query, self.engine, params={
+                'start_date': start_date.isoformat(), 
+                'end_date': end_date.isoformat()
+            })
             
             print(f"✅ Found {len(games_df)} games with outcomes")
             if not games_df.empty:

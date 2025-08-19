@@ -8,6 +8,21 @@ from typing import Dict, Any
 import datetime as dt
 from sqlalchemy import create_engine, text
 import pandas as pd
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.append(str(Path(__file__).parent.parent.parent))
+
+# Import model performance enhancement
+try:
+    from model_performance_enhancer import ModelPerformanceEnhancer
+    model_enhancer = ModelPerformanceEnhancer()
+    PERFORMANCE_ENHANCEMENT_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Model performance enhancement not available: {e}")
+    model_enhancer = None
+    PERFORMANCE_ENHANCEMENT_AVAILABLE = False
 
 app = FastAPI()
 
@@ -278,6 +293,151 @@ def load_ml_predictions_from_json(target_date: str) -> dict:
 def load_ml_predictions(target_date: str) -> dict:
     """Load ML predictions - database first, then JSON fallback"""
     return load_ml_predictions_from_database(target_date)
+
+def generate_ai_analysis(game_data):
+    """Generate detailed AI analysis explaining why the prediction is what it is"""
+    try:
+        base_pred_total = float(game_data.get('predicted_total', 0))
+        market_total = float(game_data.get('market_total', 0))
+        edge = float(game_data.get('edge', 0))
+        confidence = float(game_data.get('confidence', 0))
+        recommendation = game_data.get('recommendation', 'HOLD')
+        
+        # Apply model performance enhancements if available
+        enhanced_prediction = None
+        if PERFORMANCE_ENHANCEMENT_AVAILABLE and model_enhancer:
+            try:
+                enhanced_data = model_enhancer.enhanced_prediction_with_corrections(
+                    base_pred_total, game_data
+                )
+                enhanced_prediction = enhanced_data
+                # Use corrected prediction for analysis
+                pred_total = enhanced_data['corrected_prediction']
+                # Recalculate edge with corrected prediction
+                edge = pred_total - market_total
+            except Exception as e:
+                print(f"⚠️ Could not apply performance enhancements: {e}")
+                pred_total = base_pred_total
+        else:
+            pred_total = base_pred_total
+        
+        home_team = game_data.get('home_team', 'Home')
+        away_team = game_data.get('away_team', 'Away')
+        
+        # Weather factors
+        temp = float(game_data.get('temperature', 75))
+        wind_speed = float(game_data.get('wind_speed', 10))
+        weather = game_data.get('weather_condition', 'Clear')
+        
+        # Pitching factors
+        home_sp_era = float(game_data.get('home_sp_season_era', 4.00))
+        away_sp_era = float(game_data.get('away_sp_season_era', 4.00))
+        home_sp_name = game_data.get('home_sp_name', 'TBD')
+        away_sp_name = game_data.get('away_sp_name', 'TBD')
+        
+        # Offense factors
+        home_avg = float(game_data.get('home_team_avg', 0.250))
+        away_avg = float(game_data.get('away_team_avg', 0.250))
+        
+        # Build analysis with enhanced prediction info
+        prediction_text = f"AI predicts {pred_total:.1f} total runs vs market {market_total:.1f} ({edge:+.1f} edge)"
+        if enhanced_prediction and enhanced_prediction['correction_magnitude'] > 0.1:
+            prediction_text += f" (Enhanced: {base_pred_total:.1f}→{pred_total:.1f})"
+        
+        analysis = {
+            "prediction_summary": prediction_text,
+            "confidence_level": "HIGH" if confidence >= 75 else "MEDIUM" if confidence >= 65 else "LOW",
+            "primary_factors": [],
+            "supporting_factors": [],
+            "risk_factors": [],
+            "recommendation_reasoning": "",
+            "key_insights": []
+        }
+        
+        # Add model enhancement insights
+        if enhanced_prediction and enhanced_prediction['correction_magnitude'] > 0.1:
+            correction_mag = enhanced_prediction['correction_magnitude']
+            analysis["key_insights"].append(f"Model enhanced with {correction_mag:.2f} run bias correction based on recent performance")
+            
+            # Boost confidence if significant corrections were applied
+            if enhanced_prediction.get('confidence_boost', 0) > 0:
+                confidence += enhanced_prediction['confidence_boost'] * 100
+                analysis["supporting_factors"].append(f"Confidence boosted by recent model calibration ({enhanced_prediction['confidence_boost']:.1%})")
+        
+        # Analyze primary factors (biggest drivers)
+        if abs(edge) >= 2.0:
+            if edge < 0:
+                analysis["primary_factors"].append(f"Strong UNDER edge: AI predicts {abs(edge):.1f} runs below market expectations")
+                analysis["recommendation_reasoning"] = f"Model shows high conviction for UNDER bet with {abs(edge):.1f} run edge"
+            else:
+                analysis["primary_factors"].append(f"Strong OVER edge: AI predicts {edge:.1f} runs above market expectations")
+                analysis["recommendation_reasoning"] = f"Model shows high conviction for OVER bet with {edge:.1f} run edge"
+        
+        # Pitching analysis
+        avg_era = (home_sp_era + away_sp_era) / 2
+        if avg_era <= 3.50:
+            analysis["primary_factors"].append(f"Elite pitching matchup: {home_sp_name} ({home_sp_era:.2f}) vs {away_sp_name} ({away_sp_era:.2f})")
+        elif avg_era >= 4.50:
+            analysis["supporting_factors"].append(f"Hitter-friendly pitching: Combined starter ERA of {avg_era:.2f}")
+        
+        # Weather analysis
+        if temp >= 85:
+            analysis["supporting_factors"].append(f"Hot weather ({temp}°F) favors offense - ball carries better")
+        elif temp <= 55:
+            analysis["supporting_factors"].append(f"Cold weather ({temp}°F) favors pitching - reduced ball flight")
+            
+        if wind_speed >= 15:
+            analysis["supporting_factors"].append(f"Strong winds ({wind_speed} mph) create unpredictable conditions")
+        elif wind_speed <= 5:
+            analysis["supporting_factors"].append(f"Calm conditions ({wind_speed} mph) favor predictable play")
+        
+        # Extreme total analysis
+        if pred_total <= 6.5:
+            analysis["key_insights"].append("Pitcher's duel expected - model identifies low-scoring environment")
+        elif pred_total >= 10.5:
+            analysis["key_insights"].append("High-scoring affair anticipated - offensive conditions detected")
+        
+        # Offense analysis
+        combined_avg = (home_avg + away_avg) / 2
+        if combined_avg >= 0.270:
+            analysis["supporting_factors"].append(f"Strong offensive matchup: Combined batting average of {combined_avg:.3f}")
+        elif combined_avg <= 0.240:
+            analysis["supporting_factors"].append(f"Pitcher-friendly lineups: Combined batting average of {combined_avg:.3f}")
+        
+        # Risk factors
+        if confidence < 65:
+            analysis["risk_factors"].append("Lower confidence prediction - consider smaller bet sizing")
+        
+        if abs(edge) < 1.0:
+            analysis["risk_factors"].append("Small edge - market efficiently priced")
+            if not analysis["recommendation_reasoning"]:
+                analysis["recommendation_reasoning"] = "Hold recommended due to minimal edge"
+        
+        # Model performance warning
+        if not PERFORMANCE_ENHANCEMENT_AVAILABLE:
+            analysis["risk_factors"].append("Model performance enhancements unavailable - using base predictions")
+        
+        # Confidence explanation
+        if confidence >= 90:
+            analysis["key_insights"].append("Exceptional confidence - multiple factors align strongly")
+        elif confidence >= 75:
+            analysis["key_insights"].append("High confidence - model shows strong conviction")
+        elif confidence >= 65:
+            analysis["key_insights"].append("Moderate confidence - some supporting factors present")
+        
+        return analysis
+        
+    except Exception as e:
+        print(f"❌ Error in AI analysis: {e}")
+        return {
+            "prediction_summary": "Analysis unavailable",
+            "confidence_level": "UNKNOWN",
+            "primary_factors": ["Error generating analysis"],
+            "supporting_factors": [],
+            "risk_factors": ["Analysis generation failed"],
+            "recommendation_reasoning": "Unable to determine",
+            "key_insights": []
+        }
 
 @app.get("/api/comprehensive-games/{target_date}")
 def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
@@ -568,11 +728,34 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
                                 'kelly_fraction_under': float(game.kelly_fraction_under) if hasattr(game, 'kelly_fraction_under') and game.kelly_fraction_under else None
                             }
                         }
+                        
+                        # Add AI Analysis for each game
+                        ai_analysis = generate_ai_analysis(game_data)
+                        game_data['ai_analysis'] = ai_analysis
+                        
+                        # Mark high-confidence games for highlighting
+                        confidence_level = float(game.confidence) if game.confidence else 0
+                        game_data['is_high_confidence'] = confidence_level >= 75
+                        game_data['is_premium_pick'] = confidence_level >= 85
+                        
+                        # Add comprehensive analysis fields for the frontend
+                        game_data['home_team_avg'] = float(game.home_team_avg) if game.home_team_avg else 0.250
+                        game_data['away_team_avg'] = float(game.away_team_avg) if game.away_team_avg else 0.250
+                        
                         comprehensive_games.append(game_data)
+                    
+                    # Sort games by confidence (high-confidence first)
+                    comprehensive_games.sort(key=lambda x: float(x.get('confidence', 0)), reverse=True)
+                    
+                    # Count high-confidence games for summary
+                    high_confidence_count = sum(1 for game in comprehensive_games if game.get('is_high_confidence'))
+                    premium_pick_count = sum(1 for game in comprehensive_games if game.get('is_premium_pick'))
                     
                     return {
                         'games': comprehensive_games,
                         'count': len(comprehensive_games),
+                        'high_confidence_count': high_confidence_count,
+                        'premium_pick_count': premium_pick_count,
                         'date': target_date,
                         'data_source': 'database'
                     }
@@ -1897,6 +2080,45 @@ async def get_comprehensive_games_frontend(target_date: str = None):
     
     # Call the existing API function
     return await get_comprehensive_games_with_calibrated(target_date)
+
+
+@app.get("/api/model-performance")
+def get_model_performance(days: int = 14):
+    """Get comprehensive model performance analysis"""
+    if not PERFORMANCE_ENHANCEMENT_AVAILABLE:
+        return {"error": "Model performance enhancement not available"}
+    
+    try:
+        report = model_enhancer.tracker.generate_performance_report(days)
+        analysis = model_enhancer.tracker.get_comprehensive_performance_analysis(days)
+        
+        return {
+            "status": "success",
+            "report": report,
+            "analysis": analysis,
+            "days_analyzed": days
+        }
+    except Exception as e:
+        return {"error": f"Failed to get performance analysis: {str(e)}"}
+
+
+@app.post("/api/update-model-corrections")
+def update_model_corrections(force_update: bool = False):
+    """Update model bias corrections based on recent performance"""
+    if not PERFORMANCE_ENHANCEMENT_AVAILABLE:
+        return {"error": "Model performance enhancement not available"}
+    
+    try:
+        corrections = model_enhancer.update_model_corrections(force_update=force_update)
+        
+        return {
+            "status": "success",
+            "corrections_updated": bool(corrections),
+            "corrections": corrections,
+            "message": "Model corrections updated successfully" if corrections else "No corrections needed"
+        }
+    except Exception as e:
+        return {"error": f"Failed to update corrections: {str(e)}"}
 
 
 @app.get("/latest-predictions")
