@@ -1,0 +1,16 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: mlb-postgres
+    environment:
+      POSTGRES_USER: mlbuser
+      POSTGRES_PASSWORD: mlbpass
+      POSTGRES_DB: mlb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./mlb-overs/sql:/sql:ro
+volumes:
+  pgdata:
