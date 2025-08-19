@@ -1170,12 +1170,12 @@ def postprocess_signals(engine, target_date: str):
     log.info("Calculating betting signals...")
     sql = text("""
         UPDATE enhanced_games
-           SET edge = ROUND(predicted_total - market_total, 2),
+           SET edge = ROUND(ABS(predicted_total - market_total), 2),
                recommendation = CASE
                    WHEN predicted_total IS NULL OR market_total IS NULL THEN NULL
                    WHEN (predicted_total - market_total) >=  1.0 THEN 'OVER'
                    WHEN (predicted_total - market_total) <= -1.0 THEN 'UNDER'
-                   ELSE 'NO BET'
+                   ELSE 'HOLD'
                END,
                confidence = CASE
                    WHEN predicted_total IS NULL OR market_total IS NULL THEN NULL

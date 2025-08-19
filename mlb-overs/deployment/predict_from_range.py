@@ -138,7 +138,7 @@ def predict_for_day(engine, ds, thr):
         market_data = base[["game_id","market_total"]].copy()
         market_data['game_id'] = market_data['game_id'].astype(str)
         out = out.merge(market_data, on="game_id", how="left")
-        out["edge"] = (out["predicted_total"] - out["market_total"]).round(2)
+        out["edge"] = abs(out["predicted_total"] - out["market_total"]).round(2)
         def rec(edge):
             if pd.isna(edge): return None
             if edge >=  thr:  return "OVER"

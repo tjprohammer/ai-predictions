@@ -615,8 +615,16 @@ class EnhancedFeaturePipeline:
         # write in one shot
         df["home_power"] = home_power
         df["away_power"] = away_power
-        # combined_power centered near league; keep raw mean to match training (no scaler in bundle)
-        df["combined_power"] = (df["home_power"] + df["away_power"]) / 2.0
+        
+        # combined_power: compute new value, preserve if enhanced variance exists and is good
+        new_combined_power = (df["home_power"] + df["away_power"]) / 2.0
+        
+        if 'combined_power' in df.columns and df['combined_power'].std() > 0.015:
+            logger.info(f"🎯 Preserving enhanced combined_power variance: std={df['combined_power'].std():.6f}")
+            # Keep existing enhanced variance
+        else:
+            # Use new calculation - combined_power centered near league; keep raw mean to match training (no scaler in bundle)
+            df["combined_power"] = new_combined_power
         
         # Debug logging
         logger.info(f"Power features - home_power: range [{df['home_power'].min():.3f}, {df['home_power'].max():.3f}], std={df['home_power'].std():.6f}")
