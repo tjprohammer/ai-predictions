@@ -171,6 +171,23 @@ def collect_team_performance_stats(target_date=None):
                       {date_condition}
                 """)
                 
+                # Also update legitimate_game_features with runs per game data
+                lgf_update_sql = text(f"""
+                    UPDATE legitimate_game_features
+                    SET 
+                        home_team_runs_pg = :home_rpg,
+                        away_team_runs_pg = :away_rpg,
+                        combined_team_offense = :combined_offense,
+                        home_team_woba = :home_woba,
+                        away_team_woba = :away_woba,
+                        combined_team_woba = :combined_woba,
+                        home_team_power = :home_power,
+                        away_team_power = :away_power,
+                        combined_team_power = :combined_power
+                    WHERE game_id = :game_id
+                      {date_condition}
+                """)
+                
                 # Prepare parameters for SQL execution
                 sql_params = {
                     'game_id': game_id,
@@ -181,16 +198,28 @@ def collect_team_performance_stats(target_date=None):
                     'away_hits': round(away_hpg),
                     'away_runs': round(away_rpg),
                     'away_rbi': round(away_rbi_pg),
-                    'away_avg': away_avg
+                    'away_avg': away_avg,
+                    'home_rpg': home_rpg,
+                    'away_rpg': away_rpg,
+                    'combined_offense': (home_rpg + away_rpg) / 2,
+                    'home_woba': home_stats.get('ops', 0.700) * 0.8,  # Approximate wOBA from OPS
+                    'away_woba': away_stats.get('ops', 0.700) * 0.8,
+                    'combined_woba': (home_stats.get('ops', 0.700) + away_stats.get('ops', 0.700)) * 0.4,
+                    'home_power': home_stats.get('hr', 20) / home_stats.get('games', 162),  # HR per game
+                    'away_power': away_stats.get('hr', 20) / away_stats.get('games', 162),
+                    'combined_power': ((home_stats.get('hr', 20) + away_stats.get('hr', 20)) / 
+                                     (home_stats.get('games', 162) + away_stats.get('games', 162)))
                 }
                 
                 # Add target_date to params if specified
                 if target_date:
                     sql_params['target_date'] = target_date
                 
+                # Update both tables
                 result = conn.execute(update_sql, sql_params)
+                lgf_result = conn.execute(lgf_update_sql, sql_params)
                 
-                if result.rowcount > 0:
+                if result.rowcount > 0 or lgf_result.rowcount > 0:
                     updated_count += 1
                     print(f"📊 {away_team} @ {home_team}")
                     print(f"   Home: {home_rpg:.1f} R/G, {home_hpg:.1f} H/G, {home_stats['avg']:.3f} AVG")
