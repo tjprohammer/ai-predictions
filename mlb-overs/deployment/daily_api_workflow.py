@@ -1166,8 +1166,8 @@ def _validate_ingested_environment(engine, target_date: str) -> None:
 
 
 def postprocess_signals(engine, target_date: str):
-    """Calculate edge, recommendation, and confidence signals for frontend consumption"""
-    log.info("Calculating betting signals...")
+    """Calculate edge, recommendation, and enhanced confidence signals for frontend consumption"""
+    log.info("Calculating betting signals with enhanced confidence...")
     sql = text("""
         UPDATE enhanced_games
            SET edge = ROUND(predicted_total - market_total, 2),
@@ -1179,7 +1179,39 @@ def postprocess_signals(engine, target_date: str):
                END,
                confidence = CASE
                    WHEN predicted_total IS NULL OR market_total IS NULL THEN NULL
-                   ELSE ROUND(45 + 10 * ABS(predicted_total - market_total), 0)
+                   ELSE LEAST(95, GREATEST(30, ROUND(
+                       -- Base confidence from edge (boosted formula)
+                       40 + 15 * ABS(predicted_total - market_total) +
+                       
+                       -- Weather factor bonus (extreme conditions increase confidence)
+                       CASE 
+                           WHEN wind_speed >= 15 THEN 3  -- Strong wind affects totals
+                           WHEN wind_speed <= 5 THEN 2   -- Calm conditions are predictable
+                           ELSE 0 
+                       END +
+                       
+                       -- Temperature factor bonus 
+                       CASE 
+                           WHEN temperature >= 80 THEN 2  -- Hot weather favors offense
+                           WHEN temperature <= 60 THEN 2  -- Cold weather favors pitching
+                           ELSE 0
+                       END +
+                       
+                       -- Extreme prediction bonus (very high/low totals are more confident)
+                       CASE 
+                           WHEN predicted_total >= 11.0 OR predicted_total <= 6.0 THEN 5
+                           WHEN predicted_total >= 10.0 OR predicted_total <= 6.5 THEN 3
+                           ELSE 0
+                       END +
+                       
+                       -- Large edge bonus (high conviction predictions)
+                       CASE 
+                           WHEN ABS(predicted_total - market_total) >= 3.0 THEN 8
+                           WHEN ABS(predicted_total - market_total) >= 2.5 THEN 5
+                           WHEN ABS(predicted_total - market_total) >= 2.0 THEN 3
+                           ELSE 0
+                       END
+                   , 0)))
                END
          WHERE "date" = :d
     """)
