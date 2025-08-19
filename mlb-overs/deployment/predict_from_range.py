@@ -138,13 +138,14 @@ def predict_for_day(engine, ds, thr):
         market_data = base[["game_id","market_total"]].copy()
         market_data['game_id'] = market_data['game_id'].astype(str)
         out = out.merge(market_data, on="game_id", how="left")
-        out["edge"] = abs(out["predicted_total"] - out["market_total"]).round(2)
-        def rec(edge):
-            if pd.isna(edge): return None
-            if edge >=  thr:  return "OVER"
-            if edge <= -thr:  return "UNDER"
-            return "NO BET"
-        out["recommendation"] = out["edge"].apply(rec)
+        out["edge"] = (out["predicted_total"] - out["market_total"]).round(2)
+        def rec(predicted, market):
+            if pd.isna(predicted) or pd.isna(market): return None
+            diff = predicted - market
+            if diff >=  thr:  return "OVER"
+            if diff <= -thr:  return "UNDER"
+            return "HOLD"
+        out["recommendation"] = out.apply(lambda row: rec(row["predicted_total"], row["market_total"]), axis=1)
     else:
         out["edge"] = None
         out["recommendation"] = None
