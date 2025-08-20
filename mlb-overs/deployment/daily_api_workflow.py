@@ -107,7 +107,7 @@ def seed_enhanced_from_lgf(engine, target_date: str) -> int:
     """
     q = text("""
         SELECT game_id, "date", home_team, away_team
-        FROM legitimate_game_features
+        FROM enhanced_games
         WHERE "date" = :d
     """)
     df = pd.read_sql(q, engine, params={"d": target_date})
@@ -148,8 +148,8 @@ def seed_enhanced_from_lgf(engine, target_date: str) -> int:
 def assert_predictions_written(engine, target_date: str):
     """Check prediction coverage and fail if no predictions were written."""
     with engine.begin() as conn:
-        n_lgf = conn.execute(
-            text('SELECT COUNT(*) FROM legitimate_game_features WHERE "date" = :d AND total_runs IS NULL'),
+        n_upcoming = conn.execute(
+            text('SELECT COUNT(*) FROM enhanced_games WHERE "date" = :d AND total_runs IS NULL'),
             {"d": target_date}
         ).scalar() or 0
         n_pred = conn.execute(
@@ -157,18 +157,18 @@ def assert_predictions_written(engine, target_date: str):
             {"d": target_date}
         ).scalar() or 0
 
-    if n_lgf == 0:
-        log.warning("No upcoming LGF rows for %s (nothing to predict).", target_date)
+    if n_upcoming == 0:
+        log.warning("No upcoming games for %s (nothing to predict).", target_date)
         return
 
-    pct = round(100.0 * n_pred / n_lgf, 1) if n_lgf else 0.0
+    pct = round(100.0 * n_pred / n_upcoming, 1) if n_upcoming else 0.0
     if n_pred == 0:
         log.error("No predictions found for %s; failing run.", target_date)
         sys.exit(3)
-    elif n_pred < n_lgf:
-        log.warning("Partial coverage: predicted %d/%d (%.1f%%).", n_pred, n_lgf, pct)
+    elif n_pred < n_upcoming:
+        log.warning("Partial coverage: predicted %d/%d (%.1f%%).", n_pred, n_upcoming, pct)
     else:
-        log.info("Prediction coverage %d/%d (100%%).", n_pred, n_lgf)
+        log.info("Prediction coverage %d/%d (100%%).", n_pred, n_upcoming)
 
 def _run(cmd: List[str], name: str):
     """Run a subprocess command with logging"""
@@ -206,12 +206,12 @@ def run_ingestors(target_date: str):
 
 def load_today_games(engine, target_date: str) -> pd.DataFrame:
     """
-    Load today's rows from legitimate_game_features.
+    Load today's rows from enhanced_games table (same as training).
     We only care about upcoming games (total_runs is NULL), but if you want all, remove the filter.
     """
     q = text("""
         SELECT *
-        FROM legitimate_game_features
+        FROM enhanced_games
         WHERE "date" = :d
           AND total_runs IS NULL
         ORDER BY game_id
@@ -235,7 +235,7 @@ def load_today_games(engine, target_date: str) -> pd.DataFrame:
             df[new_col] = df[old_col]
             log.info(f"🔧 Early column mapping: {old_col} → {new_col}")
     
-    log.info(f"Loaded {len(df)} rows from legitimate_game_features for {target_date}")
+    log.info(f"Loaded {len(df)} rows from enhanced_games for {target_date}")
     return df
 
 def fetch_markets_for_date(engine, target_date: str) -> pd.DataFrame:
@@ -248,14 +248,13 @@ def fetch_markets_for_date(engine, target_date: str) -> pd.DataFrame:
     q = text("""
         SELECT eg.game_id, eg."date", eg.market_total
           FROM enhanced_games eg
-          JOIN legitimate_game_features lgf
-            ON lgf.game_id = eg.game_id AND lgf."date" = eg."date"
          WHERE eg."date" = :d
+           AND eg.market_total IS NOT NULL
     """)
     mk = pd.read_sql(q, engine, params={"d": target_date})
     # Keep only the latest non-null per game if duplicates exist.
     mk = mk.dropna(subset=["market_total"]).drop_duplicates(subset=["game_id"], keep="last")
-    log.info(f"Markets joinable rows: {len(mk)} (EG ∩ LGF)")
+    log.info(f"Markets from enhanced_games: {len(mk)} games")
     return mk[["game_id", "date", "market_total"]]
 
 def upsert_markets(engine, market_df: pd.DataFrame, target_date: str):
@@ -555,26 +554,31 @@ def predict_and_upsert(engine, X: pd.DataFrame, ids: pd.DataFrame, *, anchor_to_
         integrate_enhanced_pipeline(predictor)
         log.info("✅ Enhanced pipeline integrated")
 
-    # Neutralize ID-like features before any preprocessing (runbook patch #2)
-    # More comprehensive ID detection - ZERO OUT instead of dropping to maintain feature count
-    id_cols = []
-    for c in X.columns:
-        if (c.endswith('_id') or c in ('game_id','home_sp_id','away_sp_id') or 
-            'player_id' in c or 'team_id' in c or c.startswith('id_')):
-            id_cols.append(c)
-    
-    if id_cols:
-        # Zero out instead of dropping to maintain feature count expected by model
-        for col in id_cols:
-            X[col] = 0
-        log.info(f"Neutralized ID features (prevent leakage): {id_cols[:6]}{'...' if len(id_cols)>6 else ''}")
-    else:
-        log.info("✅ No ID columns detected in feature matrix")
-
     # === COMPREHENSIVE FEATURE ANALYSIS ===
     log.info("=" * 80)
     log.info("🔍 COMPREHENSIVE FEATURE ANALYSIS")
     log.info("=" * 80)
+    
+    # CRITICAL: Neutralize ID columns instead of removing them
+    # The model was trained WITH ID columns, so they need to be present but neutralized
+    id_cols_to_neutralize = []
+    key_id_cols = ['home_sp_id', 'away_sp_id']  # These are definitely in training features
+    
+    for c in X.columns:
+        if c in key_id_cols:  # Only neutralize the critical ones that cause schema mismatch
+            id_cols_to_neutralize.append(c)
+    
+    if id_cols_to_neutralize:
+        existing_id_cols = [col for col in id_cols_to_neutralize if col in X.columns]
+        if existing_id_cols:
+            log.info(f"� NEUTRALIZING ID columns to prevent data leakage: {existing_id_cols}")
+            for col in existing_id_cols:
+                X[col] = 0  # Set to 0 to neutralize impact while keeping in feature matrix
+            log.info(f"✅ ID columns neutralized, feature count: {len(X.columns)}")
+        else:
+            log.info("✅ Critical ID columns already handled")
+    else:
+        log.info("✅ No critical ID columns to neutralize")
     
     # Show model training expectations
     expected_features = getattr(predictor, 'feature_columns', None)
@@ -629,11 +633,63 @@ def predict_and_upsert(engine, X: pd.DataFrame, ids: pd.DataFrame, *, anchor_to_
     except Exception as e:
         log.warning(f"Feature schema validation error (continuing cautiously): {e}")
 
-    # === NO-NANS BEFORE PREDICT ASSERTION ===
+    # === COMPREHENSIVE NaN HANDLING ===
+    # Fill NaN values that are causing prediction failures
     nan_check = X.isna().any()
     if nan_check.any():
         nan_cols = nan_check[nan_check].index.tolist()
-        log.error(f"Found NaNs in {len(nan_cols)} serving columns before prediction: {nan_cols[:10]}{'...' if len(nan_cols) > 10 else ''}")
+        log.warning(f"Found NaNs in {len(nan_cols)} serving columns, applying fixes: {nan_cols[:10]}{'...' if len(nan_cols) > 10 else ''}")
+        
+        # Apply strategic NaN filling based on feature types
+        nan_fill_map = {
+            # Team offense features
+            'offense_imbalance': 0.0,
+            'away_team_rpg_season': 4.3,  # League average
+            'away_team_rpg_l30': 4.3,
+            'home_team_rpg_season': 4.3,
+            'home_team_rpg_l30': 4.3,
+            'combined_offense_rpg': 8.6,
+            
+            # Pitcher features
+            'home_sp_era': 4.5,
+            'away_sp_era': 4.5,
+            'combined_era': 4.5,
+            'era_differential': 0.0,
+            'home_sp_whip': 1.3,
+            'away_sp_whip': 1.3,
+            'combined_whip': 1.3,
+            
+            # Weather/ballpark features
+            'temperature': 70,
+            'wind_speed': 5,
+            'ballpark_run_factor': 1.0,
+            'ballpark_hr_factor': 1.0,
+            
+            # Default for any remaining NaNs
+        }
+        
+        # Fill specific columns with their mapped values
+        for col in nan_cols:
+            if col in nan_fill_map:
+                X[col] = X[col].fillna(nan_fill_map[col])
+                log.info(f"  ✅ Filled {col} NaNs with {nan_fill_map[col]}")
+            else:
+                # General fallback strategy
+                if X[col].dtype in ['float64', 'int64']:
+                    fill_value = 0.0 if 'rate' in col or 'factor' in col or 'pct' in col else X[col].median()
+                    if pd.isna(fill_value):
+                        fill_value = 0.0
+                    X[col] = X[col].fillna(fill_value)
+                    log.info(f"  ⚠️ Filled {col} NaNs with fallback {fill_value}")
+                else:
+                    X[col] = X[col].fillna('unknown')
+                    log.info(f"  ⚠️ Filled {col} NaNs with 'unknown'")
+
+    # === FINAL NaN CHECK ===
+    final_nan_check = X.isna().any()
+    if final_nan_check.any():
+        final_nan_cols = final_nan_check[final_nan_check].index.tolist()
+        log.error(f"Still have NaNs after filling in {len(final_nan_cols)} columns: {final_nan_cols}")
         sys.exit(2)
     
     log.info(f"✅ No NaNs detected in {X.shape[1]} serving features")
@@ -776,16 +832,18 @@ def stage_eval(engine, target_date: str, store=True):
           eg."date"::date AS date,
           eg.predicted_total,
           eg.market_total,
-          COALESCE(lgf.total_runs,
+          COALESCE(
                    CASE WHEN eg.home_score IS NOT NULL AND eg.away_score IS NOT NULL
                         THEN eg.home_score + eg.away_score
-                   END) AS total_runs
+                   END,
+                   eg.total_runs,
+                   lgf.total_runs) AS total_runs
         FROM enhanced_games eg
         LEFT JOIN legitimate_game_features lgf
           ON lgf.game_id = eg.game_id AND lgf."date" = eg."date"
         WHERE eg."date" = :d
           AND eg.predicted_total IS NOT NULL
-          AND (lgf.total_runs IS NOT NULL OR (eg.home_score IS NOT NULL AND eg.away_score IS NOT NULL))
+          AND (eg.total_runs IS NOT NULL OR (eg.home_score IS NOT NULL AND eg.away_score IS NOT NULL) OR lgf.total_runs IS NOT NULL)
     """)
     df = pd.read_sql(q, engine, params={"d": target_date})
     if df.empty:

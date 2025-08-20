@@ -725,7 +725,8 @@ class EnhancedFeaturePipeline:
                 LIMIT 1
                 """)
                 
-                pitcher_id_result = self.engine.execute(pitcher_id_query, {'pitcher': pitcher_name}).fetchone()
+                with self.engine.connect() as conn:
+                    pitcher_id_result = conn.execute(text(pitcher_id_query), {'pitcher': pitcher_name}).fetchone()
                 if not pitcher_id_result:
                     # Default values if pitcher not found
                     games_df.loc[idx, f'{col_prefix}days_rest'] = 4
