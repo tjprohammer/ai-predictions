@@ -28,7 +28,7 @@ class EnhancedPredictionTracker:
         
     def get_comprehensive_performance_analysis(self, days=14) -> Dict:
         """Get comprehensive model performance analysis"""
-        print(f"🎯 ENHANCED PREDICTION PERFORMANCE ANALYSIS ({days} days)")
+        print(f"[ANALYSIS] ENHANCED PREDICTION PERFORMANCE ANALYSIS ({days} days)")
         print("=" * 60)
         
         try:
@@ -72,10 +72,10 @@ class EnhancedPredictionTracker:
             })
             
             if df.empty:
-                print("❌ No games with outcomes found in database")
+                print("[ERROR] No games with outcomes found in database")
                 return {}
                 
-            print(f"✅ Found {len(df)} games with outcomes")
+            print(f"[SUCCESS] Found {len(df)} games with outcomes")
             
             # Calculate comprehensive metrics
             analysis = self._calculate_comprehensive_metrics(df)
@@ -96,7 +96,7 @@ class EnhancedPredictionTracker:
             }
             
         except Exception as e:
-            print(f"❌ Error in performance analysis: {e}")
+            print(f"[ERROR] Error in performance analysis: {e}")
             return {}
     
     def _calculate_comprehensive_metrics(self, df: pd.DataFrame) -> Dict:
@@ -133,7 +133,10 @@ class EnhancedPredictionTracker:
             'confidence_analysis': {},
             'weather_impact': {},
             'venue_analysis': {},
-            'market_comparison': {}
+            'market_comparison': {},
+            'day_patterns': {},      # NEW: Day-of-week analysis
+            'pitcher_quality': {},   # NEW: ERA-based analysis
+            'market_analysis': {}    # NEW: Market deviation analysis
         }
         
         # Performance by scoring range
@@ -192,6 +195,60 @@ class EnhancedPredictionTracker:
                     'mean_difference_from_market': float(valid_market['vs_market'].mean())
                 }
         
+        # NEW: Day-of-week patterns (from 14-day analysis insights)
+        if 'date' in df.columns:
+            df['day_of_week'] = pd.to_datetime(df['date']).dt.dayofweek
+            day_names = {0: 'Monday', 1: 'Tuesday', 2: 'Wednesday', 3: 'Thursday', 
+                        4: 'Friday', 5: 'Saturday', 6: 'Sunday'}
+            
+            for day_num, day_name in day_names.items():
+                day_data = df[df['day_of_week'] == day_num]
+                if len(day_data) > 3:  # Minimum sample size
+                    metrics['day_patterns'][day_name] = {
+                        'games': len(day_data),
+                        'mae': float(day_data['prediction_error'].mean()),
+                        'mean_bias': float(day_data['prediction_bias'].mean()),
+                        'accuracy_within_1': float((day_data['prediction_error'] <= 1.0).mean())
+                    }
+        
+        # NEW: Pitcher quality analysis (ERA-based from 14-day insights)
+        if 'home_sp_season_era' in df.columns and 'away_sp_season_era' in df.columns:
+            # Calculate combined ERA
+            df['combined_era'] = (df['home_sp_season_era'] + df['away_sp_season_era']) / 2
+            df['era_range'] = pd.cut(df['combined_era'], 
+                                   bins=[0, 3.5, 4.5, 5.5, float('inf')], 
+                                   labels=['Elite (<3.5)', 'Good (3.5-4.5)', 'Average (4.5-5.5)', 'Poor (5.5+)'])
+            
+            for era_range in df['era_range'].cat.categories:
+                era_data = df[df['era_range'] == era_range]
+                if len(era_data) > 3:  # Minimum sample size
+                    metrics['pitcher_quality'][era_range] = {
+                        'games': len(era_data),
+                        'mae': float(era_data['prediction_error'].mean()),
+                        'mean_bias': float(era_data['prediction_bias'].mean()),
+                        'accuracy_within_1': float((era_data['prediction_error'] <= 1.0).mean())
+                    }
+        
+        # NEW: Market deviation analysis (from 14-day insights)
+        if 'market_total' in df.columns and df['market_total'].notna().any():
+            valid_market = df.dropna(subset=['market_total'])
+            if len(valid_market) > 0:
+                # Calculate market deviation
+                valid_market['market_deviation'] = abs(valid_market['predicted_total'] - valid_market['market_total'])
+                valid_market['deviation_range'] = pd.cut(valid_market['market_deviation'], 
+                                                       bins=[0, 0.5, 1.0, 2.0, float('inf')], 
+                                                       labels=['Close (≤0.5)', 'Small (0.5-1.0)', 'Medium (1.0-2.0)', 'Large (2.0+)'])
+                
+                for dev_range in valid_market['deviation_range'].cat.categories:
+                    dev_data = valid_market[valid_market['deviation_range'] == dev_range]
+                    if len(dev_data) > 3:  # Minimum sample size
+                        metrics['market_analysis'][dev_range] = {
+                            'games': len(dev_data),
+                            'mae': float(dev_data['prediction_error'].mean()),
+                            'mean_bias': float(dev_data['prediction_bias'].mean()),
+                            'accuracy_within_1': float((dev_data['prediction_error'] <= 1.0).mean())
+                        }
+        
         return metrics
     
     def _generate_performance_insights(self, df: pd.DataFrame, metrics: Dict) -> List[str]:
@@ -204,11 +261,11 @@ class EnhancedPredictionTracker:
         accuracy_1 = metrics['overall']['accuracy_within_1']
         
         if mae < 2.5:
-            insights.append(f"✅ EXCELLENT: Model accuracy is strong with {mae:.2f} runs average error")
+            insights.append(f"[EXCELLENT] Model accuracy is strong with {mae:.2f} runs average error")
         elif mae < 3.5:
-            insights.append(f"✅ GOOD: Model performance is solid with {mae:.2f} runs average error")
+            insights.append(f"[GOOD] Model performance is solid with {mae:.2f} runs average error")
         else:
-            insights.append(f"⚠️ NEEDS IMPROVEMENT: Model accuracy needs work with {mae:.2f} runs average error")
+            insights.append(f"[WARNING] NEEDS IMPROVEMENT: Model accuracy needs work with {mae:.2f} runs average error")
         
         # Bias analysis
         if abs(bias) > 0.75:
@@ -221,7 +278,7 @@ class EnhancedPredictionTracker:
         elif accuracy_1 > 0.4:
             insights.append(f"🎯 MODERATE PRECISION: {accuracy_1:.1%} of predictions within 1 run of actual")
         else:
-            insights.append(f"⚠️ LOW PRECISION: Only {accuracy_1:.1%} of predictions within 1 run of actual")
+            insights.append(f"[WARNING] LOW PRECISION: Only {accuracy_1:.1%} of predictions within 1 run of actual")
         
         # Scoring range analysis
         if 'by_scoring_range' in metrics:
@@ -299,7 +356,7 @@ class EnhancedPredictionTracker:
         analysis = self.get_comprehensive_performance_analysis(days)
         
         if not analysis:
-            return "❌ Unable to generate performance report"
+            return "[ERROR] Unable to generate performance report"
         
         report = []
         report.append("🎯 ENHANCED MODEL PERFORMANCE REPORT")

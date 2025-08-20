@@ -11,7 +11,7 @@ This runbook demonstrates the enhanced daily workflow that integrates all surgic
 python daily_api_workflow.py --stages markets,features,predict,odds,health,prob,export,audit
 
 # Or for a specific date
-python daily_api_workflow.py --date 2025-08-19 --stages markets,features,predict,odds,health,prob,export,audit
+python daily_api_workflow.py --date 2025-08-20 --stages markets,features,predict,odds,health,prob,export,audit
 ```
 
 ### Option 2: Minimal Enhanced Pipeline (Testing/Development)

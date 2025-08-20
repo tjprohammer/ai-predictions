@@ -12,6 +12,8 @@ Usage examples:
   python daily_api_workflow.py --stages health,prob  # just run health check and probabilities
 
 Workflow Stages:
+  scores    - Collect final scores from completed games (run for previous day)
+  bias      - Update model bias corrections based on recent performance
   markets   - Pull market data and odds from APIs
   features  - Build enhanced features for prediction
   predict   - Generate base ML predictions  
@@ -1479,6 +1481,86 @@ def stage_health_gate(target_date: str):
         log.info("Health gate output: " + res.stdout.splitlines()[-1])
 
 
+def stage_scores(target_date: str):
+    """
+    Collect final scores for completed games on the specified date.
+    Typically run for previous days (e.g., yesterday) to get final results.
+    
+    Args:
+        target_date: Date string (YYYY-MM-DD) of games to collect scores for
+    """
+    import subprocess
+    from datetime import datetime, timedelta
+    
+    log.info(f"[SCORES] Collecting final scores for {target_date}")
+    
+    try:
+        # Use our score collection script (in root directory)
+        script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'collect_final_scores.py')
+        
+        cmd = [
+            sys.executable, script_path,
+            '--start-date', target_date,
+            '--end-date', target_date
+        ]
+        
+        # Set environment for proper encoding
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
+        log.info(f"[SUCCESS] Score collection completed: {result.stdout.strip()}")
+        
+        return True
+    except subprocess.CalledProcessError as e:
+        log.error(f"[ERROR] Score collection failed: {e.stderr}")
+        return False
+    except Exception as e:
+        log.error(f"[ERROR] Score collection error: {e}")
+        return False
+
+
+def stage_bias_corrections(target_date: str):
+    """
+    Update model bias corrections based on recent performance.
+    Run after collecting scores to learn from latest results.
+    
+    Args:
+        target_date: Date string (YYYY-MM-DD) that was used for score collection
+    """
+    import subprocess
+    
+    log.info(f"[BIAS] Updating model bias corrections based on recent performance")
+    
+    try:
+        # Use our model performance enhancer (in root directory)
+        script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'model_performance_enhancer.py')
+        
+        cmd = [sys.executable, script_path]
+        
+        # Set environment for proper encoding
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
+        log.info(f"[SUCCESS] Bias corrections updated successfully")
+        
+        # Log key metrics from the output
+        output = result.stdout
+        if 'MAE:' in output:
+            for line in output.split('\n'):
+                if any(keyword in line for keyword in ['MAE:', 'Bias:', 'Priority:', 'Global adjustment:']):
+                    log.info(f"  [METRICS] {line.strip()}")
+        
+        return True
+    except subprocess.CalledProcessError as e:
+        log.error(f"[ERROR] Bias correction update failed: {e.stderr}")
+        return False
+    except Exception as e:
+        log.error(f"[ERROR] Bias correction error: {e}")
+        return False
+
+
 def stage_odds_loading(target_date: str, odds_file: str = None):
     """
     Load comprehensive odds data for all games to enable enhanced probability predictions.
@@ -1577,11 +1659,11 @@ def stage_odds_loading(target_date: str, odds_file: str = None):
 # -----------------------------
 
 def parse_args():
-    ap = argparse.ArgumentParser(description="Daily API Workflow: markets → features → predict → odds → health → prob → export → audit → eval → retrain")
-    ap.add_argument("--date", default=datetime.now().strftime("%Y-%m-%d"), help="Target date (YYYY-MM-DD)")
+    ap = argparse.ArgumentParser(description="Daily API Workflow: scores → bias → markets → features → predict → odds → health → prob → export → audit → eval → retrain")
+    ap.add_argument("--date", default=datetime.now().strftime("%Y-%m-%d"), help="Target date (YYYY-MM-DD). For scores/bias stages, use date of games to collect.")
     ap.add_argument("--target-date", dest="date", help="Target date (YYYY-MM-DD) - alias for --date")
     ap.add_argument("--stages", default="markets,features,predict,odds,health,prob,export",
-                    help="Comma list: markets,features,predict,odds,health,prob,export,audit,eval,retrain")
+                    help="Comma list: scores,bias,markets,features,predict,odds,health,prob,export,audit,eval,retrain. Use scores,bias for previous days to learn from results.")
     ap.add_argument("--quiet", action="store_true", help="Less logging")
     # Backfill arguments (when using backfill stage)
     ap.add_argument("--start-date", help="Start date for backfill (YYYY-MM-DD)")
@@ -1611,6 +1693,12 @@ def main():
             stage_backfill(args.start_date, args.end_date, 
                           predict=args.predict, no_weather=args.no_weather)
             return  # Backfill doesn't need other stages
+
+        if "scores" in stages:
+            stage_scores(target_date)
+
+        if "bias" in stages:
+            stage_bias_corrections(target_date)
 
         if "markets" in stages:
             stage_markets(engine, target_date)

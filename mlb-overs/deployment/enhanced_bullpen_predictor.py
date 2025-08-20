@@ -563,6 +563,7 @@ class EnhancedBullpenPredictor:
         self.fill_values = {}  # Training medians / fill values
         self.feature_aliases = FEATURE_ALIASES.copy()
         self.bias_correction = 0.0  # Model bias correction
+        self.bias_corrections_data = None  # Advanced bias corrections
         
         # Initialize enhanced pipeline if available
         if ENHANCED_PIPELINE_AVAILABLE:
@@ -571,8 +572,80 @@ class EnhancedBullpenPredictor:
         else:
             self.enhanced_pipeline = None
         
+        # Load bias corrections
+        self.load_bias_corrections()
+        
         # Load the latest model
         self.load_model()
+    
+    def load_bias_corrections(self):
+        """Load the latest bias corrections from model_bias_corrections.json"""
+        import json
+        try:
+            # Try multiple possible paths for the bias corrections file
+            possible_paths = [
+                os.path.join(os.path.dirname(os.path.dirname(__file__)), 'model_bias_corrections.json'),  # mlb-overs/../
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'model_bias_corrections.json'),  # deployment/../../
+                'model_bias_corrections.json',  # current directory
+                '../../model_bias_corrections.json'  # relative path
+            ]
+            
+            bias_corrections_path = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    bias_corrections_path = path
+                    break
+            
+            if bias_corrections_path:
+                with open(bias_corrections_path, 'r') as f:
+                    self.bias_corrections_data = json.load(f)
+                logger.info(f"✅ Loaded bias corrections from {bias_corrections_path}: global_adjustment={self.bias_corrections_data.get('global_adjustment', 0):.3f}")
+            else:
+                logger.warning("⚠️ No bias corrections file found, using default corrections")
+                self.bias_corrections_data = None
+        except Exception as e:
+            logger.error(f"❌ Failed to load bias corrections: {e}")
+            self.bias_corrections_data = None
+    
+    def apply_bias_corrections(self, predictions, game_data):
+        """Apply sophisticated bias corrections based on game conditions"""
+        if self.bias_corrections_data is None:
+            return predictions
+        
+        corrections = self.bias_corrections_data
+        corrected_predictions = predictions.copy()
+        
+        # Apply global adjustment
+        global_adj = corrections.get('global_adjustment', 0)
+        corrected_predictions += global_adj
+        
+        # Apply corrections for each game based on conditions
+        for i, game in game_data.iterrows():
+            additional_correction = 0
+            
+            # Scoring range adjustments (based on predicted total after global adjustment)
+            pred_total = corrected_predictions[i]
+            if pred_total <= 7:
+                additional_correction += corrections.get('scoring_range_adjustments', {}).get('Low (≤7)', 0)
+            elif 10 <= pred_total <= 11:
+                additional_correction += corrections.get('scoring_range_adjustments', {}).get('High (10-11)', 0)
+            elif pred_total >= 12:
+                additional_correction += corrections.get('scoring_range_adjustments', {}).get('Very High (12+)', 0)
+            
+            # Confidence adjustments
+            confidence = game.get('confidence', 0)
+            if confidence >= 7.5:  # high confidence threshold
+                additional_correction += corrections.get('confidence_adjustments', {}).get('high_confidence', 0)
+            
+            # Temperature adjustments
+            temp = game.get('temperature', 70)
+            if temp >= 75:  # warm threshold
+                additional_correction += corrections.get('temperature_adjustments', {}).get('Warm', 0)
+            
+            corrected_predictions[i] += additional_correction
+        
+        logger.info(f"📊 Applied bias corrections: global={global_adj:+.3f}, individual adjustments applied")
+        return corrected_predictions
     
     def get_engine(self):
         """Get PostgreSQL database engine"""
@@ -1796,6 +1869,9 @@ class EnhancedBullpenPredictor:
     def predict_today_games(self, target_date=None):
         """Generate predictions for games using enhanced bullpen features (strict schema)."""
         try:
+            # Reload bias corrections to get latest updates
+            self.load_bias_corrections()
+            
             if target_date:
                 date_str = _to_iso_date(target_date)
                 logger.info(f"🎯 Enhanced Bullpen Predictions for {date_str}")
@@ -2118,11 +2194,17 @@ class EnhancedBullpenPredictor:
             
             # Apply bias correction if available  
             base_bias = float(getattr(self, "bias_correction", 0.0))
-            # TEMPORARY: Manual bias correction increase to address systematic under-prediction
-            adjusted_bias = base_bias + 2.0  # Increase bias by +2.0 to bring predictions into reasonable range
-            predictions = predictions + adjusted_bias
             
-            logger.info(f"📊 Applied bias correction: base={base_bias:+.3f}, adjustment=+2.0, total={adjusted_bias:+.3f}")
+            # Apply sophisticated bias corrections based on game conditions
+            try:
+                predictions = self.apply_bias_corrections(predictions, featured_df)
+                logger.info("✅ Advanced bias corrections applied")
+            except Exception as e:
+                logger.warning(f"⚠️ Advanced bias corrections failed: {e}, using fallback")
+                # Fallback to simple bias correction
+                adjusted_bias = base_bias + 0.5  # Conservative fallback adjustment
+                predictions = predictions + adjusted_bias
+                logger.info(f"📊 Applied fallback bias correction: {adjusted_bias:+.3f}")
             
             # Apply serving calibration with drift guard (anchor to expected_total w/ median fallback)
             try:

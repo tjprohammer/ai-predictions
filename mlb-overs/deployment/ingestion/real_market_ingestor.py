@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, text
 import os
 import json
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -128,8 +128,18 @@ def get_odds_api_data(target_date, include_live=False):
             
             # Skip games that are live (unless include_live=True) or wrong date
             is_live = ct and ct <= now_utc
-            if not ct or ct.date() != target_dt:
-                continue  # Wrong date, always skip
+            
+            # More flexible date filtering to handle time zone differences
+            # Allow games from target date or next day (for western timezone evening games)
+            if not ct:
+                continue  # No time data, skip
+                
+            game_date = ct.date()
+            target_date_obj = target_dt
+            next_day = datetime.fromisoformat(f"{target_date}T00:00:00+00:00").date() + timedelta(days=1)
+            
+            if game_date not in [target_date_obj, next_day]:
+                continue  # Wrong date range, skip
             
             if is_live and not include_live:
                 skipped_live += 1

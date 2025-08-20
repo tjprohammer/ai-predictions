@@ -35,13 +35,13 @@ class ModelPerformanceEnhancer:
         
     def analyze_current_performance(self, days=14) -> Dict:
         """Analyze current model performance and identify correction needs"""
-        print("🔍 ANALYZING CURRENT MODEL PERFORMANCE")
+        print("[ANALYZING] CURRENT MODEL PERFORMANCE")
         print("=" * 45)
         
         analysis = self.tracker.get_comprehensive_performance_analysis(days)
         
         if not analysis:
-            print("❌ Unable to get performance analysis")
+            print("[ERROR] Unable to get performance analysis")
             return {}
         
         # Extract key performance indicators
@@ -70,7 +70,7 @@ class ModelPerformanceEnhancer:
             if performance_status['correction_priority'] == 'LOW':
                 performance_status['correction_priority'] = 'MEDIUM'
         
-        print(f"📊 Performance Status:")
+        print(f"[PERFORMANCE STATUS]:")
         print(f"  • MAE: {performance_status['mae']:.2f} runs")
         print(f"  • Bias: {performance_status['bias']:.2f} runs")
         print(f"  • 1-Run Accuracy: {performance_status['accuracy_1run']:.1%}")
@@ -85,7 +85,7 @@ class ModelPerformanceEnhancer:
     
     def generate_bias_corrections(self, analysis: Dict) -> Dict:
         """Generate comprehensive bias correction parameters"""
-        print("\n🔧 GENERATING BIAS CORRECTIONS")
+        print("\n[GENERATING] BIAS CORRECTIONS")
         print("=" * 35)
         
         corrections = {
@@ -94,6 +94,10 @@ class ModelPerformanceEnhancer:
             'confidence_adjustments': {},
             'temperature_adjustments': {},
             'venue_adjustments': {},
+            'pitcher_quality_adjustments': {},  # NEW: ERA-based corrections
+            'day_of_week_adjustments': {},      # NEW: Day pattern corrections
+            'market_deviation_adjustments': {}, # NEW: Market disagreement corrections
+            'high_scoring_adjustments': {},     # NEW: Specific high-scoring corrections
             'timestamp': datetime.now().isoformat(),
             'based_on_days': 14,
             'games_analyzed': analysis['games_analyzed']
@@ -105,7 +109,7 @@ class ModelPerformanceEnhancer:
         global_bias = metrics['overall']['mean_bias']
         if abs(global_bias) > 0.3:
             corrections['global_adjustment'] = -global_bias
-            print(f"  ✅ Global adjustment: {-global_bias:.2f} runs")
+            print(f"  [SUCCESS] Global adjustment: {-global_bias:.2f} runs")
         
         # Scoring range corrections
         if 'by_scoring_range' in metrics:
@@ -116,7 +120,7 @@ class ModelPerformanceEnhancer:
                 # Only apply correction if sufficient sample size and significant bias
                 if games >= 5 and abs(bias) > 0.5:
                     corrections['scoring_range_adjustments'][range_name] = -bias
-                    print(f"  ✅ {range_name}: {-bias:.2f} runs ({games} games)")
+                    print(f"  [SUCCESS] {range_name}: {-bias:.2f} runs ({games} games)")
         
         # Confidence-based corrections
         if 'confidence_analysis' in metrics:
@@ -126,7 +130,7 @@ class ModelPerformanceEnhancer:
                 
                 if games >= 3 and abs(bias) > 0.7:
                     corrections['confidence_adjustments'][conf_type] = -bias
-                    print(f"  ✅ {conf_type}: {-bias:.2f} runs ({games} games)")
+                    print(f"  [SUCCESS] {conf_type}: {-bias:.2f} runs ({games} games)")
         
         # Weather-based corrections
         if 'weather_impact' in metrics:
@@ -136,7 +140,55 @@ class ModelPerformanceEnhancer:
                 
                 if games >= 8 and abs(bias) > 0.6:
                     corrections['temperature_adjustments'][temp_range] = -bias
-                    print(f"  ✅ Temperature {temp_range}: {-bias:.2f} runs ({games} games)")
+                    print(f"  [SUCCESS] Temperature {temp_range}: {-bias:.2f} runs ({games} games)")
+        
+        # NEW: High-scoring game corrections (biggest opportunity from analysis)
+        if 'by_scoring_range' in metrics:
+            very_high_games = metrics['by_scoring_range'].get('Very High (12+)', {})
+            if very_high_games.get('games', 0) >= 5:
+                bias = very_high_games['mean_bias']
+                mae = very_high_games.get('mae', 0)
+                if abs(bias) > 2.0:  # Significant bias for high-scoring games
+                    corrections['high_scoring_adjustments']['very_high_scoring'] = -bias
+                    print(f"  [SUCCESS] Very High Scoring (12+ runs): {-bias:.2f} runs ({very_high_games['games']} games, MAE: {mae:.2f})")
+        
+        # NEW: Day-of-week corrections (Friday/Wednesday issues from analysis)
+        if 'day_patterns' in metrics:
+            for day, day_metrics in metrics['day_patterns'].items():
+                bias = day_metrics['mean_bias']
+                games = day_metrics['games']
+                mae = day_metrics.get('mae', 0)
+                
+                # Focus on days with significant bias or poor MAE
+                if games >= 10 and (abs(bias) > 0.8 or mae > 2.5):
+                    corrections['day_of_week_adjustments'][day] = -bias
+                    print(f"  [SUCCESS] {day}: {-bias:.2f} runs ({games} games, MAE: {mae:.2f})")
+        
+        # NEW: Pitcher quality corrections (ERA matchup issues from analysis)
+        if 'pitcher_quality' in metrics:
+            for era_range, era_metrics in metrics['pitcher_quality'].items():
+                bias = era_metrics['mean_bias']
+                games = era_metrics['games']
+                mae = era_metrics.get('mae', 0)
+                
+                # Focus on matchups with poor performance
+                if games >= 8 and mae > 3.0:  # High MAE indicates poor prediction quality
+                    corrections['pitcher_quality_adjustments'][era_range] = -bias
+                    print(f"  [SUCCESS] Pitcher Quality {era_range}: {-bias:.2f} runs ({games} games, MAE: {mae:.2f})")
+        
+        # NEW: Market deviation handling (large deviations actually perform better)
+        if 'market_analysis' in metrics:
+            for dev_range, dev_metrics in metrics['market_analysis'].items():
+                bias = dev_metrics['mean_bias']
+                games = dev_metrics['games']
+                mae = dev_metrics.get('mae', 0)
+                
+                # Large deviations from analysis show they're often correct
+                if dev_range == 'Large (2.0+)' and games >= 20:
+                    # Don't penalize large deviations, they're actually good
+                    if abs(bias) > 0.5:
+                        corrections['market_deviation_adjustments'][dev_range] = -bias * 0.5  # Partial correction
+                        print(f"  [SUCCESS] Market Deviation {dev_range}: {-bias * 0.5:.2f} runs ({games} games, MAE: {mae:.2f})")
         
         return corrections
     
@@ -179,16 +231,50 @@ class ModelPerformanceEnhancer:
                 adjusted_prediction += temp_adj
                 adjustments_applied.append(f"Temp: {temp_adj:+.2f}")
         
+        # NEW: Apply high-scoring game adjustments
+        if 'high_scoring_adjustments' in corrections:
+            predicted_range = self._categorize_scoring_range(adjusted_prediction)
+            if predicted_range == "Very High (12+)" and 'very_high_scoring' in corrections['high_scoring_adjustments']:
+                high_adj = corrections['high_scoring_adjustments']['very_high_scoring']
+                adjusted_prediction += high_adj
+                adjustments_applied.append(f"HighScoring: {high_adj:+.2f}")
+        
+        # NEW: Apply day-of-week adjustments
+        if 'day_of_week_adjustments' in corrections and 'day_of_week' in game_data:
+            day_names = {1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 
+                        5: 'Friday', 6: 'Saturday', 0: 'Sunday'}
+            day_name = day_names.get(game_data['day_of_week'])
+            if day_name and day_name in corrections['day_of_week_adjustments']:
+                day_adj = corrections['day_of_week_adjustments'][day_name]
+                adjusted_prediction += day_adj
+                adjustments_applied.append(f"Day: {day_adj:+.2f}")
+        
+        # NEW: Apply pitcher quality adjustments
+        if 'pitcher_quality_adjustments' in corrections and 'combined_era' in game_data:
+            era_range = self._categorize_era_quality(game_data['combined_era'])
+            if era_range in corrections['pitcher_quality_adjustments']:
+                era_adj = corrections['pitcher_quality_adjustments'][era_range]
+                adjusted_prediction += era_adj
+                adjustments_applied.append(f"ERA: {era_adj:+.2f}")
+        
+        # NEW: Apply market deviation adjustments
+        if 'market_deviation_adjustments' in corrections and 'market_deviation' in game_data:
+            dev_range = self._categorize_market_deviation(game_data['market_deviation'])
+            if dev_range in corrections['market_deviation_adjustments']:
+                market_adj = corrections['market_deviation_adjustments'][dev_range]
+                adjusted_prediction += market_adj
+                adjustments_applied.append(f"Market: {market_adj:+.2f}")
+        
         # Log adjustments if any were applied
         if adjustments_applied:
-            print(f"🔧 Adjustments applied: {', '.join(adjustments_applied)} (Original: {prediction:.1f} → Adjusted: {adjusted_prediction:.1f})")
+            print(f"[ADJUSTMENTS] Applied: {', '.join(adjustments_applied)} (Original: {prediction:.1f} → Adjusted: {adjusted_prediction:.1f})")
         
         return adjusted_prediction
     
     def _categorize_scoring_range(self, total_runs: float) -> str:
         """Categorize total runs into scoring ranges"""
         if total_runs <= 7:
-            return "Low (≤7)"
+            return "Low (<=7)"
         elif total_runs <= 9:
             return "Medium (8-9)"
         elif total_runs <= 11:
@@ -207,11 +293,33 @@ class ModelPerformanceEnhancer:
         else:
             return "Hot"
     
+    def _categorize_era_quality(self, combined_era: float) -> str:
+        """Categorize combined ERA into quality ranges"""
+        if combined_era < 3.5:
+            return "Elite (<3.5)"
+        elif combined_era < 4.5:
+            return "Good (3.5-4.5)"
+        elif combined_era < 5.5:
+            return "Average (4.5-5.5)"
+        else:
+            return "Poor (5.5+)"
+    
+    def _categorize_market_deviation(self, deviation: float) -> str:
+        """Categorize market deviation into ranges"""
+        if deviation <= 0.5:
+            return "Close (≤0.5)"
+        elif deviation <= 1.0:
+            return "Small (0.5-1.0)"
+        elif deviation <= 2.0:
+            return "Medium (1.0-2.0)"
+        else:
+            return "Large (2.0+)"
+    
     def save_corrections(self, corrections: Dict):
         """Save bias corrections to file"""
         with open(self.corrections_file, 'w') as f:
             json.dump(corrections, f, indent=2)
-        print(f"💾 Corrections saved to: {self.corrections_file}")
+        print(f"[SAVED] Corrections saved to: {self.corrections_file}")
     
     def load_corrections(self) -> Dict:
         """Load existing bias corrections"""
@@ -222,7 +330,7 @@ class ModelPerformanceEnhancer:
     
     def update_model_corrections(self, force_update=False):
         """Update model bias corrections based on recent performance"""
-        print("🚀 UPDATING MODEL BIAS CORRECTIONS")
+        print("[UPDATING] MODEL BIAS CORRECTIONS")
         print("=" * 40)
         
         # Check if update is needed
@@ -240,7 +348,7 @@ class ModelPerformanceEnhancer:
         performance_analysis = self.analyze_current_performance()
         
         if not performance_analysis:
-            print("❌ Unable to analyze performance")
+            print("[ERROR] Unable to analyze performance")
             return existing_corrections
         
         # Generate new corrections if needed
@@ -248,11 +356,11 @@ class ModelPerformanceEnhancer:
             corrections = self.generate_bias_corrections(performance_analysis['full_analysis'])
             self.save_corrections(corrections)
             
-            print(f"\n✅ Model corrections updated successfully!")
+            print(f"\n[SUCCESS] Model corrections updated successfully!")
             print(f"   Priority: {performance_analysis['performance']['correction_priority']}")
             return corrections
         else:
-            print("✅ Model performance is acceptable, no corrections needed")
+            print("[SUCCESS] Model performance is acceptable, no corrections needed")
             return existing_corrections
     
     def enhanced_prediction_with_corrections(self, base_prediction: float, game_data: Dict) -> Dict:
@@ -289,14 +397,14 @@ def main():
     """Run model performance enhancement system"""
     enhancer = ModelPerformanceEnhancer()
     
-    print("🎯 MODEL PERFORMANCE ENHANCEMENT SYSTEM")
+    print("[MODEL PERFORMANCE ENHANCEMENT SYSTEM]")
     print("=" * 50)
     
     # Update corrections based on recent performance
     corrections = enhancer.update_model_corrections(force_update=True)
     
     if corrections:
-        print(f"\n📋 ACTIVE CORRECTIONS SUMMARY:")
+        print(f"\n[SUMMARY] ACTIVE CORRECTIONS SUMMARY:")
         print(f"  • Global Adjustment: {corrections.get('global_adjustment', 0):.2f} runs")
         print(f"  • Scoring Range Adjustments: {len(corrections.get('scoring_range_adjustments', {}))}")
         print(f"  • Confidence Adjustments: {len(corrections.get('confidence_adjustments', {}))}")
