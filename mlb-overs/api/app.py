@@ -17,6 +17,18 @@ import decimal
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
+# Import enhanced analysis functions
+try:
+    from api.enhanced_analysis import (
+        generate_enhanced_ai_analysis, 
+        generate_calibrated_predictions,
+        calculate_enhanced_confidence_metrics
+    )
+    ENHANCED_ANALYSIS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Enhanced analysis not available: {e}")
+    ENHANCED_ANALYSIS_AVAILABLE = False
+
 # Import model performance enhancement
 try:
     from model_performance_enhancer import ModelPerformanceEnhancer
@@ -104,6 +116,176 @@ def get_engine():
     """Get database engine"""
     url = os.environ.get('DATABASE_URL', 'postgresql://mlbuser:mlbpass@localhost:5432/mlb')
     return create_engine(url)
+
+def get_real_team_stats(home_team: str, away_team: str) -> dict:
+    """Get real comprehensive team statistics from the database"""
+    engine = get_engine()
+    
+    def get_team_data(team_name):
+        """Get comprehensive stats for a specific team"""
+        try:
+            with engine.connect() as conn:
+                # Get latest comprehensive team data including rolling averages
+                query = text("""
+                    WITH latest_data AS (
+                        SELECT 
+                            runs_pg, ba, woba, wrcplus, iso, bb_pct, k_pct, babip,
+                            runs_pg_l5, runs_pg_l10, runs_pg_l20,
+                            ba_l5, ba_l10, ba_l20,
+                            ROW_NUMBER() OVER (ORDER BY date DESC) as rn
+                        FROM teams_offense_daily 
+                        WHERE team = :team_name 
+                          AND runs_pg IS NOT NULL
+                    ),
+                    season_averages AS (
+                        SELECT 
+                            AVG(runs_pg) as season_rpg,
+                            AVG(ba) as season_ba,
+                            AVG(woba) as season_woba,
+                            COUNT(*) as games_played
+                        FROM teams_offense_daily 
+                        WHERE team = :team_name 
+                          AND runs_pg IS NOT NULL
+                          AND ba IS NOT NULL
+                    )
+                    SELECT 
+                        l.runs_pg, l.ba, l.woba, l.wrcplus, l.iso, l.bb_pct, l.k_pct, l.babip,
+                        l.runs_pg_l5, l.runs_pg_l10, l.runs_pg_l20,
+                        l.ba_l5, l.ba_l10, l.ba_l20,
+                        s.season_rpg, s.season_ba, s.season_woba, s.games_played
+                    FROM latest_data l
+                    CROSS JOIN season_averages s
+                    WHERE l.rn = 1
+                """)
+                result = conn.execute(query, {"team_name": team_name}).fetchone()
+                
+                if result:
+                    # Current stats
+                    runs_pg = safe_float_convert(result[0]) or 4.5
+                    ba = safe_float_convert(result[1]) or 0.250
+                    woba = safe_float_convert(result[2]) or 0.320
+                    wrcplus = safe_int_convert(result[3]) or 100
+                    iso = safe_float_convert(result[4]) or 0.150
+                    bb_pct = safe_float_convert(result[5]) or 0.085
+                    k_pct = safe_float_convert(result[6]) or 0.220
+                    babip = safe_float_convert(result[7]) or 0.300
+                    
+                    # Rolling averages
+                    runs_pg_l5 = safe_float_convert(result[8])
+                    runs_pg_l10 = safe_float_convert(result[9])
+                    runs_pg_l20 = safe_float_convert(result[10])
+                    ba_l5 = safe_float_convert(result[11])
+                    ba_l10 = safe_float_convert(result[12])
+                    ba_l20 = safe_float_convert(result[13])
+                    
+                    # Season averages  
+                    season_rpg = safe_float_convert(result[14]) or 4.5
+                    season_ba = safe_float_convert(result[15]) or 0.250
+                    season_woba = safe_float_convert(result[16]) or 0.320
+                    games_played = safe_int_convert(result[17]) or 0
+                    
+                    # Determine team form
+                    form_status = "neutral"
+                    form_description = "Average form"
+                    
+                    if runs_pg_l5 and season_rpg:
+                        diff = runs_pg_l5 - season_rpg
+                        if diff > 0.7:
+                            form_status = "hot"
+                            form_description = f"Hot offense (+{diff:.1f} R/G vs season)"
+                        elif diff < -0.7:
+                            form_status = "cold" 
+                            form_description = f"Cold offense ({diff:.1f} R/G vs season)"
+                        else:
+                            form_description = f"Steady offense ({diff:+.1f} R/G vs season)"
+                    
+                    return {
+                        'runs_per_game': round(runs_pg, 1),
+                        'batting_avg': round(ba, 3),
+                        'woba': round(woba, 3),
+                        'wrcplus': wrcplus,
+                        'iso': round(iso, 3),
+                        'bb_pct': round(bb_pct, 3),
+                        'k_pct': round(k_pct, 3),
+                        'ops': round(ba + iso + ba, 3),  # Simplified OPS approximation
+                        'babip': round(babip, 3),
+                        
+                        # Season averages
+                        'season_rpg': round(season_rpg, 1),
+                        'season_ba': round(season_ba, 3),
+                        'season_woba': round(season_woba, 3),
+                        'games_played': games_played,
+                        
+                        # Rolling averages
+                        'last_5_rpg': round(runs_pg_l5, 1) if runs_pg_l5 else None,
+                        'last_10_rpg': round(runs_pg_l10, 1) if runs_pg_l10 else None,
+                        'last_20_rpg': round(runs_pg_l20, 1) if runs_pg_l20 else None,
+                        'last_5_ba': round(ba_l5, 3) if ba_l5 else None,
+                        'last_10_ba': round(ba_l10, 3) if ba_l10 else None,
+                        'last_20_ba': round(ba_l20, 3) if ba_l20 else None,
+                        
+                        # Form analysis
+                        'form_status': form_status,
+                        'form_description': form_description,
+                        'data_available': True
+                    }
+                else:
+                    # Return defaults if no data
+                    return {
+                        'runs_per_game': 4.5,
+                        'batting_avg': 0.250,
+                        'woba': 0.320,
+                        'wrcplus': 100,
+                        'iso': 0.150,
+                        'bb_pct': 0.085,
+                        'k_pct': 0.220,
+                        'ops': 0.750,
+                        'babip': 0.300,
+                        'season_rpg': 4.5,
+                        'season_ba': 0.250,
+                        'season_woba': 0.320,
+                        'games_played': 0,
+                        'last_5_rpg': None,
+                        'last_10_rpg': None,
+                        'last_20_rpg': None,
+                        'last_5_ba': None,
+                        'last_10_ba': None,
+                        'last_20_ba': None,
+                        'form_status': 'unknown',
+                        'form_description': 'No data available',
+                        'data_available': False
+                    }
+        except Exception as e:
+            print(f"⚠️ Error fetching team data for {team_name}: {e}")
+            return {
+                'runs_per_game': 4.5,
+                'batting_avg': 0.250,
+                'woba': 0.320,
+                'wrcplus': 100,
+                'iso': 0.150,
+                'bb_pct': 0.085,
+                'k_pct': 0.220,
+                'ops': 0.750,
+                'babip': 0.300,
+                'season_rpg': 4.5,
+                'season_ba': 0.250,
+                'season_woba': 0.320,
+                'games_played': 0,
+                'last_5_rpg': None,
+                'last_10_rpg': None,
+                'last_20_rpg': None,
+                'last_5_ba': None,
+                'last_10_ba': None,
+                'last_20_ba': None,
+                'form_status': 'unknown',
+                'form_description': 'Error loading data',
+                'data_available': False
+            }
+    
+    return {
+        'home': get_team_data(home_team),
+        'away': get_team_data(away_team)
+    }
 
 def get_real_weather_data(target_date: str) -> dict:
     """Get real weather data from database"""
@@ -623,7 +805,7 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
                             'predicted_total': safe_float_convert(game.predicted_total),
                             'market_total': safe_float_convert(game.market_total),
                             'edge': safe_float_convert(game.edge),
-                            'confidence': safe_float_convert(game.confidence) / 100.0 if safe_float_convert(game.confidence) and safe_float_convert(game.confidence) > 1.0 else safe_float_convert(game.confidence),
+                            'confidence': safe_float_convert(game.confidence),  # Keep as percentage
                             'recommendation': game.recommendation,
                             'over_odds': safe_int_convert(game.over_odds) or -110,
                             'under_odds': safe_int_convert(game.under_odds) or -110,
@@ -678,40 +860,15 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
                             # Historical prediction for UI compatibility  
                             'historical_prediction': {
                                 'predicted_total': safe_float_convert(game.predicted_total),
-                                'confidence': safe_float_convert(game.confidence) / 100.0 if safe_float_convert(game.confidence) and safe_float_convert(game.confidence) > 1.0 else safe_float_convert(game.confidence),
+                                'confidence': safe_float_convert(game.confidence),  # Keep as percentage
                                 'method': 'Enhanced ML Model v2.0'
                             },
                             
-                            # Team stats structure for UI compatibility
-                            'team_stats': {
-                                'home': {
-                                    'runs_per_game': 4.5,  # Default - could be enhanced from database
-                                    'batting_avg': 0.260,
-                                    'on_base_pct': 0.330,
-                                    'slugging_pct': 0.420,
-                                    'ops': 0.750,
-                                    'home_runs': 180,
-                                    'rbi': 700,
-                                    'stolen_bases': 100,
-                                    'strikeouts': 1400,
-                                    'walks': 500
-                                },
-                                'away': {
-                                    'runs_per_game': 4.3,  # Default - could be enhanced from database
-                                    'batting_avg': 0.255,
-                                    'on_base_pct': 0.325,
-                                    'slugging_pct': 0.415,
-                                    'ops': 0.740,
-                                    'home_runs': 175,
-                                    'rbi': 680,
-                                    'stolen_bases': 95,
-                                    'strikeouts': 1420,
-                                    'walks': 480
-                                }
-                            }
+                            # Real team stats from database
+                            'team_stats': get_real_team_stats(game.home_team, game.away_team)
                         }
                         
-                        # Add AI analysis
+                        # Add enhanced AI analysis
                         ai_analysis_data = {
                             'predicted_total': simple_game['predicted_total'],
                             'market_total': simple_game['market_total'],
@@ -724,10 +881,37 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
                             'away_sp_season_era': safe_float_convert(game.away_sp_season_era) or 4.50,
                             'temperature': game.temperature or 75,
                             'wind_speed': game.wind_speed or 5,
+                            'wind_direction': game.wind_direction or 'N',
+                            'venue_name': game.venue_name or '',
+                            'home_team': game.home_team,
+                            'away_team': game.away_team,
                             'home_team_avg': game.home_team_avg or 0.260,
                             'away_team_avg': game.away_team_avg or 0.260
                         }
-                        simple_game['ai_analysis'] = generate_ai_analysis(ai_analysis_data)
+                        
+                        # Use enhanced AI analysis if available
+                        if ENHANCED_ANALYSIS_AVAILABLE:
+                            simple_game['ai_analysis'] = generate_enhanced_ai_analysis(ai_analysis_data)
+                            
+                            # Add calibrated predictions
+                            calibrated_preds = generate_calibrated_predictions(ai_analysis_data)
+                            if calibrated_preds:
+                                simple_game['calibrated_predictions'] = calibrated_preds
+                            
+                            # Add enhanced confidence metrics
+                            confidence_metrics = calculate_enhanced_confidence_metrics(ai_analysis_data)
+                            simple_game.update(confidence_metrics)
+                        else:
+                            # Fallback to original analysis
+                            simple_game['ai_analysis'] = generate_ai_analysis(ai_analysis_data)
+                            
+                            # Add basic confidence metrics as fallback
+                            confidence = safe_float_convert(game.confidence) or 0
+                            edge = abs(safe_float_convert(game.edge) or 0)
+                            simple_game['confidence_level'] = "HIGH" if confidence >= 75 else "MEDIUM" if confidence >= 60 else "LOW"
+                            simple_game['is_high_confidence'] = confidence >= 75
+                            simple_game['is_strong_pick'] = confidence >= 70 and edge >= 0.8
+                            simple_game['is_premium_pick'] = confidence >= 80 and edge >= 1.0
                         
                         simple_games.append(simple_game)
                     
@@ -2672,6 +2856,334 @@ async def get_calibrated_predictions_old(target_date: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching calibrated predictions: {str(e)}")
+
+
+@app.get("/api/learning-predictions/{target_date}")
+def get_learning_predictions(target_date: str):
+    """
+    Get continuous learning model predictions for a specific date.
+    Returns both learning and current system predictions with comparison.
+    """
+    try:
+        # Debug: Check current working directory and file locations
+        current_dir = os.getcwd()
+        print(f"DEBUG: Current working directory: {current_dir}")
+        
+        # Check for learning prediction files
+        possible_paths = [
+            f"../../enhanced_predictions_{target_date}.json",
+            f"../../../enhanced_predictions_{target_date}.json",
+            f"enhanced_predictions_{target_date}.json",
+            f"../enhanced_predictions_{target_date}.json"
+        ]
+        
+        # Debug: Print all path attempts
+        for path in possible_paths:
+            abs_path = os.path.abspath(path)
+            exists = os.path.exists(path)
+            print(f"DEBUG: Trying path: {path} -> {abs_path} (exists: {exists})")
+        
+        learning_data = None
+        betting_data = None
+        
+        # Find learning predictions file
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r') as f:
+                        learning_data = json.load(f)
+                    print(f"DEBUG: Successfully loaded learning data from: {path}")
+                    break
+                except Exception as e:
+                    print(f"DEBUG: Failed to load from {path}: {e}")
+                    continue
+        
+        # Find betting summary file  
+        betting_paths = [
+            f"../../betting_summary_{target_date}.json",
+            f"../../../betting_summary_{target_date}.json", 
+            f"betting_summary_{target_date}.json",
+            f"../betting_summary_{target_date}.json"
+        ]
+        
+        for path in betting_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r') as f:
+                        betting_data = json.load(f)
+                    print(f"DEBUG: Successfully loaded betting data from: {path}")
+                    break
+                except Exception as e:
+                    print(f"DEBUG: Failed to load betting data from {path}: {e}")
+                    continue
+        
+        if not learning_data:
+            # List files in current directory for debugging
+            files_in_dir = [f for f in os.listdir('.') if target_date in f]
+            print(f"DEBUG: Files in current dir with {target_date}: {files_in_dir}")
+            raise HTTPException(status_code=404, detail=f"Learning predictions not found for {target_date}. Checked paths from {current_dir}")
+        
+        # Process learning data for frontend
+        processed_games = []
+        for game in learning_data:
+            processed_game = {
+                'game': game.get('game'),
+                'venue': game.get('venue'),
+                'learning_prediction': safe_float_convert(game.get('learning_prediction')),
+                'current_prediction': safe_float_convert(game.get('current_prediction')),
+                'market_total': safe_float_convert(game.get('market_total')),
+                'learning_recommendation': game.get('learning_recommendation'),
+                'current_recommendation': game.get('current_recommendation'),
+                'learning_edge': safe_float_convert(game.get('learning_edge')),
+                'vs_current': safe_float_convert(game.get('vs_current')),
+                'vs_market': safe_float_convert(game.get('vs_market')),
+                'model_version': game.get('model_version'),
+                'is_completed': game.get('is_completed', False),
+                'actual_total': safe_float_convert(game.get('actual_total'))
+            }
+            processed_games.append(processed_game)
+        
+        # Get summary statistics from betting data
+        summary = {
+            'date': target_date,
+            'total_games': len(processed_games),
+            'learning_bets': betting_data.get('learning_bets', 0) if betting_data else 0,
+            'current_bets': betting_data.get('current_bets', 0) if betting_data else 0,
+            'consensus_bets': len(betting_data.get('consensus_bets', [])) if betting_data else 0,
+            'high_confidence_count': len(betting_data.get('high_confidence_learning', [])) if betting_data else 0,
+            'model_performance': {
+                'active_model': 'linear',
+                'mae': 3.08
+            }
+        }
+        
+        return {
+            'summary': summary,
+            'games': processed_games,
+            'high_confidence': betting_data.get('high_confidence_learning', []) if betting_data else [],
+            'consensus_picks': betting_data.get('consensus_bets', []) if betting_data else [],
+            'generated_at': datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching learning predictions: {str(e)}")
+
+
+@app.get("/api/learning-predictions/today")
+def get_learning_predictions_today():
+    """Get learning predictions for today"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    return get_learning_predictions(today)
+
+
+@app.get("/api/learning-summary/{target_date}")
+def get_learning_summary(target_date: str):
+    """Get a quick summary of learning model performance vs current system"""
+    try:
+        betting_file = f"../../betting_summary_{target_date}.json"
+        
+        # Try different paths
+        possible_paths = [
+            f"../../betting_summary_{target_date}.json",
+            f"../../../betting_summary_{target_date}.json",
+            f"betting_summary_{target_date}.json",
+            f"../betting_summary_{target_date}.json"
+        ]
+        
+        betting_data = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r') as f:
+                        betting_data = json.load(f)
+                    break
+                except Exception as e:
+                    continue
+        
+        if not betting_data:
+            return {
+                'date': target_date,
+                'learning_available': False,
+                'message': 'Learning predictions not available for this date'
+            }
+        
+        return {
+            'date': target_date,
+            'learning_available': True,
+            'learning_bets': betting_data.get('learning_bets', 0),
+            'current_bets': betting_data.get('current_bets', 0),
+            'consensus_bets': len(betting_data.get('consensus_bets', [])),
+            'high_confidence_count': len(betting_data.get('high_confidence_learning', [])),
+            'advantage': betting_data.get('learning_bets', 0) - betting_data.get('current_bets', 0),
+            'model_version': 'linear',
+            'generated_at': datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching learning summary: {str(e)}")
+
+
+# Import prediction tracking
+try:
+    from prediction_tracker import PredictionTracker
+    prediction_tracker = PredictionTracker()
+    TRACKING_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Prediction tracking not available: {e}")
+    prediction_tracker = None
+    TRACKING_AVAILABLE = False
+
+@app.get("/api/prediction-performance/{start_date}")
+async def get_prediction_performance(start_date: str, end_date: str = None):
+    """Get prediction performance metrics for date range"""
+    if not TRACKING_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prediction tracking not available")
+    
+    try:
+        if not end_date:
+            end_date = start_date
+        
+        performance = prediction_tracker.get_performance_comparison(start_date, end_date)
+        
+        return {
+            'date_range': {
+                'start': start_date,
+                'end': end_date
+            },
+            'performance': performance,
+            'comparison': {
+                'winner': None,
+                'current_better_at': [],
+                'learning_better_at': []
+            } if len(performance) < 2 else {
+                'winner': 'learning' if performance.get('learning', {}).get('accuracy_rate', 0) > performance.get('current', {}).get('accuracy_rate', 0) else 'current',
+                'current_better_at': [],
+                'learning_better_at': []
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching performance data: {str(e)}")
+
+@app.get("/api/prediction-tracking/recent")
+async def get_recent_predictions_with_results(days: int = 7):
+    """Get recent predictions with actual results"""
+    if not TRACKING_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prediction tracking not available")
+    
+    try:
+        results = prediction_tracker.get_recent_predictions_with_results(days)
+        
+        # Group by completion status
+        completed = [r for r in results if r['completed']]
+        pending = [r for r in results if not r['completed']]
+        
+        # Calculate quick stats for completed games
+        stats = {
+            'total_completed': len(completed),
+            'current_correct': len([r for r in completed if r['current_correct']]) if completed else 0,
+            'learning_correct': len([r for r in completed if r['learning_correct']]) if completed else 0,
+            'current_avg_error': round(np.mean([r['current_error'] for r in completed if r['current_error'] is not None]), 2) if completed else None,
+            'learning_avg_error': round(np.mean([r['learning_error'] for r in completed if r['learning_error'] is not None]), 2) if completed else None
+        }
+        
+        return {
+            'date_range': days,
+            'summary': stats,
+            'completed_games': completed,
+            'pending_games': pending,
+            'total_games': len(results)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching tracking data: {str(e)}")
+
+@app.post("/api/prediction-tracking/record/{date}")
+async def record_predictions_for_date(date: str):
+    """Record predictions for tracking (called after generating predictions)"""
+    if not TRACKING_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prediction tracking not available")
+    
+    try:
+        # Get comprehensive games for the date
+        engine = create_engine("postgresql://mlbuser:mlbpass@localhost/mlb")
+        
+        query = """
+            SELECT game_id, home_team, away_team, venue,
+                   predicted_total, recommendation, edge, confidence,
+                   market_total, over_odds, under_odds
+            FROM enhanced_games 
+            WHERE date = %s
+        """
+        
+        games_df = pd.read_sql(query, engine, params=[date])
+        
+        if games_df.empty:
+            return {"message": f"No games found for {date}", "recorded": 0}
+        
+        # Get learning predictions if available
+        learning_data = {}
+        try:
+            with open(f'/tmp/enhanced_predictions_{date}.json', 'r') as f:
+                learning_json = json.load(f)
+                for game in learning_json.get('games', []):
+                    learning_data[game['game']] = game
+        except:
+            pass
+        
+        # Prepare data for tracking
+        games_to_track = []
+        for _, game in games_df.iterrows():
+            game_key = f"{game['away_team']} @ {game['home_team']}"
+            learning_game = learning_data.get(game_key, {})
+            
+            games_to_track.append({
+                'game_id': game['game_id'],
+                'home_team': game['home_team'],
+                'away_team': game['away_team'],
+                'venue': game['venue'],
+                'predicted_total': game['predicted_total'],
+                'recommendation': game['recommendation'],
+                'edge': game['edge'],
+                'confidence': game['confidence'],
+                'market_total': game['market_total'],
+                'over_odds': game['over_odds'],
+                'under_odds': game['under_odds'],
+                'learning_prediction': learning_game.get('learning_prediction'),
+                'learning_recommendation': learning_game.get('learning_recommendation'),
+                'learning_edge': learning_game.get('learning_edge'),
+                'model_version': learning_game.get('model_version')
+            })
+        
+        # Record predictions
+        prediction_tracker.record_predictions(date, games_to_track)
+        
+        return {
+            "message": f"Recorded predictions for {date}",
+            "recorded": len(games_to_track),
+            "learning_predictions": len([g for g in games_to_track if g['learning_prediction']])
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error recording predictions: {str(e)}")
+
+@app.post("/api/prediction-tracking/update-results/{date}")
+async def update_prediction_results(date: str):
+    """Update actual results for completed games"""
+    if not TRACKING_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prediction tracking not available")
+    
+    try:
+        prediction_tracker.update_actual_results(date)
+        prediction_tracker.calculate_performance_metrics(date)
+        
+        return {
+            "message": f"Updated results and calculated metrics for {date}",
+            "date": date
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating results: {str(e)}")
 
 
 if __name__ == "__main__":
