@@ -19,7 +19,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 # Import enhanced analysis functions
 try:
-    from api.enhanced_analysis import (
+    from model_analysis.enhanced_analysis import (
         generate_enhanced_ai_analysis, 
         generate_calibrated_predictions,
         calculate_enhanced_confidence_metrics
@@ -38,6 +38,14 @@ except ImportError as e:
     print(f"⚠️ Model performance enhancement not available: {e}")
     model_enhancer = None
     PERFORMANCE_ENHANCEMENT_AVAILABLE = False
+
+# Import learning model analysis
+try:
+    from model_analysis.learning_model_analyzer import LearningModelAnalyzer, analyze_learning_improvement
+    LEARNING_ANALYSIS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Learning model analysis not available: {e}")
+    LEARNING_ANALYSIS_AVAILABLE = False
 
 def clean_for_json(obj):
     """Clean data for JSON serialization by replacing NaN and inf values"""
@@ -3184,6 +3192,48 @@ async def update_prediction_results(date: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating results: {str(e)}")
+
+
+@app.get("/api/learning-model-analysis")
+async def learning_model_analysis(days: int = 30):
+    """
+    Apply current learning model to historical games to measure improvement
+    """
+    if not LEARNING_ANALYSIS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Learning model analysis not available")
+    
+    try:
+        result = analyze_learning_improvement(days)
+        
+        if 'error' in result:
+            raise HTTPException(status_code=400, detail=result['error'])
+            
+        return clean_for_json(result)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing learning model: {str(e)}")
+
+
+@app.get("/api/learning-model-analysis/detailed/{start_date}/{end_date}")
+async def learning_model_analysis_detailed(start_date: str, end_date: str):
+    """
+    Detailed learning model analysis for specific date range
+    Returns game-by-game comparison of original vs learning model
+    """
+    if not LEARNING_ANALYSIS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Learning model analysis not available")
+    
+    try:
+        analyzer = LearningModelAnalyzer()
+        result = analyzer.apply_learning_model_to_history(start_date, end_date)
+        
+        if 'error' in result:
+            raise HTTPException(status_code=400, detail=result['error'])
+            
+        return clean_for_json(result)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in detailed learning analysis: {str(e)}")
 
 
 if __name__ == "__main__":

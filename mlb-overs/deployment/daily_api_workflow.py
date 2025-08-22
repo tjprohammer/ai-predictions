@@ -595,8 +595,11 @@ def predict_and_upsert(engine, X: pd.DataFrame, ids: pd.DataFrame, *, anchor_to_
     log.info(f"🎯 CURRENT SERVING FEATURES ({X.shape[1]}):")
     for i, feat in enumerate(X.columns[:20]):  # Show first 20
         sample_val = X[feat].iloc[0] if len(X) > 0 else 'N/A'
+        # Handle None values safely
+        if sample_val is None:
+            sample_val = 'None'
         feat_std = X[feat].std() if len(X) > 0 else 0
-        log.info(f"  {i+1:2d}. {feat:<25} = {sample_val:<8} (std: {feat_std:.3f})")
+        log.info(f"  {i+1:2d}. {feat:<25} = {str(sample_val):<8} (std: {feat_std:.3f})")
     if X.shape[1] > 20:
         log.info(f"  ... and {X.shape[1]-20} more features")
     
@@ -1233,8 +1236,8 @@ def postprocess_signals(engine, target_date: str):
            SET edge = ROUND(predicted_total - market_total, 2),
                recommendation = CASE
                    WHEN predicted_total IS NULL OR market_total IS NULL THEN NULL
-                   WHEN (predicted_total - market_total) >=  1.0 THEN 'OVER'
-                   WHEN (predicted_total - market_total) <= -1.0 THEN 'UNDER'
+                   WHEN (predicted_total - market_total) >=  0.3 THEN 'OVER'
+                   WHEN (predicted_total - market_total) <= -0.3 THEN 'UNDER'
                    ELSE 'HOLD'
                END,
                confidence = CASE
@@ -1268,7 +1271,8 @@ def postprocess_signals(engine, target_date: str):
                        CASE 
                            WHEN ABS(predicted_total - market_total) >= 3.0 THEN 8
                            WHEN ABS(predicted_total - market_total) >= 2.5 THEN 5
-                           WHEN ABS(predicted_total - market_total) >= 2.0 THEN 3
+                           WHEN ABS(predicted_total - market_total) >= 1.0 THEN 3
+                           WHEN ABS(predicted_total - market_total) >= 0.5 THEN 1
                            ELSE 0
                        END
                    , 0)))
@@ -1354,13 +1358,13 @@ def stage_export(preds: pd.DataFrame, target_date: str):
                   CASE
                     WHEN GREATEST(pp.ev_over, pp.ev_under) > 0 THEN
                       CASE WHEN pp.ev_over >= pp.ev_under THEN 'OVER' ELSE 'UNDER' END
-                    WHEN (eg.predicted_total - eg.market_total) >=  2.0 THEN 'OVER'
-                    WHEN (eg.predicted_total - eg.market_total) <= -2.0 THEN 'UNDER'
+                    WHEN (eg.predicted_total - eg.market_total) >=  0.5 THEN 'OVER'
+                    WHEN (eg.predicted_total - eg.market_total) <= -0.5 THEN 'UNDER'
                     ELSE 'NO BET'
                   END AS recommendation,
                   CASE
                     WHEN GREATEST(pp.ev_over, pp.ev_under) > 0 THEN 'EV'
-                    WHEN ABS(eg.predicted_total - eg.market_total) >= 2.0 THEN 'EDGE'
+                    WHEN ABS(eg.predicted_total - eg.market_total) >= 0.5 THEN 'EDGE'
                     ELSE 'NONE'
                   END AS rec_source,
                   CASE
@@ -1421,12 +1425,12 @@ def refresh_api_view(engine):
             sql = """
             CREATE TABLE IF NOT EXISTS model_config (key text PRIMARY KEY, value text);
             INSERT INTO model_config(key, value)
-            VALUES ('edge_threshold', '2.0')
-            ON CONFLICT (key) DO NOTHING;
+            VALUES ('edge_threshold', '0.3')
+            ON CONFLICT (key) DO UPDATE SET value = '0.5';
 
             CREATE OR REPLACE VIEW api_games_today AS
             WITH cfg AS (
-              SELECT COALESCE(NULLIF(value,''),'2.0')::numeric AS edge_thr
+              SELECT COALESCE(NULLIF(value,''),'0.3')::numeric AS edge_thr
               FROM model_config WHERE key='edge_threshold'
             ),
             base AS (

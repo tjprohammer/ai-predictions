@@ -106,5 +106,11 @@ credentials/
 config.ini
 settings.ini
 
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+
 # UI subproject (separate repository)
 mlb-predictions-ui/

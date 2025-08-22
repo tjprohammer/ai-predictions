@@ -717,7 +717,11 @@ class EnhancedBullpenPredictor:
             logger.warning(f"Ballpark factor injection failed: {e}")
         
         # Then add enhanced pipeline features if available
-        if self.enhanced_pipeline is not None:
+        # Temporarily disable enhanced pipeline due to feature bloat (228 features -> fallback to 44)
+        # The 44-feature model is performing well (19.8% improvement), so stick with it
+        enhanced_pipeline_disabled = True
+        
+        if self.enhanced_pipeline is not None and not enhanced_pipeline_disabled:
             try:
                 # Get target date from the dataframe or use current date
                 if 'date' in featured_df.columns:
@@ -739,6 +743,8 @@ class EnhancedBullpenPredictor:
                 
             except Exception as e:
                 logger.warning(f"Enhanced pipeline failed, using original features: {e}")
+        else:
+            logger.info("🎯 Using optimized 44-feature model (enhanced pipeline disabled)")
         
         return featured_df
     
@@ -2349,10 +2355,10 @@ class EnhancedBullpenPredictor:
                     
                     predicted_total = float(pred['predicted_total'])
                     difference = predicted_total - market_total
-                    if difference >= 0.5:
+                    if difference >= 0.3:
                         recommendation = "OVER"
                         edge_runs = round(difference, 2)
-                    elif difference <= -0.5:
+                    elif difference <= -0.3:
                         recommendation = "UNDER"
                         edge_runs = round(abs(difference), 2)
                     else:

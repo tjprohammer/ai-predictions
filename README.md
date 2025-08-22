@@ -17,6 +17,7 @@ This system combines historical MLB data, real-time weather conditions, betting 
 ## 📊 Current System Status
 
 ✅ **Working Components:**
+
 - Enhanced predictor generating 16 daily games successfully
 - Database connections with proper table mapping
 - Pitcher rolling stats integration (ERA, WHIP, K/9, BB/9)
@@ -24,6 +25,7 @@ This system combines historical MLB data, real-time weather conditions, betting 
 - Fallback logic for robust prediction generation
 
 ⚠️ **In Development:**
+
 - merge_asof optimization for pitcher stats (currently using fallback)
 - Environment feature flattening investigation
 - Duplicate game processing refinement
@@ -85,6 +87,7 @@ python -m uvicorn api.main:app --reload
 ## 🔧 Configuration
 
 Key configuration files:
+
 - `docker-compose.yml`: Database and service orchestration
 - `.env`: Environment variables (not tracked)
 - `mlb-overs/api/config.py`: API configuration
@@ -93,6 +96,7 @@ Key configuration files:
 ## 📊 Database Schema
 
 Primary tables:
+
 - `enhanced_games`: Game schedules and basic features
 - `pitcher_daily_rolling`: Rolling pitcher statistics (ERA, WHIP, etc.)
 - `legitimate_game_features`: Comprehensive feature set for predictions
@@ -102,8 +106,7 @@ Primary tables:
 ## 🤝 Contributing
 
 This is an active development project. Key areas for contribution:
+
 - Optimize merge_asof operations for better performance
 - Enhance feature engineering with additional data sources
 - Improve model calibration and uncertainty quantification
-
-

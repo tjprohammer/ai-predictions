@@ -5,6 +5,7 @@
 ### **Current Workflow** vs **Enhanced Learning Workflow**
 
 #### **BEFORE (Your Current Process):**
+
 ```
 1. Morning: Run daily_api_workflow.py → Get predictions
 2. Evening: Check results manually
@@ -12,6 +13,7 @@
 ```
 
 #### **AFTER (Enhanced Learning Process):**
+
 ```
 1. 🌅 MORNING WORKFLOW:
    - Run standard API workflow (markets, features, predict, etc.)
@@ -40,6 +42,7 @@
 ### **Daily Usage (Replace your current commands):**
 
 #### **Morning Predictions:**
+
 ```powershell
 # Instead of: enhanced_gameday.ps1
 ./enhanced_learning_gameday.ps1 -WorkflowType morning
@@ -49,6 +52,7 @@
 ```
 
 #### **Evening Updates:**
+
 ```powershell
 # After games complete:
 ./enhanced_learning_gameday.ps1 -WorkflowType evening
@@ -60,6 +64,7 @@
 ```
 
 #### **Full Day Workflow:**
+
 ```powershell
 # Complete morning + evening workflow:
 ./enhanced_learning_gameday.ps1 -WorkflowType full
@@ -70,16 +75,19 @@
 ## 📂 **New Files Generated**
 
 ### **Daily Output Files:**
+
 - `enhanced_predictions_YYYY-MM-DD.json` - Learning model predictions
 - `betting_summary_YYYY-MM-DD.json` - Betting recommendations summary
 - `learning_predictions_YYYY-MM-DD.json` - Detailed learning analysis
 
 ### **Model Files:**
+
 - `models/daily_learning/models_YYYY-MM-DD.joblib` - Daily trained models
 - `models/production_model.joblib` - Current best model
 - `daily_learning_log.json` - Learning progress tracking
 
 ### **Analysis Files:**
+
 - Performance comparisons
 - Feature importance evolution
 - Model accuracy trends
@@ -89,6 +97,7 @@
 ## 🎯 **Workflow Integration Examples**
 
 ### **Example 1: Morning Routine**
+
 ```powershell
 # 1. Run enhanced workflow
 ./enhanced_learning_gameday.ps1 -WorkflowType morning
@@ -107,6 +116,7 @@ for bet in data['high_confidence_learning']:
 ```
 
 ### **Example 2: Evening Results Processing**
+
 ```powershell
 # 1. Update models with today's results
 ./enhanced_learning_gameday.ps1 -WorkflowType evening
@@ -129,6 +139,7 @@ learner.analyze_learning_progress()
 ### **Windows Task Scheduler Setup:**
 
 #### **Morning Task (8:00 AM):**
+
 ```
 Program: powershell.exe
 Arguments: -File "S:\Projects\AI_Predictions\enhanced_learning_gameday.ps1" -WorkflowType morning
@@ -136,8 +147,9 @@ Start in: S:\Projects\AI_Predictions
 ```
 
 #### **Evening Task (11:00 PM):**
+
 ```
-Program: powershell.exe  
+Program: powershell.exe
 Arguments: -File "S:\Projects\AI_Predictions\enhanced_learning_gameday.ps1" -WorkflowType evening
 Start in: S:\Projects\AI_Predictions
 ```
@@ -147,6 +159,7 @@ Start in: S:\Projects\AI_Predictions
 ## 📊 **Learning Benefits**
 
 ### **What You Get:**
+
 1. **Adaptive Models** - Learn from each day's results
 2. **Better Accuracy** - Models improve over time (3.4 runs improvement shown)
 3. **Edge Detection** - Find value bets the market missed
@@ -154,6 +167,7 @@ Start in: S:\Projects\AI_Predictions
 5. **Performance Tracking** - Monitor improvement trends
 
 ### **Key Improvements:**
+
 - **11 vs 7 betting picks** - Learning model finds more opportunities
 - **3.08 MAE** - Competitive accuracy with current system
 - **Feature Evolution** - Adapts to changing conditions
@@ -164,7 +178,9 @@ Start in: S:\Projects\AI_Predictions
 ## 🎯 **Next Steps**
 
 ### **Immediate Integration:**
+
 1. **Test the enhanced workflow:**
+
    ```powershell
    ./enhanced_learning_gameday.ps1 -WorkflowType morning
    ```
@@ -174,11 +190,13 @@ Start in: S:\Projects\AI_Predictions
 3. **Run evening workflow to start learning process**
 
 ### **Weekly Review:**
+
 - Check `daily_learning_log.json` for improvement trends
 - Analyze betting performance vs market
 - Adjust confidence thresholds if needed
 
 ### **Monthly Optimization:**
+
 - Review feature importance evolution
 - Update training parameters
 - Analyze seasonal patterns
@@ -188,18 +206,21 @@ Start in: S:\Projects\AI_Predictions
 ## 🚨 **Important Notes**
 
 ### **Backward Compatibility:**
+
 - Your existing APIs and UI still work
 - Learning predictions are **additional**, not replacement
 - Can gradually transition to learning-enhanced predictions
 
 ### **Data Requirements:**
+
 - Needs completed game results for learning
 - Works best with 50+ training games
 - Continuous improvement over time
 
 ### **Performance:**
+
 - Morning workflow: ~2-3 minutes
-- Evening workflow: ~1-2 minutes  
+- Evening workflow: ~1-2 minutes
 - Models saved locally for fast predictions
 
 ---
