@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import requests
 import json
 import os
@@ -13,6 +14,23 @@ from pathlib import Path
 import numpy as np
 import json
 import decimal
+
+# Custom JSON encoder to handle NaN values
+class SafeJSONEncoder(json.JSONEncoder):
+    def encode(self, o):
+        def safe_convert(obj):
+            if isinstance(obj, dict):
+                return {k: safe_convert(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [safe_convert(item) for item in obj]
+            elif isinstance(obj, float):
+                if np.isnan(obj) or np.isinf(obj):
+                    return None
+                return obj
+            elif pd.isna(obj):
+                return None
+            return obj
+        return super().encode(safe_convert(o))
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -46,6 +64,15 @@ try:
 except ImportError as e:
     print(f"⚠️ Learning model analysis not available: {e}")
     LEARNING_ANALYSIS_AVAILABLE = False
+
+# Import dual prediction tracker
+try:
+    sys.path.append(str(Path(__file__).parent.parent / "deployment"))
+    from dual_prediction_tracker import get_dual_predictions, get_prediction_performance_summary
+    DUAL_PREDICTIONS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Dual prediction tracking not available: {e}")
+    DUAL_PREDICTIONS_AVAILABLE = False
 
 def clean_for_json(obj):
     """Clean data for JSON serialization by replacing NaN and inf values"""
@@ -96,7 +123,11 @@ def safe_float_convert(value):
     if value is None or value == '' or value == 'None':
         return None
     try:
-        return float(value)
+        result = float(value)
+        # Check for NaN, infinity values that are not JSON compliant
+        if np.isnan(result) or np.isinf(result):
+            return None
+        return result
     except (ValueError, TypeError, decimal.InvalidOperation) as e:
         print(f"⚠️ Error converting to float: {value} ({type(value)}): {e}")
         return None
@@ -3234,6 +3265,452 @@ async def learning_model_analysis_detailed(start_date: str, end_date: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error in detailed learning analysis: {str(e)}")
+
+
+# ==============================================================================
+# DUAL PREDICTION ENDPOINTS
+# ==============================================================================
+
+@app.get("/api/dual-predictions/{target_date}")
+async def get_dual_predictions_api(target_date: str):
+    """
+    Get dual predictions (original + learning model) for a specific date
+    Returns comprehensive comparison between both models
+    """
+    try:
+        # Connect to database
+        engine = create_engine("postgresql://mlbuser:mlbpass@localhost/mlb")
+        
+        query = text("""
+            SELECT 
+                game_id,
+                home_team,
+                away_team,
+                venue_name as venue,
+                market_total,
+                predicted_total,
+                predicted_total_original,
+                predicted_total_learning,
+                prediction_timestamp,
+                total_runs,
+                over_odds,
+                under_odds,
+                recommendation,
+                edge,
+                confidence,
+                CASE 
+                    WHEN total_runs IS NOT NULL THEN 'completed'
+                    WHEN date < CURRENT_DATE THEN 'in_progress'
+                    ELSE 'upcoming'
+                END as status
+            FROM enhanced_games
+            WHERE date = :target_date
+            ORDER BY prediction_timestamp DESC, game_id
+        """)
+        
+        with engine.connect() as conn:
+            df = pd.read_sql(query, conn, params={'target_date': target_date})
+        
+        if df.empty:
+            return {
+                'date': target_date,
+                'games': [],
+                'summary': {
+                    'total_games': 0,
+                    'dual_predictions_available': 0,
+                    'avg_difference': 0,
+                    'learning_higher_count': 0,
+                    'original_higher_count': 0
+                }
+            }
+        
+        # Process games
+        games = []
+        differences = []
+        learning_higher = 0
+        original_higher = 0
+        dual_available = 0
+        
+        for _, row in df.iterrows():
+            # Basic game info
+            game_data = {
+                'game_id': row['game_id'],
+                'matchup': f"{row['away_team']} @ {row['home_team']}",
+                'home_team': row['home_team'],
+                'away_team': row['away_team'],
+                'venue': row['venue'],
+                'status': row['status'],
+                'timestamp': row['prediction_timestamp'].isoformat() if pd.notna(row['prediction_timestamp']) else None,
+                
+                # Predictions
+                'predictions': {
+                    'primary': safe_float_convert(row['predicted_total']),
+                    'original': safe_float_convert(row['predicted_total_original']),
+                    'learning': safe_float_convert(row['predicted_total_learning']),
+                    'market': safe_float_convert(row['market_total'])
+                },
+                
+                # Betting info
+                'betting': {
+                    'recommendation': row['recommendation'],
+                    'edge': safe_float_convert(row['edge']),
+                    'confidence': row['confidence'],
+                    'over_odds': safe_float_convert(row['over_odds']),
+                    'under_odds': safe_float_convert(row['under_odds'])
+                },
+                
+                # Actual result
+                'result': {
+                    'actual_total': safe_float_convert(row['total_runs']) if pd.notna(row['total_runs']) else None,
+                    'completed': row['status'] == 'completed'
+                }
+            }
+            
+            # Calculate comparison metrics
+            orig_pred = game_data['predictions']['original']
+            learn_pred = game_data['predictions']['learning']
+            
+            if orig_pred is not None and learn_pred is not None:
+                dual_available += 1
+                difference = learn_pred - orig_pred
+                differences.append(difference)
+                
+                game_data['comparison'] = {
+                    'difference': round(difference, 2),
+                    'learning_higher': difference > 0,
+                    'agreement_level': 'high' if abs(difference) < 0.3 else 'medium' if abs(difference) < 0.8 else 'low',
+                    'confidence_flag': 'significant_difference' if abs(difference) > 1.0 else 'moderate_difference' if abs(difference) > 0.5 else 'close_agreement'
+                }
+                
+                if difference > 0:
+                    learning_higher += 1
+                elif difference < 0:
+                    original_higher += 1
+            else:
+                game_data['comparison'] = {
+                    'difference': None,
+                    'learning_higher': None,
+                    'agreement_level': 'unknown',
+                    'confidence_flag': 'missing_data'
+                }
+            
+            # Add accuracy metrics if game is completed
+            if game_data['result']['completed'] and game_data['result']['actual_total'] is not None:
+                actual = game_data['result']['actual_total']
+                
+                accuracy_metrics = {}
+                if orig_pred is not None:
+                    accuracy_metrics['original_error'] = round(abs(orig_pred - actual), 2)
+                if learn_pred is not None:
+                    accuracy_metrics['learning_error'] = round(abs(learn_pred - actual), 2)
+                if game_data['predictions']['market'] is not None:
+                    accuracy_metrics['market_error'] = round(abs(game_data['predictions']['market'] - actual), 2)
+                
+                # Determine which model was more accurate
+                if orig_pred is not None and learn_pred is not None:
+                    accuracy_metrics['better_model'] = 'learning' if accuracy_metrics['learning_error'] < accuracy_metrics['original_error'] else 'original'
+                
+                game_data['accuracy'] = accuracy_metrics
+            
+            games.append(game_data)
+        
+        # Calculate summary
+        summary = {
+            'date': target_date,
+            'total_games': len(games),
+            'dual_predictions_available': dual_available,
+            'avg_difference': round(sum(differences) / len(differences), 3) if differences else 0,
+            'learning_higher_count': learning_higher,
+            'original_higher_count': original_higher,
+            'close_agreement_count': len([d for d in differences if abs(d) < 0.5]),
+            'significant_differences': len([d for d in differences if abs(d) > 1.0]),
+            'model_agreement_rate': round((len([d for d in differences if abs(d) < 0.5]) / len(differences)) * 100, 1) if differences else 0
+        }
+        
+        # Add completed game performance if available
+        completed_games = [g for g in games if g['result']['completed'] and g['result']['actual_total'] is not None]
+        if completed_games:
+            completed_with_both = [g for g in completed_games if g['predictions']['original'] is not None and g['predictions']['learning'] is not None]
+            
+            if completed_with_both:
+                learning_wins = len([g for g in completed_with_both if g.get('accuracy', {}).get('better_model') == 'learning'])
+                summary['performance'] = {
+                    'completed_games': len(completed_with_both),
+                    'learning_wins': learning_wins,
+                    'original_wins': len(completed_with_both) - learning_wins,
+                    'learning_win_rate': round((learning_wins / len(completed_with_both)) * 100, 1)
+                }
+        
+        result = {
+            'summary': summary,
+            'games': games,
+            'generated_at': datetime.now().isoformat()
+        }
+        
+        # Use custom JSON response to handle any remaining NaN values
+        return JSONResponse(
+            content=clean_for_json(result),
+            headers={"Content-Type": "application/json"}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching dual predictions: {str(e)}")
+
+
+@app.get("/api/dual-predictions/today")
+async def get_dual_predictions_today():
+    """Get dual predictions for today"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    return await get_dual_predictions_api(today)
+
+
+@app.get("/api/dual-predictions/tomorrow")  
+async def get_dual_predictions_tomorrow():
+    """Get dual predictions for tomorrow"""
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    return await get_dual_predictions_api(tomorrow)
+
+
+@app.get("/api/dual-performance/{days_back}")
+async def get_dual_performance_summary(days_back: int = 7):
+    """
+    Get performance summary comparing both models over the last N days
+    """
+    try:
+        engine = create_engine("postgresql://mlbuser:mlbpass@localhost/mlb")
+        
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days_back)
+        
+        query = text("""
+            SELECT 
+                date,
+                COUNT(*) as total_games,
+                COUNT(CASE WHEN predicted_total_original IS NOT NULL AND total_runs IS NOT NULL THEN 1 END) as original_with_results,
+                COUNT(CASE WHEN predicted_total_learning IS NOT NULL AND total_runs IS NOT NULL THEN 1 END) as learning_with_results,
+                
+                -- Original model performance
+                AVG(CASE WHEN predicted_total_original IS NOT NULL AND total_runs IS NOT NULL 
+                    THEN ABS(predicted_total_original - total_runs) END) as original_mae,
+                
+                -- Learning model performance  
+                AVG(CASE WHEN predicted_total_learning IS NOT NULL AND total_runs IS NOT NULL 
+                    THEN ABS(predicted_total_learning - total_runs) END) as learning_mae,
+                
+                -- Market performance
+                AVG(CASE WHEN market_total IS NOT NULL AND total_runs IS NOT NULL 
+                    THEN ABS(market_total - total_runs) END) as market_mae,
+                    
+                -- Count where learning model was better
+                COUNT(CASE WHEN predicted_total_original IS NOT NULL AND predicted_total_learning IS NOT NULL AND total_runs IS NOT NULL
+                    AND ABS(predicted_total_learning - total_runs) < ABS(predicted_total_original - total_runs) 
+                    THEN 1 END) as learning_wins,
+                    
+                -- Count where original model was better
+                COUNT(CASE WHEN predicted_total_original IS NOT NULL AND predicted_total_learning IS NOT NULL AND total_runs IS NOT NULL
+                    AND ABS(predicted_total_original - total_runs) < ABS(predicted_total_learning - total_runs) 
+                    THEN 1 END) as original_wins
+                
+            FROM enhanced_games
+            WHERE date BETWEEN :start_date AND :end_date
+            AND total_runs IS NOT NULL
+            GROUP BY date
+            ORDER BY date DESC
+        """)
+        
+        with engine.connect() as conn:
+            df = pd.read_sql(query, conn, params={'start_date': start_date, 'end_date': end_date})
+        
+        if df.empty:
+            return {
+                'error': 'No completed games with predictions found',
+                'period': f"{start_date} to {end_date}",
+                'days_analyzed': 0
+            }
+        
+        # Calculate overall performance
+        total_original_mae = df['original_mae'].mean()
+        total_learning_mae = df['learning_mae'].mean()
+        total_market_mae = df['market_mae'].mean()
+        
+        total_learning_wins = df['learning_wins'].sum()
+        total_original_wins = df['original_wins'].sum()
+        total_comparisons = total_learning_wins + total_original_wins
+        
+        summary = {
+            'period': {
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat(),
+                'days_back': days_back
+            },
+            'days_analyzed': len(df),
+            'performance': {
+                'original_model_mae': round(float(total_original_mae), 3) if pd.notna(total_original_mae) else None,
+                'learning_model_mae': round(float(total_learning_mae), 3) if pd.notna(total_learning_mae) else None,
+                'market_mae': round(float(total_market_mae), 3) if pd.notna(total_market_mae) else None,
+                'mae_improvement': None
+            },
+            'head_to_head': {
+                'learning_wins': int(total_learning_wins),
+                'original_wins': int(total_original_wins),
+                'total_comparisons': int(total_comparisons),
+                'learning_win_rate': round(total_learning_wins / total_comparisons, 3) if total_comparisons > 0 else 0
+            },
+            'daily_breakdown': []
+        }
+        
+        # Calculate MAE improvement
+        if summary['performance']['original_model_mae'] and summary['performance']['learning_model_mae']:
+            mae_improvement = summary['performance']['original_model_mae'] - summary['performance']['learning_model_mae']
+            summary['performance']['mae_improvement'] = round(mae_improvement, 3)
+        
+        # Add daily breakdown
+        for _, day in df.iterrows():
+            summary['daily_breakdown'].append({
+                'date': day['date'].isoformat(),
+                'total_games': int(day['total_games']),
+                'original_mae': round(float(day['original_mae']), 3) if pd.notna(day['original_mae']) else None,
+                'learning_mae': round(float(day['learning_mae']), 3) if pd.notna(day['learning_mae']) else None,
+                'learning_wins': int(day['learning_wins']),
+                'original_wins': int(day['original_wins'])
+            })
+        
+        return summary
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching performance summary: {str(e)}")
+
+
+@app.get("/api/dual-historical/{start_date}/{end_date}")
+async def get_dual_historical_analysis(start_date: str, end_date: str):
+    """
+    Get detailed historical analysis of dual predictions for a date range
+    """
+    try:
+        engine = create_engine("postgresql://mlbuser:mlbpass@localhost/mlb")
+        
+        query = text("""
+            SELECT 
+                game_id,
+                date,
+                home_team,
+                away_team,
+                venue_name,
+                predicted_total_original,
+                predicted_total_learning,
+                market_total,
+                total_runs,
+                over_odds,
+                under_odds,
+                (predicted_total_learning - predicted_total_original) as difference,
+                
+                -- Accuracy metrics
+                CASE WHEN total_runs IS NOT NULL AND predicted_total_original IS NOT NULL
+                    THEN ABS(predicted_total_original - total_runs) END as original_error,
+                CASE WHEN total_runs IS NOT NULL AND predicted_total_learning IS NOT NULL
+                    THEN ABS(predicted_total_learning - total_runs) END as learning_error,
+                CASE WHEN total_runs IS NOT NULL AND market_total IS NOT NULL
+                    THEN ABS(market_total - total_runs) END as market_error,
+                    
+                -- Which model was better
+                CASE WHEN total_runs IS NOT NULL AND predicted_total_original IS NOT NULL AND predicted_total_learning IS NOT NULL
+                    THEN (ABS(predicted_total_learning - total_runs) < ABS(predicted_total_original - total_runs))
+                    END as learning_better
+                
+            FROM enhanced_games
+            WHERE date BETWEEN :start_date AND :end_date
+            AND (predicted_total_original IS NOT NULL OR predicted_total_learning IS NOT NULL)
+            ORDER BY date DESC, game_id
+        """)
+        
+        with engine.connect() as conn:
+            df = pd.read_sql(query, conn, params={'start_date': start_date, 'end_date': end_date})
+        
+        if df.empty:
+            return {
+                'date_range': {'start': start_date, 'end': end_date},
+                'games': [],
+                'summary': {'total_games': 0, 'completed_games': 0}
+            }
+        
+        # Process games
+        games = []
+        for _, row in df.iterrows():
+            game = {
+                'game_id': row['game_id'],
+                'date': row['date'].isoformat(),
+                'matchup': f"{row['away_team']} @ {row['home_team']}",
+                'venue': row['venue_name'],
+                'predictions': {
+                    'original': safe_float_convert(row['predicted_total_original']),
+                    'learning': safe_float_convert(row['predicted_total_learning']),
+                    'market': safe_float_convert(row['market_total'])
+                },
+                'actual_total': safe_float_convert(row['total_runs']),
+                'completed': pd.notna(row['total_runs']),
+                'difference': safe_float_convert(row['difference']),
+                'odds': {
+                    'over': safe_float_convert(row['over_odds']),
+                    'under': safe_float_convert(row['under_odds'])
+                }
+            }
+            
+            # Add accuracy metrics if game is completed
+            if game['completed']:
+                game['accuracy'] = {
+                    'original_error': safe_float_convert(row['original_error']),
+                    'learning_error': safe_float_convert(row['learning_error']),
+                    'market_error': safe_float_convert(row['market_error']),
+                    'learning_better': bool(row['learning_better']) if pd.notna(row['learning_better']) else None
+                }
+            
+            games.append(game)
+        
+        # Calculate summary statistics
+        completed_games = [g for g in games if g['completed']]
+        both_predictions = [g for g in games if g['predictions']['original'] is not None and g['predictions']['learning'] is not None]
+        completed_both = [g for g in completed_games if g['predictions']['original'] is not None and g['predictions']['learning'] is not None]
+        
+        summary = {
+            'date_range': {'start': start_date, 'end': end_date},
+            'total_games': len(games),
+            'completed_games': len(completed_games),
+            'dual_predictions': len(both_predictions),
+            'completed_with_both': len(completed_both)
+        }
+        
+        if completed_both:
+            learning_wins = len([g for g in completed_both if g['accuracy']['learning_better']])
+            avg_original_error = np.mean([g['accuracy']['original_error'] for g in completed_both if g['accuracy']['original_error'] is not None])
+            avg_learning_error = np.mean([g['accuracy']['learning_error'] for g in completed_both if g['accuracy']['learning_error'] is not None])
+            
+            summary['performance'] = {
+                'learning_wins': learning_wins,
+                'original_wins': len(completed_both) - learning_wins,
+                'learning_win_rate': round(learning_wins / len(completed_both), 3),
+                'avg_original_error': round(avg_original_error, 3),
+                'avg_learning_error': round(avg_learning_error, 3),
+                'error_improvement': round(avg_original_error - avg_learning_error, 3)
+            }
+        
+        if both_predictions:
+            differences = [g['difference'] for g in both_predictions if g['difference'] is not None]
+            summary['prediction_analysis'] = {
+                'avg_difference': round(np.mean(differences), 3) if differences else 0,
+                'std_difference': round(np.std(differences), 3) if differences else 0,
+                'learning_higher_count': len([d for d in differences if d > 0]),
+                'original_higher_count': len([d for d in differences if d < 0]),
+                'close_agreement_count': len([d for d in differences if abs(d) < 0.5])
+            }
+        
+        return {
+            'summary': summary,
+            'games': games,
+            'generated_at': datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching historical analysis: {str(e)}")
 
 
 if __name__ == "__main__":

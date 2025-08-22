@@ -1,94 +1,110 @@
-# MLB Betting Prediction System
+# MLB Dual Prediction System
 
 ## 🎯 Overview
 
-A comprehensive machine learning system for MLB over/under betting predictions with continuous learning capabilities, real-time tracking, and performance validation.
+A comprehensive dual-model machine learning system for MLB over/under betting predictions featuring:
+- **Original EnhancedBullpenPredictor**: Production-tested prediction model
+- **203-Feature Learning Model**: Advanced adaptive learning system using comprehensive feature analysis
+- **Real-time Comparison**: Track both models and identify performance differences
+- **Continuous Learning**: Improve predictions through 20-session learning insights
+
+## 🎯 Dual Model Architecture
+
+### Original Model
+- Market-anchored predictions
+- Enhanced bullpen analysis
+- Production-proven stability
+- Conservative adjustments
+
+### Learning Model  
+- Uses all 203 database features
+- Adaptive feature weighting based on comprehensive analysis
+- Feature dominance: 60% Core Baseball, 40% Score-based
+- Advanced preprocessing and missing value handling
 
 ## 📁 Project Structure
 
 ```
 mlb-overs/                          # Main prediction system
-├── api/                            # FastAPI backend
-│   ├── app.py                     # Main API with learning endpoints
-│   └── v2_predictor.py           # Core prediction logic
+├── api/                            # FastAPI backend with dual predictions
+│   ├── app.py                     # Main API with dual model endpoints
+│   └── v2_predictor.py           # Enhanced prediction logic
 ├── deployment/                     # Production workflow
-│   ├── daily_api_workflow.py     # Complete daily pipeline
-│   ├── DAILY_RUNBOOK.md          # Operations guide
-│   └── ingestion/                 # Data collectors
-├── feature_engineering/           # ML feature pipelines
-├── models/                        # Trained ML models
-├── data/                          # Data storage
-├── prediction_tracking/           # Performance validation
-│   ├── prediction_performance_tracker.py     # Main tracking system
-│   └── *.py                      # Various tracking utilities
-├── training_systems/             # ML training & learning
-│   ├── continuous_learning_system.py # Daily model retraining
-│   ├── daily_learning_pipeline.py    # Learning workflow
-│   └── *.py                      # Training utilities
-├── model_analysis/               # Model evaluation & analysis
-│   ├── learning_model_analyzer.py    # Learning model comparison
-│   ├── enhanced_analysis.py          # Enhanced AI analysis
-│   ├── model_performance_enhancer.py # Performance optimization
-│   └── *.py                      # Analysis utilities
-├── system_validation/            # Testing & validation
-├── data_analysis/                # Data exploration
-└── debugging/                    # Debug utilities
+│   ├── daily_api_workflow.py     # Dual model daily pipeline
+│   ├── dual_prediction_tracker.py # Dual prediction UI data
+│   ├── migrate_dual_predictions.py # Database setup
+│   └── test_dual_predictions.py  # System testing
+├── models/                        # Dual model system
+│   ├── dual_model_predictor.py   # Main dual prediction system
+│   ├── adaptive_learning_pipeline.py # 203-feature learning model
+│   └── enhanced_bullpen_predictor.py # Original model
+├── data/                          # Data storage including dual predictions
+├── prediction_tracking/           # Enhanced performance validation
+└── ...
 
-mlb-predictions-ui/                 # React frontend
-├── src/components/                # UI components
-│   ├── ComprehensivePredictionsBoard.tsx  # Main predictions with learning integration
-│   └── ModelPerformanceDashboard.tsx     # Performance analysis
-└── public/                        # Static assets
+mlb-predictions-ui/                 # Enhanced React frontend
+├── src/components/                # UI components with dual model support
+│   ├── DualPredictionsBoard.tsx   # Main dual predictions display
+│   ├── ModelComparisonDashboard.tsx # Model performance comparison
+│   └── HistoricalAnalysis.tsx     # Historical prediction analysis
+└── ...
 ```
 
 ## 🚀 Daily Workflow
 
-### Complete Pipeline (Recommended)
+### Complete Dual Model Pipeline (Recommended)
 
 ```powershell
-# Run full enhanced pipeline
+# Run full dual prediction pipeline
 cd mlb-overs/deployment
 python daily_api_workflow.py --stages markets,features,predict,odds,health,prob,export,audit
 
 # For specific date
 python daily_api_workflow.py --date 2025-08-21 --stages markets,features,predict,odds,health,prob,export,audit
+
+# Generate dual prediction UI data
+python dual_prediction_tracker.py --date 2025-08-22
+
+# Test dual prediction system
+python test_dual_predictions.py
 ```
 
-### Learning System Integration
+### Database Setup (One-time)
 
 ```powershell
-# Run continuous learning workflow
-cd training_systems
-python continuous_learning_system.py --date 2025-08-21
-
-# Manual learning pipeline
-python daily_learning_pipeline.py
+# Setup dual prediction columns
+python migrate_dual_predictions.py
 ```
 
-### Prediction Tracking
+### Individual Model Testing
 
 ```powershell
-# Track predictions vs actual results
-cd prediction_tracking
-python prediction_performance_tracker.py
+# Test learning model
+cd models
+python adaptive_learning_pipeline.py
+
+# Test original model integration
+cd deployment
+python enhanced_bullpen_predictor.py
 ```
 
 ## 🎯 Key Features
 
-### 1. **Continuous Learning System**
+### 1. **Dual Model Architecture**
 
-- Daily model retraining with recent performance data
-- Learning vs current model comparison (8 vs 4 betting opportunities)
-- Performance improvement tracking (3.08 MAE)
+- **Original Model**: Production-tested EnhancedBullpenPredictor
+- **Learning Model**: 203-feature adaptive system with comprehensive analysis
+- **Real-time Comparison**: Track performance differences and model agreement
+- **Automatic Integration**: Both models run in daily workflow
 
-### 2. **Enhanced Predictions**
+### 2. **Enhanced Database Tracking**
 
-- Comprehensive game analysis with 50+ features
-- Market integration with odds data
-- Risk assessment and confidence scoring
-- Learning model predictions integrated
+- `predicted_total_original`: Original model predictions
+- `predicted_total_learning`: Learning model predictions  
+- `prediction_timestamp`: When predictions were made
+- `dual_prediction_analysis`: SQL view for easy comparison queries
 
-### 3. **Performance Tracking**
+### 3. **Advanced Feature Analysis**
 
 - Real-time prediction accuracy monitoring
 - Model comparison analytics
