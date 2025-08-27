@@ -3,6 +3,7 @@
 ## 🎯 Overview
 
 A comprehensive dual-model machine learning system for MLB over/under betting predictions featuring:
+
 - **Original EnhancedBullpenPredictor**: Production-tested prediction model
 - **203-Feature Learning Model**: Advanced adaptive learning system using comprehensive feature analysis
 - **Real-time Comparison**: Track both models and identify performance differences
@@ -11,12 +12,14 @@ A comprehensive dual-model machine learning system for MLB over/under betting pr
 ## 🎯 Dual Model Architecture
 
 ### Original Model
+
 - Market-anchored predictions
 - Enhanced bullpen analysis
 - Production-proven stability
 - Conservative adjustments
 
-### Learning Model  
+### Learning Model
+
 - Uses all 203 database features
 - Adaptive feature weighting based on comprehensive analysis
 - Feature dominance: 60% Core Baseball, 40% Score-based
@@ -100,7 +103,7 @@ python enhanced_bullpen_predictor.py
 ### 2. **Enhanced Database Tracking**
 
 - `predicted_total_original`: Original model predictions
-- `predicted_total_learning`: Learning model predictions  
+- `predicted_total_learning`: Learning model predictions
 - `prediction_timestamp`: When predictions were made
 - `dual_prediction_analysis`: SQL view for easy comparison queries
 

@@ -8,7 +8,6 @@ and tracks performance improvements over time.
 
 import os
 import json
-import logging
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -23,8 +22,9 @@ class AdaptiveLearningPipeline:
     def __init__(self, db_url=None):
         self.db_url = db_url or os.environ.get('DATABASE_URL', 'postgresql://mlbuser:mlbpass@localhost:5432/mlb')
         self.engine = create_engine(self.db_url)
-        self.model_dir = Path(__file__).parent / "saved_models"
-        self.model_dir.mkdir(parents=True, exist_ok=True)  # Create parent directories too
+        # Fix path to be relative to this script's location
+        self.model_dir = Path(__file__).parent
+        self.model_dir.mkdir(exist_ok=True)
         
         # Learning configuration from 20-session analysis
         self.learning_config = {
@@ -359,38 +359,12 @@ class AdaptiveLearningPipeline:
             'importance': model.feature_importances_
         }).sort_values('importance', ascending=False)
         
-        # Categorize features using comprehensive logic from 20-session system
+        # Categorize features
         def categorize_feature(feature_name):
             name_lower = feature_name.lower()
-            
-            # 🏀 Core Baseball Features  
-            if any(x in name_lower for x in ['team_', 'wins', 'losses', 'streak', 'last_game', 'runs_', 'hits_', 'errors_', 'batting_avg', 'obp', 'slg', 'ops', 'era', 'whip', 'bullpen', 'lineup', 'record']):
-                return 'core_baseball'
-            
-            # ⚾ Pitching Statistics
-            elif any(x in name_lower for x in ['pitcher', 'pitch', 'era', 'whip', 'strikeout', 'walk', 'bb', 'so', 'ip', 'starter', 'relief', 'bullpen']):
-                return 'pitching_stats'
-            
-            # 📊 Score-Based Features
-            elif any(x in name_lower for x in ['score', 'total', 'over', 'under', 'spread', 'margin', 'differential']):
-                return 'score_based'
-            
-            # 🌤️ Environmental Features  
-            elif any(x in name_lower for x in ['weather', 'temp', 'wind', 'humidity', 'stadium', 'venue', 'field', 'dome', 'outdoor']):
-                return 'environmental'
-            
-            # 👨‍⚖️ Umpire Features
-            elif any(x in name_lower for x in ['umpire', 'official', 'referee', 'crew']):
-                return 'umpire'
-            
-            # 💰 Market Features  
-            elif any(x in name_lower for x in ['odds', 'line', 'spread', 'moneyline', 'public', 'sharp', 'betting']):
-                return 'market'
-            
-            # 🧠 Sophisticated Features
-            elif any(x in name_lower for x in ['advanced', 'sabermetric', 'war', 'wrc', 'fip', 'babip', 'iso', 'woba']):
-                return 'sophisticated'
-            
+            for category, keywords in self.learning_config['feature_categories'].items():
+                if any(keyword.lower() in name_lower for keyword in keywords):
+                    return category
             return 'other'
         
         feature_importance['category'] = feature_importance['feature'].apply(categorize_feature)
@@ -403,126 +377,6 @@ class AdaptiveLearningPipeline:
             print(f"   {category}: {importance:.1%}")
         
         return feature_importance, category_importance
-
-    def predict(self, X, engine=None, target_date=None):
-        """
-        Generate predictions using the adaptive learning model
-        
-        Args:
-            X: Feature matrix
-            engine: Database engine (optional)
-            target_date: Target date for context (optional)
-            
-        Returns:
-            Array of predictions
-        """
-        try:
-            # Load the trained model
-            model = self.load_model()
-            if model is None:
-                # Train a quick model if none exists
-                logging.info("No model found, training a quick model...")
-                model = self.train_quick_model(X)
-            
-            # Ensure X has the right features
-            X_processed = self.preprocess_features(X)
-            
-            # Generate predictions
-            predictions = model.predict(X_processed)
-            
-            logging.info(f"✅ Generated {len(predictions)} predictions using adaptive learning")
-            return predictions
-            
-        except Exception as e:
-            logging.error(f"Prediction failed: {e}")
-            # Fallback to simple predictions based on feature means
-            return self.fallback_predictions(X)
-    
-    def train_quick_model(self, X):
-        """Train a quick model using available data"""
-        try:
-            from sklearn.ensemble import RandomForestRegressor
-            from sklearn.model_selection import train_test_split
-            
-            # Get training data from database
-            train_data = self.get_training_data(limit=1000)
-            if train_data.empty:
-                raise ValueError("No training data available")
-            
-            # Prepare training features to match X
-            X_train = self.preprocess_features(train_data.drop(columns=['total_runs'], errors='ignore'))
-            y_train = train_data['total_runs'] if 'total_runs' in train_data.columns else None
-            
-            if y_train is None or len(y_train) == 0:
-                raise ValueError("No target values for training")
-            
-            # Train simple model
-            model = RandomForestRegressor(n_estimators=50, random_state=42)
-            model.fit(X_train, y_train)
-            
-            # Save the model
-            self.save_model(model)
-            
-            logging.info(f"✅ Trained quick model with {len(X_train)} samples")
-            return model
-            
-        except Exception as e:
-            logging.error(f"Quick model training failed: {e}")
-            return None
-    
-    def preprocess_features(self, X):
-        """Preprocess features for prediction"""
-        try:
-            # Select numeric columns only
-            numeric_cols = []
-            for col in X.columns:
-                if X[col].dtype in ['float64', 'int64', 'float32', 'int32']:
-                    numeric_cols.append(col)
-            
-            X_processed = X[numeric_cols].copy()
-            
-            # Fill missing values
-            X_processed = X_processed.fillna(X_processed.median())
-            
-            # Ensure we have a consistent number of features
-            if len(X_processed.columns) < 50:
-                # Add dummy features if needed
-                for i in range(50 - len(X_processed.columns)):
-                    X_processed[f'dummy_feature_{i}'] = 0.0
-            elif len(X_processed.columns) > 200:
-                # Limit to first 200 features
-                X_processed = X_processed.iloc[:, :200]
-            
-            return X_processed
-            
-        except Exception as e:
-            logging.error(f"Feature preprocessing failed: {e}")
-            # Return a minimal feature matrix
-            n_samples = len(X)
-            return pd.DataFrame(np.zeros((n_samples, 50)), 
-                              columns=[f'feature_{i}' for i in range(50)])
-    
-    def fallback_predictions(self, X):
-        """Generate fallback predictions when model fails"""
-        try:
-            # Simple fallback: predict based on historical average
-            n_games = len(X)
-            avg_total = 8.5  # Historical MLB average
-            
-            # Add small random variation
-            np.random.seed(42)
-            predictions = np.random.normal(avg_total, 0.5, n_games)
-            
-            # Ensure reasonable range (6-12 runs)
-            predictions = np.clip(predictions, 6.0, 12.0)
-            
-            logging.info(f"✅ Generated {len(predictions)} fallback predictions")
-            return predictions
-            
-        except Exception as e:
-            logging.error(f"Fallback prediction failed: {e}")
-            # Ultimate fallback
-            return np.full(len(X), 8.5)
 
 def main():
     """Main execution for testing the adaptive learning pipeline"""

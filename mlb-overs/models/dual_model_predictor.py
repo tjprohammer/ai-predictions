@@ -89,11 +89,17 @@ class DualModelPredictor:
         if self.original_model:
             try:
                 log.info("🔵 Running Original Model (EnhancedBullpenPredictor)...")
-                original_preds = self.original_model.predict(X)
-                results['original'] = original_preds
-                log.info(f"✅ Original model: {len(original_preds)} predictions")
-                log.info(f"   Range: {np.min(original_preds):.2f} - {np.max(original_preds):.2f}")
-                log.info(f"   Mean: {np.mean(original_preds):.2f}")
+                # EnhancedBullpenPredictor uses predict_today_games and returns (predictions_df, featured_df, X)
+                pred_df, _, _ = self.original_model.predict_today_games(target_date)
+                if pred_df is not None and len(pred_df) > 0:
+                    original_preds = pred_df['predicted_total'].values
+                    results['original'] = original_preds
+                    log.info(f"✅ Original model: {len(original_preds)} predictions")
+                    log.info(f"   Range: {np.min(original_preds):.2f} - {np.max(original_preds):.2f}")
+                    log.info(f"   Mean: {np.mean(original_preds):.2f}")
+                else:
+                    log.warning("Original model returned empty predictions")
+                    results['original'] = None
             except Exception as e:
                 log.error(f"Original model prediction failed: {e}")
                 results['original'] = None
@@ -105,7 +111,8 @@ class DualModelPredictor:
         if self.learning_model:
             try:
                 log.info("🟢 Running Learning Model (203-feature adaptive)...")
-                learning_preds = self.learning_model.predict(X, engine, target_date)
+                # AdaptiveLearningPipeline uses predict_with_learning method
+                learning_preds = self.learning_model.predict_with_learning(X)
                 results['learning'] = learning_preds
                 log.info(f"✅ Learning model: {len(learning_preds)} predictions")
                 log.info(f"   Range: {np.min(learning_preds):.2f} - {np.max(learning_preds):.2f}")
