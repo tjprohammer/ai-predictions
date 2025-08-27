@@ -29,7 +29,7 @@ def get_engine():
 
 def get_todays_starting_pitchers(target_date=None):
     """Get starting pitcher info for target date's games"""
-    print("⚾ Collecting Starting Pitcher Information")
+    print("Collecting Starting Pitcher Information")
     print("=" * 40)
     
     # Use target date if provided, otherwise use today
@@ -299,7 +299,7 @@ def main():
     
     args = parser.parse_args()
     
-    print("⚾ Starting Pitcher Data Collection")
+    print("Starting Pitcher Data Collection")
     print("=" * 40)
     
     pitcher_updates = get_todays_starting_pitchers(args.target_date)

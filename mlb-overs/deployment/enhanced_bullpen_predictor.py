@@ -15,6 +15,7 @@ from datetime import datetime
 import logging
 from pathlib import Path
 from hashlib import md5
+import json
 
 # Import enhanced pipeline (keep original guard)
 try:
@@ -23,6 +24,38 @@ try:
 except ImportError:
     ENHANCED_PIPELINE_AVAILABLE = False
     logging.warning("Enhanced feature pipeline not available - using basic features only")
+
+# Robust feature list loading
+def load_feature_list(model_dir, variant="44"):
+    """Load feature list with fallback locations and robust error handling"""
+    from pathlib import Path
+    import json
+    
+    # Try multiple locations
+    candidates = [
+        Path(model_dir) / f"features_{variant}.json",
+        Path(model_dir) / "features.json", 
+        Path(__file__).parent / "model_features" / f"features_{variant}.json",
+        Path(__file__).parent.parent / "models" / f"features_{variant}.json",
+        Path(__file__).parent.parent / "models_ultra" / f"features_{variant}.json",
+    ]
+    
+    for p in candidates:
+        if p.exists():
+            try:
+                data = json.loads(p.read_text())
+                # Allow {"features":[...]} or plain list
+                feats = data.get("features", data) if isinstance(data, dict) else data
+                feature_list = [str(x) for x in feats]
+                if feature_list:
+                    logging.info(f"✅ Loaded {len(feature_list)} features from {p}")
+                    return feature_list
+            except Exception as e:
+                logging.warning(f"Failed to parse feature list at {p}: {e}")
+                continue
+    
+    logging.warning(f"No valid feature list found for variant '{variant}' in {len(candidates)} locations")
+    return []
 
 # Safe helper functions for fillna operations (restored after patch move)
 def _num(s):
@@ -147,9 +180,9 @@ def add_pitcher_rolling_stats(games_df, engine):
         print(f"DEBUG: Attempting HOME merge_asof...")
         print(f"DEBUG: home shape: {home.shape}, home_roll shape: {home_roll.shape}")
         
-        # AGGRESSIVE SORT: Force fresh sort right before merge_asof
-        home_sorted = home.sort_values(["home_sp_id", "date"]).reset_index(drop=True)
-        home_roll_sorted = home_roll.sort_values(["home_sp_id", "stat_date"]).reset_index(drop=True)
+        # AGGRESSIVE SORT: Force fresh sort right before merge_asof using stable mergesort
+        home_sorted = home.sort_values(["home_sp_id", "date"], kind="mergesort").reset_index(drop=True)
+        home_roll_sorted = home_roll.sort_values(["home_sp_id", "stat_date"], kind="mergesort").reset_index(drop=True)
         
         print(f"DEBUG: Forced fresh sorts complete")
         
@@ -268,9 +301,9 @@ def add_pitcher_rolling_stats(games_df, engine):
     try:
         print(f"DEBUG: Attempting AWAY merge_asof...")
         
-        # AGGRESSIVE SORT: Force fresh sort right before merge_asof
-        away_sorted = away.sort_values(["away_sp_id", "date"]).reset_index(drop=True)
-        away_roll_sorted = away_roll.sort_values(["away_sp_id", "stat_date"]).reset_index(drop=True)
+        # AGGRESSIVE SORT: Force fresh sort right before merge_asof using stable mergesort
+        away_sorted = away.sort_values(["away_sp_id", "date"], kind="mergesort").reset_index(drop=True)
+        away_roll_sorted = away_roll.sort_values(["away_sp_id", "stat_date"], kind="mergesort").reset_index(drop=True)
         
         away_join = pd.merge_asof(
             away_sorted,
@@ -1109,13 +1142,26 @@ class EnhancedBullpenPredictor:
         """Fallback to old model loading system."""
         # Load pre-game model (11 features, no data leaks)
         try:
-            pre_game_path = Path("../models/adaptive_learning_model.joblib")
-            if pre_game_path.exists():
+            # Try multiple possible paths
+            possible_paths = [
+                Path(self.models_dir) / "adaptive_learning_model.joblib",
+                Path("../models/adaptive_learning_model.joblib"),
+                Path("models/adaptive_learning_model.joblib"),
+                Path("adaptive_learning_model.joblib")
+            ]
+            
+            pre_game_path = None
+            for path in possible_paths:
+                if path.exists():
+                    pre_game_path = path
+                    break
+            
+            if pre_game_path:
                 pre_data = joblib.load(pre_game_path)
                 self.pre_game_model = pre_data['model']
                 self.pre_game_features = pre_data['feature_columns']
                 self.pre_game_fill_values = pre_data.get('feature_fill_values', {})
-                logger.info(f"✅ Pre-game model loaded: {len(self.pre_game_features)} features")
+                logger.info(f"✅ Pre-game model loaded from {pre_game_path}: {len(self.pre_game_features)} features")
                 
                 # DEBUG: Check the actual model's feature importances
                 if hasattr(self.pre_game_model, 'feature_importances_'):
@@ -1135,15 +1181,28 @@ class EnhancedBullpenPredictor:
             logger.error(f"❌ Failed to load pre-game model: {e}")
             self.pre_game_model = None
             
-        # Load learning model (118 features, for learning from outcomes)
+        # Load learning model (118+ features, for learning from outcomes)
         try:
-            learning_path = Path("../models/legitimate_model_latest.joblib")
-            if learning_path.exists():
+            # Try multiple possible paths
+            possible_paths = [
+                Path(self.models_dir) / "legitimate_model_latest.joblib",
+                Path("../models/legitimate_model_latest.joblib"),
+                Path("models/legitimate_model_latest.joblib"),
+                Path("legitimate_model_latest.joblib")
+            ]
+            
+            learning_path = None
+            for path in possible_paths:
+                if path.exists():
+                    learning_path = path
+                    break
+            
+            if learning_path:
                 learning_data = joblib.load(learning_path)
                 self.learning_model = learning_data['model']
                 self.learning_features = learning_data['feature_columns']
                 self.learning_fill_values = learning_data.get('feature_fill_values', {})
-                logger.info(f"✅ Learning model loaded: {len(self.learning_features)} features")
+                logger.info(f"✅ Learning model loaded from {learning_path}: {len(self.learning_features)} features")
                 
                 # Verify learning model has in-game features for post-game analysis
                 in_game_features = [f for f in self.learning_features if any(leak in f.lower() for leak in ['score', '_runs', '_er', '_ip'])]
@@ -1173,6 +1232,27 @@ class EnhancedBullpenPredictor:
         else:
             logger.error("❌ No models loaded successfully")
             return False
+        
+        # 🚨 CRITICAL FAILSAFE: Hard fallback if feature_columns is empty
+        if not self.feature_columns:
+            logger.error("❌ No feature_columns available; loading emergency fallback feature list")
+            fallback_path = Path(self.models_dir) / "optimized_44_features.txt"
+            if fallback_path.exists():
+                self.feature_columns = [l.strip() for l in fallback_path.read_text().splitlines() if l.strip()]
+                logger.warning(f"🔧 Loaded emergency fallback: {len(self.feature_columns)} features")
+            else:
+                # Last resort: minimal essential features
+                self.feature_columns = [
+                    'market_total', 'combined_era', 'combined_team_offense', 'ballpark_run_factor',
+                    'temp_factor', 'wind_factor', 'home_sp_whip', 'away_sp_whip', 'combined_whip',
+                    'home_team_runs_pg', 'away_team_runs_pg', 'combined_bullpen_era'
+                ]
+                logger.error(f"🚨 Using minimal feature set: {len(self.feature_columns)} features")
+                logger.error("This will likely produce degraded predictions!")
+            
+            if not self.feature_columns:
+                logger.error("❌ No feature_columns available; aborting instead of predicting on 0-width X.")
+                raise SystemError("Cannot proceed with empty feature set")
             
         # 🚨 CRITICAL FIX: Override any 0.0 ERA defaults with realistic league averages
         realistic_era_defaults = {
@@ -2839,8 +2919,34 @@ class EnhancedBullpenPredictor:
 
             # Attempt soft alignment fallback if direct reindex exposes missing features
             try:
+                # CRITICAL GUARD: Never proceed with empty feature list
+                if not self.feature_columns:
+                    raise RuntimeError("Empty feature_columns for optimized model. "
+                                       "Feature list file missing/corrupt or wrong model_dir.")
+                
                 X = featured_df.reindex(columns=self.feature_columns)
                 logger.info(f"✅ Direct reindex successful: {X.shape}")
+                
+                # CRITICAL GUARD: Ensure we have some features to work with
+                if X.shape[1] == 0:
+                    raise RuntimeError(f"Reindex produced empty feature matrix. "
+                                       f"Required features {len(self.feature_columns)} not found in "
+                                       f"engineered columns {len(featured_df.columns)}")
+                
+                # Optional: ensure minimum overlap, not zeros
+                present = [c for c in self.feature_columns if c in featured_df.columns]
+                if len(present) < max(10, int(0.5 * len(self.feature_columns))):
+                    # Try model.feature_names_in_ as a canonical registry
+                    alt = getattr(self.model, "feature_names_in_", None)
+                    if alt is not None:
+                        alt_present = [c for c in alt if c in featured_df.columns]
+                        if len(alt_present) > len(present):
+                            logger.warning(f"Using model.feature_names_in_ instead: {len(alt_present)} vs {len(present)} features")
+                            X = featured_df.reindex(columns=alt_present)
+                
+                if X.shape[1] == 0:
+                    raise RuntimeError("No overlap between required features and engineered columns.")
+                        
             except Exception as e:
                 logger.error(f"❌ Direct reindex failed: {e}")
                 X = None
@@ -2886,6 +2992,10 @@ class EnhancedBullpenPredictor:
                 logger.error(f"ERROR in fillna: {e}")
                 logger.error(f"X.shape: {X.shape}, X.columns: {list(X.columns)}")
                 raise e
+
+            # 🚨 CRITICAL CHECK: Abort if feature matrix is empty
+            if X.shape[1] == 0:
+                raise ValueError("All-zero (or constant) feature matrix before preprocessing.")
 
             # Neutralize ID-like columns (runbook patch #2)
             id_cols = [c for c in X.columns if c.endswith('_id') or c in ('game_id','home_sp_id','away_sp_id')]

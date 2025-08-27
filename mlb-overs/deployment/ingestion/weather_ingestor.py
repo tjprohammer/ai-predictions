@@ -282,7 +282,7 @@ def update_weather_for_games(target_date=None, use_realtime=True, force_update=F
         games_needing_weather = get_games_needing_weather(target_date)
     
     if not games_needing_weather:
-        print(f"✅ All games for {target_date} already have weather data")
+        print(f"All games for {target_date} already have weather data")
         return 0
     
     print(f"[WEATHER] Updating weather for {len(games_needing_weather)} games")
@@ -394,13 +394,13 @@ def main():
         ow_key = os.environ.get('OPENWEATHER_API_KEY', '').strip()
         wa_key = os.environ.get('WEATHERAPI_KEY', '').strip()
         if not ow_key and not wa_key:
-            print("⚠️ No weather API keys found. Set OPENWEATHER_API_KEY or WEATHERAPI_KEY")
+            print("No weather API keys found. Set OPENWEATHER_API_KEY or WEATHERAPI_KEY")
             print("   Falling back to stadium-specific weather data")
     else:
-        print("🏟️ Stadium-specific weather mode: No API calls")
+        print("Stadium-specific weather mode: No API calls")
     
     if force_update:
-        print("🔄 Force update mode: Will update all games")
+        print("Force update mode: Will update all games")
     
     updated = update_weather_for_games(target_date, use_realtime, force_update)
     

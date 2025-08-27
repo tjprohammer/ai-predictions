@@ -92,7 +92,7 @@ def get_team_id_from_name(team_name):
 
 def collect_team_performance_stats(target_date=None):
     """Collect team performance stats for target date's games"""
-    print("🏏 Collecting Team Performance Statistics")
+    print("Collecting Team Performance Statistics")
     print("=" * 40)
     
     # Use target date if provided, otherwise use current date
@@ -246,9 +246,9 @@ def main():
     
     args = parser.parse_args()
     
-    print("🏏 Team Performance Data Collection")
+    print("Team Performance Data Collection")
     print("=" * 40)
-    print("📈 Collecting team season averages for prediction purposes")
+    print("Collecting team season averages for prediction purposes")
     print()
     
     updated = collect_team_performance_stats(args.target_date)

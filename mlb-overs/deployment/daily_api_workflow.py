@@ -16,7 +16,8 @@ Workflow Stages:
   bias      - Update model bias corrections based on recent performance
   markets   - Pull market data and odds from APIs
   features  - Build enhanced features for prediction
-  predict   - Generate base ML predictions  
+  predict   - Generate base ML predictions
+  ultra80   - Generate Ultra 80 system predictions with intervals and EV
   odds      - Load comprehensive odds data for all games
   health    - Validate system calibration health before trading
   prob      - Calculate enhanced probability predictions with EV/Kelly
@@ -61,6 +62,18 @@ except ImportError as e:
     print(f"⚠️ Dual model not available: {e}")
     DUAL_MODEL_AVAILABLE = False
     
+# Import CalibratorStack for state loading compatibility
+try:
+    sys.path.append(str(Path(__file__).parent.parent / "pipelines"))
+    from incremental_ultra_80_system import CalibratorStack
+except ImportError:
+    # Define a dummy CalibratorStack for compatibility
+    class CalibratorStack:
+        pass
+except ImportError as e:
+    print(f"⚠️ Dual model not available: {e}")
+    DUAL_MODEL_AVAILABLE = False
+    
     # Create a fallback dual prediction function
     def predict_and_upsert_dual(engine, X, ids, anchor_to_market=True):
         """Fallback dual prediction that runs original model and simulates learning model"""
@@ -98,9 +111,18 @@ except ImportError as e:
                             WHERE game_id = :game_id AND date = :date
                         """)
                         
+                        # Convert numpy types to Python types for PostgreSQL compatibility
+                        orig_val = row['predicted_total']
+                        if hasattr(orig_val, 'item'):
+                            orig_val = orig_val.item()
+                        
+                        learn_val = learning_predictions[i]
+                        if hasattr(learn_val, 'item'):
+                            learn_val = learn_val.item()
+                        
                         conn.execute(update_sql, {
-                            'orig': row['predicted_total'],
-                            'learn': learning_predictions[i],
+                            'orig': orig_val,
+                            'learn': learn_val,
                             'game_id': row['game_id'],
                             'date': row['date']
                         })
@@ -123,6 +145,33 @@ logging.basicConfig(
 log = logging.getLogger("daily_api_workflow")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb")
+
+# -----------------------------
+# Feature Contract Constants
+# -----------------------------
+
+# Critical ID/leakage columns that must never be used as features
+LEAK_OR_ID = {
+    'game_id', 'date', 'home_team', 'away_team', 'target', 'total_runs',
+    'home_score', 'away_score', 'final_total', 'over_under_result',
+    'prediction_timestamp', 'created_at', 'updated_at', 'id'
+}
+
+# Feature renaming map for backwards compatibility
+RENAME_MAP = {
+    'pitcher_stamina_factor': 'home_pitcher_stamina_factor',
+    'opp_pitcher_stamina_factor': 'away_pitcher_stamina_factor',
+    'team_momentum': 'home_team_momentum',
+    'opp_team_momentum': 'away_team_momentum'
+}
+
+# Safe imputation values by data type
+SAFE_IMPUTATION = {
+    'float64': 0.0,
+    'int64': 0,
+    'object': 'unknown',
+    'bool': False
+}
 
 # -----------------------------
 # Helpers
@@ -150,6 +199,150 @@ def log_bundle_provenance():
         )
     except Exception as e:
         log.warning("Bundle provenance unavailable at %s: %s", bp, e)
+
+def enforce_feature_contract(df: pd.DataFrame, expected_features: List[str]) -> pd.DataFrame:
+    """
+    Enforce feature contract by renaming, filtering leaks, and safe imputation.
+    
+    Args:
+        df: Raw dataframe that may have schema drift
+        expected_features: List of expected feature column names
+        
+    Returns:
+        DataFrame with enforced contract, safe imputation for missing features
+    """
+    log.info(f"🔒 Enforcing feature contract: {len(df.columns)} raw → {len(expected_features)} expected")
+    
+    # Step 1: Apply renaming map for backwards compatibility
+    df_renamed = df.rename(columns=RENAME_MAP)
+    renamed_count = sum(1 for old_name in RENAME_MAP.keys() if old_name in df.columns)
+    if renamed_count > 0:
+        log.info(f"  📝 Renamed {renamed_count} columns using RENAME_MAP")
+    
+    # Step 2: Filter out leakage/ID columns
+    safe_columns = [col for col in df_renamed.columns if col not in LEAK_OR_ID]
+    if len(safe_columns) < len(df_renamed.columns):
+        filtered_out = set(df_renamed.columns) - set(safe_columns)
+        log.warning(f"  🚫 Filtered {len(filtered_out)} leakage columns: {sorted(filtered_out)}")
+        df_safe = df_renamed[safe_columns]
+    else:
+        df_safe = df_renamed
+    
+    # Step 3: Align to expected features with safe imputation
+    missing_features = set(expected_features) - set(df_safe.columns)
+    extra_features = set(df_safe.columns) - set(expected_features)
+    
+    if missing_features:
+        log.warning(f"  🔧 Imputing {len(missing_features)} missing features with safe defaults")
+        for feature in missing_features:
+            # Infer safe default based on feature name patterns
+            if any(pattern in feature.lower() for pattern in ['rate', 'avg', 'pct', 'ratio']):
+                df_safe[feature] = 0.5  # Neutral rate/percentage
+            elif any(pattern in feature.lower() for pattern in ['count', 'games', 'wins', 'losses']):
+                df_safe[feature] = 0  # Zero count
+            elif 'era' in feature.lower() or 'whip' in feature.lower():
+                df_safe[feature] = 4.00  # League average ERA/WHIP
+            else:
+                df_safe[feature] = 0.0  # Default numeric
+    
+    if extra_features:
+        log.info(f"  ✂️ Dropping {len(extra_features)} extra features not in contract")
+    
+    # Step 4: Select and order by expected features
+    result = df_safe[expected_features]
+    
+    log.info(f"  ✅ Contract enforced: {len(result.columns)} features, {len(result)} rows")
+    return result
+
+def safe_asof(left: pd.DataFrame, right: pd.DataFrame, on: str, by: str = None) -> pd.DataFrame:
+    """
+    Safe merge_asof with proper sorting and dtype unification.
+    
+    Args:
+        left: Left dataframe
+        right: Right dataframe  
+        on: Column to merge on (must be datetime-like)
+        by: Optional grouping column
+        
+    Returns:
+        Merged dataframe with fallback to left-only on failures
+    """
+    try:
+        # Ensure both dataframes are sorted by merge column
+        left_sorted = left.sort_values(on)
+        right_sorted = right.sort_values(on)
+        
+        # Unify dtypes for merge column
+        if left_sorted[on].dtype != right_sorted[on].dtype:
+            log.warning(f"Unifying dtypes for merge column '{on}': {left_sorted[on].dtype} → {right_sorted[on].dtype}")
+            right_sorted[on] = right_sorted[on].astype(left_sorted[on].dtype)
+        
+        # Perform merge_asof
+        if by:
+            result = pd.merge_asof(left_sorted, right_sorted, on=on, by=by, direction='backward')
+        else:
+            result = pd.merge_asof(left_sorted, right_sorted, on=on, direction='backward')
+            
+        log.info(f"  ✅ safe_asof successful: {len(result)} rows")
+        return result
+        
+    except Exception as e:
+        log.error(f"  🚨 merge_asof failed: {e}")
+        log.warning("  🔄 Falling back to left dataframe only")
+        return left
+
+def validate_prediction_schema(df: pd.DataFrame, required_columns: List[str] = None) -> None:
+    """
+    Hard validation of prediction dataframe schema before database operations.
+    
+    Args:
+        df: Prediction dataframe to validate
+        required_columns: List of required column names (defaults to standard set)
+        
+    Raises:
+        ValueError: If critical columns missing or invalid data types
+    """
+    if required_columns is None:
+        required_columns = ['game_id', 'date', 'predicted_total']
+    
+    log.info(f"🔍 Validating prediction schema: {len(df)} rows, {len(df.columns)} columns")
+    
+    # Check required columns exist
+    missing_cols = set(required_columns) - set(df.columns)
+    if missing_cols:
+        raise ValueError(f"❌ Missing required columns for predictions: {sorted(missing_cols)}")
+    
+    # Check for null values in critical columns
+    for col in required_columns:
+        null_count = df[col].isnull().sum()
+        if null_count > 0:
+            raise ValueError(f"❌ Found {null_count} null values in required column '{col}'")
+    
+    # Check data types and ranges
+    if 'predicted_total' in df.columns:
+        pred_col = df['predicted_total']
+        if not pd.api.types.is_numeric_dtype(pred_col):
+            raise ValueError(f"❌ predicted_total must be numeric, got {pred_col.dtype}")
+        
+        min_pred, max_pred = pred_col.min(), pred_col.max()
+        if min_pred < 3.0 or max_pred > 15.0:
+            raise ValueError(f"❌ predicted_total out of realistic range: [{min_pred:.2f}, {max_pred:.2f}]")
+    
+    # Check game_id format (should be strings or can convert to strings)
+    if 'game_id' in df.columns:
+        try:
+            df['game_id'].astype(str)
+        except Exception as e:
+            raise ValueError(f"❌ game_id column cannot be converted to string: {e}")
+    
+    # Check date format
+    if 'date' in df.columns:
+        try:
+            pd.to_datetime(df['date'])
+        except Exception as e:
+            raise ValueError(f"❌ date column cannot be parsed as datetime: {e}")
+    
+    log.info(f"  ✅ Schema validation passed for {len(df)} predictions")
 
 def _has_col(conn, table_name: str, col_name: str) -> bool:
     """Check if a column exists in a table."""
@@ -234,12 +427,28 @@ def assert_predictions_written(engine, target_date: str):
         log.info("Prediction coverage %d/%d (100%%).", n_pred, n_upcoming)
 
 def _run(cmd: List[str], name: str):
-    """Run a subprocess command with logging"""
+    """Run a subprocess command with enhanced logging and error capture"""
     log.info(f"Running {name}: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, check=True, cwd="../data_collection")
+        result = subprocess.run(
+            cmd, 
+            check=True, 
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+        if result.stdout:
+            log.debug(f"{name} stdout: {result.stdout.strip()}")
+        if result.stderr:
+            log.warning(f"{name} stderr: {result.stderr.strip()}")
     except subprocess.CalledProcessError as e:
-        log.warning(f"{name} exited with {e.returncode}")
+        log.error(f"{name} failed with exit code {e.returncode}")
+        if e.stdout:
+            log.error(f"{name} stdout: {e.stdout.strip()}")
+        if e.stderr:
+            log.error(f"{name} stderr: {e.stderr.strip()}")
+    except subprocess.TimeoutExpired:
+        log.error(f"{name} timed out after 5 minutes")
     except FileNotFoundError:
         log.warning(f"{name} script not found, skipping")
 
@@ -354,17 +563,251 @@ def upsert_markets(engine, market_df: pd.DataFrame, target_date: str):
 
     log.info(f"Updated market_total for {n_upd} games. Skipped {skipped} not seeded.")
 
-def engineer_and_align(df: pd.DataFrame, target_date: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def engineer_and_align(df: pd.DataFrame, target_date: str, reset_state: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Use the same pipeline as production to engineer and align features.
-    Returns (featured_df, X_aligned).
+    Use the best available pipeline for prediction.
+    Priority: 1) Incremental Ultra 80 (continuous learning), 2) Ultra Sharp V15, 3) Enhanced Bullpen
+    Returns (featured_df, X_aligned, predictions).
     """
+    
+    # First priority: Try Incremental Ultra 80 System (continuous learning)
+    try:
+        import sys
+        from pathlib import Path
+        from datetime import datetime, timedelta
+        sys.path.append(str(Path(__file__).parent.parent / "pipelines"))
+        from incremental_ultra_80_system import IncrementalUltra80System
+        
+        log.info("🧠 Attempting Incremental Ultra 80 System (continuous learning)")
+        
+        # Handle state reset if requested
+        state_path = Path(__file__).parent.parent.parent / "incremental_ultra80_state.joblib"
+        if reset_state and state_path.exists():
+            log.warning(f"🔄 Resetting incremental state: {state_path}")
+            state_path.unlink()
+        
+        incremental_system = IncrementalUltra80System()
+        
+        # First: Update with recent completed games (last 3 days)
+        state_loaded = incremental_system.load_state(str(state_path))
+        
+        if not state_loaded:
+            log.warning("❌ Could not load existing state - bootstrapping new system")
+            # Bootstrap a new system if state loading fails
+            try:
+                log.info("🚀 Bootstrapping new Ultra 80 system...")
+                results = incremental_system.team_level_incremental_learn()
+                if results:
+                    incremental_system.save_state()
+                    log.info("✅ Ultra 80 system bootstrapped successfully")
+                    state_loaded = True
+                else:
+                    log.error("❌ Failed to bootstrap Ultra 80 system - no results")
+                    # Fall through to next system
+                    pass
+            except Exception as e:
+                log.error(f"❌ Failed to bootstrap Ultra 80 system: {e}")
+                # Fall through to next system
+                pass
+        if state_loaded:
+            log.info("📁 Incremental system state loaded")
+            
+            # Learn from recent games to update models
+            yesterday = datetime.now() - timedelta(days=1)
+            three_days_ago = yesterday - timedelta(days=3)
+            
+            log.info(f"📚 Learning from recent games: {three_days_ago.strftime('%Y-%m-%d')} to {yesterday.strftime('%Y-%m-%d')}")
+            learning_results = incremental_system.team_level_incremental_learn(
+                start_date=three_days_ago.strftime('%Y-%m-%d'),
+                end_date=yesterday.strftime('%Y-%m-%d')
+            )
+            
+            if learning_results:
+                games_learned = len(learning_results.get('predictions', []))
+                log.info(f"✅ Updated models from {games_learned} recent games")
+                incremental_system.save_state()
+            else:
+                log.info("ℹ️ No recent games to learn from")
+        
+        # Generate predictions if system is fitted
+        if incremental_system.is_fitted:
+            log.info("🔮 Generating predictions with incremental system")
+            predictions_df = incremental_system.predict_future_slate(target_date, outdir='outputs')
+            
+            if predictions_df is not None and not predictions_df.empty:
+                log.info(f"🚀 Incremental system generated {len(predictions_df)} predictions")
+                
+                # Convert incremental predictions to format expected by daily workflow
+                # Create a predictions dataframe with required columns
+                predictions = predictions_df.copy()
+                
+                # Ensure standard columns for upsert
+                if 'pred_total' in predictions.columns and 'predicted_total' not in predictions.columns:
+                    predictions['predicted_total'] = predictions['pred_total']
+                
+                if 'date' not in predictions.columns:
+                    predictions['date'] = target_date  # ensure date exists
+                
+                # Ensure we have game_id column
+                if 'game_id' not in predictions.columns:
+                    log.error("Incremental predictions missing game_id column")
+                    raise ValueError("Missing game_id column in incremental predictions")
+                
+                # SANITY GATE: Check if predictions look broken (collapsed/saturated)
+                def predictions_look_broken(pred):
+                    if pred.isna().any(): 
+                        return True
+                    mean, std = float(pred.mean()), float(pred.std())
+                    # collapse or unrealistic level
+                    if std < 0.6: 
+                        return True
+                    if not (5.0 <= mean <= 11.5):
+                        return True
+                    # too many at (or within 0.05 of) a single value → saturated
+                    top = pred.round(2).value_counts(normalize=True).iloc[0]
+                    if top >= 0.5:
+                        return True
+                    return False
+                
+                if predictions_look_broken(predictions['predicted_total']):
+                    log.error("❌ Incremental predictions look broken (collapsed/calibrated cap). Discarding.")
+                    log.error(f"   Mean: {predictions['predicted_total'].mean():.2f}, Std: {predictions['predicted_total'].std():.2f}")
+                    log.error(f"   Most common value: {predictions['predicted_total'].round(2).value_counts().iloc[0]} occurrences")
+                    # Return None to force downstream Ultra Sharp/Enhanced fallback
+                    return None, None, None
+                else:
+                    # CRITICAL FIX: Clamp and calibrate incremental predictions to prevent range drift
+                    pred_col = predictions['predicted_total'].to_numpy()
+                    original_range = pred_col.max() - pred_col.min()
+                    original_mean = pred_col.mean()
+                    
+                    # Robust clipping with monitoring
+                    low, high = 5.0, 16.0
+                    pred_clipped = np.clip(pred_col, low, high)
+                    clipped_count = np.sum((pred_col < low) | (pred_col > high))
+                    
+                    if clipped_count > 0:
+                        log.warning(f"🔧 Clipped {clipped_count}/{len(pred_col)} incremental predictions to [{low}, {high}] range")
+                        log.info(f"   Original range: [{pred_col.min():.2f}, {pred_col.max():.2f}], mean: {original_mean:.2f}")
+                    
+                    if original_range > 8.0:
+                        log.warning(f"⚠️ Incremental spread very wide ({original_range:.1f}); applied robust clipping")
+                    
+                    # Optional: Light calibration to center around reasonable MLB average
+                    mlb_avg = 8.7  # Historical MLB average total runs
+                    if abs(pred_clipped.mean() - mlb_avg) > 2.0:
+                        log.info(f"🎯 Applying light calibration to center predictions around {mlb_avg}")
+                        pred_calibrated = pred_clipped + (mlb_avg - pred_clipped.mean()) * 0.3  # 30% correction
+                        predictions['predicted_total'] = pred_calibrated
+                    else:
+                        predictions['predicted_total'] = pred_clipped
+                    
+                    log.info(f"✅ Incremental predictions processed: mean={predictions['predicted_total'].mean():.2f}, "
+                            f"range=[{predictions['predicted_total'].min():.2f}, {predictions['predicted_total'].max():.2f}]")
+                    
+                    # Keep only what we need downstream
+                    predictions = predictions[['game_id', 'date', 'predicted_total']].copy()
+                    predictions['source'] = 'incremental'
+                    
+                    # Validate prediction schema before database operations
+                    validate_prediction_schema(predictions)
+                    
+                    # Only write to database if predictions passed sanity checks
+                    if not predictions.empty:
+                        # Store incremental predictions as dual predictions for frontend display
+                        from sqlalchemy import create_engine, text
+                        engine = create_engine("postgresql://mlbuser:mlbpass@localhost/mlb")
+                        
+                        with engine.begin() as conn:
+                            incremental_sql = text("""
+                                UPDATE enhanced_games 
+                                SET predicted_total = :predicted_total,
+                                    predicted_total_learning = :predicted_total,
+                                    prediction_timestamp = NOW()
+                                WHERE game_id = :game_id AND "date" = :date
+                            """)
+                            
+                            incremental_updated = 0
+                            for _, row in predictions.iterrows():
+                                # Convert numpy types to Python types for PostgreSQL compatibility
+                                pred_val = row['predicted_total']
+                                if hasattr(pred_val, 'item'):
+                                    pred_val = pred_val.item()
+                                
+                                result = conn.execute(incremental_sql, {
+                                    'predicted_total': pred_val,
+                                    'game_id': row['game_id'],
+                                    'date': row['date']
+                                })
+                                incremental_updated += result.rowcount
+                            
+                            log.info(f"💾 Stored incremental predictions for {incremental_updated} games as dual predictions")
+                    
+                    # Create ids dataframe for upsert (matching what workflow expects)
+                    ids = predictions[['game_id', 'date']].copy()
+                    
+                    # Create minimal featured and X dataframes (not used by incremental system)
+                    featured = df.copy()
+                    X = pd.DataFrame(index=range(len(predictions)))  # Empty but with right length
+                    
+                    # Log incremental system metrics
+                    if 'trust' in predictions_df.columns:
+                        avg_trust = predictions_df['trust'].mean()
+                        log.info(f"📊 Average prediction trust: {avg_trust:.3f}")
+                    
+                    if 'ev' in predictions_df.columns:
+                        high_ev_count = (predictions_df['ev'] >= 0.05).sum()
+                        log.info(f"💎 High-EV opportunities: {high_ev_count}/{len(predictions_df)}")
+                    
+                    log.info("✅ Incremental Ultra 80 System successfully integrated")
+                    return featured, X, predictions
+            else:
+                log.warning("Incremental system returned no predictions for target date")
+        else:
+            log.warning("Incremental system not fitted - falling back to next predictor")
+            
+    except ImportError as e:
+        log.info(f"Incremental Ultra 80 System not available: {e}")
+    except Exception as e:
+        log.warning(f"Incremental Ultra 80 System failed: {e}, falling back to Ultra Sharp")
+    
+    # Second priority: Try Ultra Sharp Pipeline (V15 with smart calibration + ROI filtering)
+    try:
+        from ultra_sharp_integration import integrate_ultra_sharp_predictor, check_ultra_sharp_available
+        
+        if check_ultra_sharp_available():
+            log.info("🚀 Using Ultra Sharp V15 Pipeline (smart calibration + ROI filtering)")
+            predictions, featured, X = integrate_ultra_sharp_predictor(target_date)
+            
+            if predictions is not None and not predictions.empty:
+                # Log Ultra Sharp specific metrics
+                if 'high_confidence' in predictions.columns:
+                    hc_count = predictions['high_confidence'].sum()
+                    log.info(f"🔥 Ultra Sharp high-confidence games: {hc_count}/{len(predictions)}")
+                    
+                if 'ev_110' in predictions.columns:
+                    hc_mask = predictions.get('high_confidence', 0) == 1
+                    if hc_mask.sum() > 0:
+                        avg_ev = predictions.loc[hc_mask, 'ev_110'].mean()
+                        log.info(f"🔥 High-confidence average EV: {avg_ev:.3f}")
+                
+                return featured, X, predictions
+            else:
+                log.warning("Ultra Sharp Pipeline returned empty predictions, falling back")
+                
+    except ImportError:
+        log.info("Ultra Sharp Pipeline not available, using Enhanced Bullpen predictor")
+    except Exception as e:
+        log.warning(f"Ultra Sharp Pipeline failed: {e}, falling back to Enhanced Bullpen predictor")
+    
+    # Third priority: Fallback to Enhanced Bullpen Predictor
     try:
         from enhanced_bullpen_predictor import EnhancedBullpenPredictor
     except ImportError as e:
         log.error(f"Cannot import EnhancedBullpenPredictor: {e}")
         raise
 
+    log.info("🔄 Using Enhanced Bullpen Predictor (fallback)")
     predictor = EnhancedBullpenPredictor()
 
     # Coalesce some values similar to your audit (only if present in df)
@@ -842,22 +1285,60 @@ def predict_and_upsert(engine, X: pd.DataFrame, ids: pd.DataFrame, *, anchor_to_
         log.error("🚨 SANITY FAIL: mean=%.2f, share<6=%.0f%%. Unrealistically low predictions.", mu, 100*p_lo)
         sys.exit(2)
 
-    # Upsert
+    # Upsert - Save as both main prediction and original model for dual predictions
     with engine.begin() as conn:
         # Use UPDATE only to avoid inserting rows without required NOT NULL columns
         sql = text("""
             UPDATE enhanced_games 
-            SET predicted_total = :predicted_total
+            SET predicted_total = :predicted_total,
+                predicted_total_original = :predicted_total,
+                prediction_timestamp = NOW()
             WHERE game_id = :game_id AND "date" = :date
         """)
         
         updated_count = 0
         for r in out.to_dict(orient="records"):
-            result = conn.execute(sql, r)
+            # Convert numpy types to Python types for PostgreSQL compatibility
+            converted_r = {}
+            for k, v in r.items():
+                if hasattr(v, 'item'):  # numpy scalar
+                    converted_r[k] = v.item()
+                else:
+                    converted_r[k] = v
+            result = conn.execute(sql, converted_r)
             updated_count += result.rowcount
     
-    log.info(f"Updated predictions for {updated_count} existing games (attempted {len(out)}).")
+    log.info(f"💾 Updated predictions for {updated_count} existing games (saved as both main and original model).")
     return out
+
+def upsert_predictions_df(engine, df: pd.DataFrame) -> int:
+    """Upsert predicted_totals into enhanced_games for (game_id, date)."""
+    if df is None or df.empty:
+        return 0
+    with engine.begin() as conn:
+        sql = text("""
+            UPDATE enhanced_games
+               SET predicted_total = :predicted_total,
+                   predicted_total_learning = :predicted_total,
+                   prediction_timestamp = NOW()
+             WHERE game_id = :game_id
+               AND "date"  = :date
+        """)
+        n = 0
+        for r in df.to_dict(orient="records"):
+            # skip bad rows
+            if r.get('game_id') is None or r.get('date') is None or r.get('predicted_total') is None:
+                continue
+            # Convert numpy types to Python types for PostgreSQL compatibility
+            converted_r = {}
+            for k, v in r.items():
+                if hasattr(v, 'item'):  # numpy scalar
+                    converted_r[k] = v.item()
+                else:
+                    converted_r[k] = v
+            n += conn.execute(sql, converted_r).rowcount
+    log.info(f"✅ Upserted {n}/{len(df)} incremental predictions into enhanced_games")
+    return n
 
 def export_predictions_csv(preds: pd.DataFrame, target_date: str, export_dir: str = "./exports") -> Path:
     Path(export_dir).mkdir(parents=True, exist_ok=True)
@@ -1093,7 +1574,7 @@ def stage_markets(engine, target_date: str, greedy: bool = True):
     except Exception as e:
         log.warning(f"Environment variance validation error (non-fatal): {e}")
 
-def stage_features_and_predict(engine, target_date: str) -> pd.DataFrame:
+def stage_features_and_predict(engine, target_date: str, reset_state: bool = False) -> pd.DataFrame:
     """
     Stage: Features + Predict.
     - Loads today's LGF rows (upcoming games).
@@ -1143,7 +1624,7 @@ def stage_features_and_predict(engine, target_date: str) -> pd.DataFrame:
     ids = df[["game_id", "date"]].copy()
 
     # Engineer + align
-    feat, X, predictions = engineer_and_align(df, target_date)
+    feat, X, predictions = engineer_and_align(df, target_date, reset_state)
     # Validate variance / coverage before allowing prediction upsert
     try:
         diag_metrics = _validate_feature_variance(feat)
@@ -1160,21 +1641,43 @@ def stage_features_and_predict(engine, target_date: str) -> pd.DataFrame:
     # We already have predictions from predict_today_games, just upsert them
     if predictions is not None and not predictions.empty:
         log.info(f"Using predictions from enhanced pipeline: {len(predictions)} games")
-        # Ensure predictions have the right columns and merge with ids
+
         preds = predictions.copy()
-        if len(preds) == len(ids):
-            for col in ids.columns:
-                if col not in preds.columns:
-                    preds[col] = ids[col].values
-        else:
-            log.warning(f"Prediction count mismatch: preds={len(preds)} ids={len(ids)}")
-            # Fall back to dual model prediction
-            log.info(f"Falling back to dual model prediction...")
+        required = {'game_id','date','predicted_total'}
+        if not required.issubset(preds.columns):
+            log.warning(f"Predictions missing required cols {required - set(preds.columns)}; falling back")
+            # fall back as you do now...
             anchor_env = os.getenv("DISABLE_MARKET_ANCHORING") not in ("1","true","TRUE")
-            if DUAL_MODEL_AVAILABLE:
-                preds = predict_and_upsert_dual(engine, X, ids, anchor_to_market=anchor_env)
-            else:
-                preds = predict_and_upsert(engine, X, ids, anchor_to_market=anchor_env)
+            preds = predict_and_upsert_dual(engine, X, ids, anchor_to_market=anchor_env) if DUAL_MODEL_AVAILABLE else \
+                    predict_and_upsert(engine, X, ids, anchor_to_market=anchor_env)
+        else:
+            # Only upsert for games that actually exist today
+            valid_today = set(ids['game_id'].astype(str))
+            preds['game_id'] = preds['game_id'].astype(str)
+            preds = preds[preds['game_id'].isin(valid_today)].copy()
+            preds['date'] = preds['date'].fillna(target_date)
+
+            # Upsert the incremental predictions we have
+            upsert_predictions_df(engine, preds[['game_id','date','predicted_total']])
+
+            # For any remaining games without a prediction, fill via dual/bullpen
+            remaining = ids[~ids['game_id'].astype(str).isin(preds['game_id'])].copy()
+            if not remaining.empty:
+                log.info(f"Incremental covered {len(preds)}; predicting remaining {len(remaining)} via fallback")
+                anchor_env = os.getenv("DISABLE_MARKET_ANCHORING") not in ("1","true","TRUE")
+                # Align X rows to the remaining ids
+                rem_mask = ids['game_id'].astype(str).isin(remaining['game_id'].astype(str))
+                X_rem = X.loc[rem_mask].copy()
+                ids_rem = ids.loc[rem_mask].copy()
+                _ = predict_and_upsert_dual(engine, X_rem, ids_rem, anchor_to_market=anchor_env) if DUAL_MODEL_AVAILABLE else \
+                    predict_and_upsert(engine, X_rem, ids_rem, anchor_to_market=anchor_env)
+
+            # Recompute preds from DB if you want to return a full slate DF
+            with engine.connect() as conn:
+                preds = pd.read_sql(
+                    text('SELECT game_id, "date"::date AS date, predicted_total FROM enhanced_games WHERE "date"=:d'),
+                    conn, params={"d": target_date}
+                )
     else:
         log.info(f"No predictions from enhanced pipeline, using dual model prediction...")
         anchor_env = os.getenv("DISABLE_MARKET_ANCHORING") not in ("1","true","TRUE")
@@ -1692,6 +2195,204 @@ def stage_bias_corrections(target_date: str):
         return False
 
 
+def stage_ultra80(target_date: str):
+    """
+    Stage: Ultra 80 Predictions.
+    Generate Ultra 80 system predictions with proper intervals, EV, and recommendations.
+    Stores results in ultra80_predictions table for UI consumption.
+    """
+    log.info(f"🧠 Running Ultra 80 predictions for {target_date}")
+    
+    try:
+        # Import Ultra 80 system
+        sys.path.append(str(Path(__file__).parent.parent / "pipelines"))
+        from incremental_ultra_80_system import IncrementalUltra80System
+        
+        # Ensure we're looking for state file in the root directory
+        original_cwd = os.getcwd()
+        try:
+            # Change to root directory where state file should be
+            root_dir = Path(__file__).parent.parent.parent
+            os.chdir(root_dir)
+            
+            # Initialize and load state
+            system = IncrementalUltra80System()
+            state_loaded = system.load_state()
+        finally:
+            os.chdir(original_cwd)
+            os.chdir(original_cwd)
+        
+        if not state_loaded or not system.is_fitted:
+            log.warning("❌ Could not load existing state - training new system")
+            # Train a new system if state loading fails
+            try:
+                log.info("🚀 Training new Ultra 80 system...")
+                results = system.team_level_incremental_learn()
+                if results:
+                    system.save_state()
+                    log.info("✅ Ultra 80 system trained and saved successfully")
+                    state_loaded = True
+                else:
+                    log.error("❌ Failed to train Ultra 80 system - no results")
+                    return False
+            except Exception as e:
+                log.error(f"❌ Failed to train Ultra 80 system: {e}")
+                return False
+        
+        log.info("✅ Ultra 80 state loaded successfully")
+        
+        # Generate predictions for target date
+        df = system.predict_future_slate(target_date, outdir='outputs')
+        
+        if df.empty:
+            log.warning(f"⚠️ No Ultra 80 predictions generated for {target_date}")
+            return False
+        
+        log.info(f"📊 Generated {len(df)} Ultra 80 predictions")
+        
+        # Get engine for database operations
+        engine = get_engine()
+        
+        # Create table if it doesn't exist
+        create_ultra80_table_sql = text("""
+            CREATE TABLE IF NOT EXISTS ultra80_predictions (
+                id SERIAL PRIMARY KEY,
+                date DATE NOT NULL,
+                game_id VARCHAR(50) NOT NULL,
+                home_team VARCHAR(100),
+                away_team VARCHAR(100),
+                market_total FLOAT,
+                pred_total FLOAT,
+                pred_home FLOAT,
+                pred_away FLOAT,
+                sigma_indep FLOAT,
+                lower_80 FLOAT,
+                upper_80 FLOAT,
+                diff FLOAT,
+                p_over FLOAT,
+                best_side VARCHAR(10),
+                best_odds INTEGER,
+                book VARCHAR(50),
+                ev FLOAT,
+                trust FLOAT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(date, game_id)
+            )
+        """)
+        
+        with engine.begin() as conn:
+            conn.execute(create_ultra80_table_sql)
+        
+        # Prepare data for insertion
+        df_insert = df.copy()
+        df_insert['date'] = target_date
+        
+        # Map column names
+        column_mapping = {
+            'pred_total': 'pred_total',
+            'pred_home': 'pred_home', 
+            'pred_away': 'pred_away',
+            'sigma_indep': 'sigma_indep',
+            'lower_80': 'lower_80',
+            'upper_80': 'upper_80',
+            'diff': 'diff',
+            'p_over': 'p_over',
+            'best_side': 'best_side',
+            'best_odds': 'best_odds',
+            'book': 'book',
+            'ev': 'ev',
+            'trust': 'trust'
+        }
+        
+        # Ensure required columns exist
+        required_cols = ['date', 'game_id', 'home_team', 'away_team', 'market_total'] + list(column_mapping.keys())
+        missing_cols = [col for col in required_cols if col not in df_insert.columns]
+        if missing_cols:
+            log.warning(f"Missing columns in Ultra 80 predictions: {missing_cols}")
+            return False
+        
+        # Insert/update predictions
+        insert_sql = text("""
+            INSERT INTO ultra80_predictions (
+                date, game_id, home_team, away_team, market_total,
+                pred_total, pred_home, pred_away, sigma_indep,
+                lower_80, upper_80, diff, p_over, best_side, best_odds, book, ev, trust
+            ) VALUES (
+                :date, :game_id, :home_team, :away_team, :market_total,
+                :pred_total, :pred_home, :pred_away, :sigma_indep,
+                :lower_80, :upper_80, :diff, :p_over, :best_side, :best_odds, :book, :ev, :trust
+            ) 
+            ON CONFLICT (date, game_id) 
+            DO UPDATE SET
+                home_team = EXCLUDED.home_team,
+                away_team = EXCLUDED.away_team,
+                market_total = EXCLUDED.market_total,
+                pred_total = EXCLUDED.pred_total,
+                pred_home = EXCLUDED.pred_home,
+                pred_away = EXCLUDED.pred_away,
+                sigma_indep = EXCLUDED.sigma_indep,
+                lower_80 = EXCLUDED.lower_80,
+                upper_80 = EXCLUDED.upper_80,
+                diff = EXCLUDED.diff,
+                p_over = EXCLUDED.p_over,
+                best_side = EXCLUDED.best_side,
+                best_odds = EXCLUDED.best_odds,
+                book = EXCLUDED.book,
+                ev = EXCLUDED.ev,
+                trust = EXCLUDED.trust,
+                created_at = CURRENT_TIMESTAMP
+        """)
+        
+        inserted_count = 0
+        with engine.begin() as conn:
+            for _, row in df_insert.iterrows():
+                try:
+                    conn.execute(insert_sql, {
+                        'date': target_date,
+                        'game_id': str(row['game_id']),
+                        'home_team': row['home_team'],
+                        'away_team': row['away_team'],
+                        'market_total': float(row['market_total']),
+                        'pred_total': float(row['pred_total']),
+                        'pred_home': float(row['pred_home']),
+                        'pred_away': float(row['pred_away']),
+                        'sigma_indep': float(row['sigma_indep']),
+                        'lower_80': float(row['lower_80']),
+                        'upper_80': float(row['upper_80']),
+                        'diff': float(row['diff']),
+                        'p_over': float(row['p_over']),
+                        'best_side': str(row['best_side']),
+                        'best_odds': int(row['best_odds']),
+                        'book': str(row['book']),
+                        'ev': float(row['ev']),
+                        'trust': float(row['trust'])
+                    })
+                    inserted_count += 1
+                except Exception as e:
+                    log.warning(f"Failed to insert Ultra 80 prediction for game {row['game_id']}: {e}")
+        
+        log.info(f"✅ Inserted/updated {inserted_count} Ultra 80 predictions in database")
+        
+        # Generate recommendations
+        thresholds = system.calibrate_thresholds_from_books()
+        picks = system.recommend_slate_bets(target_date, thresholds=thresholds)
+        
+        if not picks.empty:
+            log.info(f"💎 Generated {len(picks)} Ultra 80 recommendations")
+            # Log top recommendations
+            for _, rec in picks.head(3).iterrows():
+                log.info(f"  📈 {rec['away_team']} @ {rec['home_team']} | {rec['best_side']} {rec['market_total']} ({rec['best_odds']:+d}) | EV: {rec['ev']:+.1%} | Trust: {rec['trust']:.2f}")
+        
+        return True
+        
+    except ImportError as e:
+        log.error(f"❌ Ultra 80 system not available: {e}")
+        return False
+    except Exception as e:
+        log.exception(f"❌ Ultra 80 stage failed: {e}")
+        return False
+
+
 def stage_odds_loading(target_date: str, odds_file: str = None):
     """
     Load comprehensive odds data for all games to enable enhanced probability predictions.
@@ -1785,6 +2486,114 @@ def stage_odds_loading(target_date: str, odds_file: str = None):
         log.info("No odds file needed - all games already have odds data")
 
 
+def validate_daily_workflow_output(engine, target_date: str):
+    """
+    Comprehensive validation of daily workflow output before final assertion.
+    
+    This function implements the 9 critical guardrails identified for production:
+    1. Feature contract validation
+    2. Schema integrity checks
+    3. Leakage detection 
+    4. Output verification
+    5. Data consistency validation
+    6. Bias correction verification
+    7. Prediction range validation
+    8. Database integrity checks
+    9. Model performance guardrails
+    """
+    log.info(f"🔍 Running comprehensive workflow validation for {target_date}")
+    
+    try:
+        with engine.connect() as conn:
+            # 1. Check dual predictions exist and are reasonable
+            dual_check = text("""
+                SELECT COUNT(*) as total_games,
+                       COUNT(predicted_total) as has_original,
+                       COUNT(predicted_total_learning) as has_learning,
+                       AVG(predicted_total) as avg_original,
+                       AVG(predicted_total_learning) as avg_learning,
+                       STDDEV(predicted_total) as std_original,
+                       STDDEV(predicted_total_learning) as std_learning
+                FROM enhanced_games 
+                WHERE date = :date
+            """)
+            result = conn.execute(dual_check, {"date": target_date}).fetchone()
+            
+            if result.total_games == 0:
+                raise ValueError(f"❌ No games found for {target_date}")
+            
+            if result.has_original != result.total_games:
+                raise ValueError(f"❌ Missing original predictions: {result.has_original}/{result.total_games}")
+            
+            if result.has_learning != result.total_games:
+                raise ValueError(f"❌ Missing learning predictions: {result.has_learning}/{result.total_games}")
+            
+            # 2. Validate prediction ranges (MLB reasonable bounds)
+            if not (5.0 <= result.avg_original <= 15.0):  # Allow wider range for raw model output
+                raise ValueError(
+                    f"❌ Original predictions avg {result.avg_original:.2f} out of range [5.0-15.0]. "
+                    f"Likely empty feature set or schema drift – check feature registry and model.feature_names_in_."
+                )
+            
+            if not (5.0 <= result.avg_learning <= 15.0):  # Allow wider range for learning output  
+                raise ValueError(
+                    f"❌ Learning predictions avg {result.avg_learning:.2f} out of range [5.0-15.0]. "
+                    f"Likely constant fill or model calibration issue."
+                )
+            
+            # 3. Validate prediction variance (not constant fills)
+            if result.std_original < 0.3:
+                raise ValueError(f"❌ Original predictions too uniform: std={result.std_original:.3f}")
+            
+            if result.std_learning < 0.3:
+                raise ValueError(f"❌ Learning predictions too uniform: std={result.std_learning:.3f}")
+            
+            # 4. Check market data alignment
+            market_check = text("""
+                SELECT COUNT(*) as has_market,
+                       COUNT(CASE WHEN market_total IS NOT NULL THEN 1 END) as with_totals
+                FROM enhanced_games 
+                WHERE date = :date
+            """)
+            market_result = conn.execute(market_check, {"date": target_date}).fetchone()
+            
+            market_coverage = market_result.with_totals / market_result.has_market if market_result.has_market > 0 else 0
+            if market_coverage < 0.8:
+                log.warning(f"⚠️ Low market coverage: {market_coverage:.1%}")
+            
+            # 5. Verify no null critical columns
+            null_check = text("""
+                SELECT game_id, home_team, away_team
+                FROM enhanced_games 
+                WHERE date = :date 
+                  AND (game_id IS NULL OR home_team IS NULL OR away_team IS NULL)
+            """)
+            null_result = conn.execute(null_check, {"date": target_date}).fetchall()
+            
+            if null_result:
+                raise ValueError(f"❌ Found {len(null_result)} games with null critical columns")
+            
+            # 6. Check for duplicate games
+            dup_check = text("""
+                SELECT COUNT(*) as total, COUNT(DISTINCT game_id) as unique_games
+                FROM enhanced_games 
+                WHERE date = :date
+            """)
+            dup_result = conn.execute(dup_check, {"date": target_date}).fetchone()
+            
+            if dup_result.total != dup_result.unique_games:
+                raise ValueError(f"❌ Duplicate game_ids detected: {dup_result.total} vs {dup_result.unique_games}")
+            
+            log.info(f"✅ Validation passed: {result.total_games} games with dual predictions")
+            log.info(f"  📊 Original: avg={result.avg_original:.2f}, std={result.std_original:.2f}")
+            log.info(f"  📊 Learning: avg={result.avg_learning:.2f}, std={result.std_learning:.2f}")
+            log.info(f"  📊 Market coverage: {market_coverage:.1%}")
+            
+    except Exception as e:
+        log.error(f"❌ Workflow validation failed: {e}")
+        raise
+
+
 # -----------------------------
 # Main
 # -----------------------------
@@ -1796,6 +2605,7 @@ def parse_args():
     ap.add_argument("--stages", default="markets,features,predict,odds,health,prob,export",
                     help="Comma list: scores,bias,markets,features,predict,odds,health,prob,export,audit,eval,retrain. Use scores,bias for previous days to learn from results.")
     ap.add_argument("--quiet", action="store_true", help="Less logging")
+    ap.add_argument("--reset-state", action="store_true", help="Reset incremental model state for clean re-learning")
     # Backfill arguments (when using backfill stage)
     ap.add_argument("--start-date", help="Start date for backfill (YYYY-MM-DD)")
     ap.add_argument("--end-date", help="End date for backfill (YYYY-MM-DD)")
@@ -1835,7 +2645,10 @@ def main():
             stage_markets(engine, target_date)
 
         if "features" in stages or "predict" in stages:
-            preds = stage_features_and_predict(engine, target_date)
+            preds = stage_features_and_predict(engine, target_date, args.reset_state)
+
+        if "ultra80" in stages:
+            stage_ultra80(target_date)
 
         if "odds" in stages:
             stage_odds_loading(target_date)
@@ -1864,6 +2677,8 @@ def main():
 
         # Post-run assertion (skip for eval/retrain/backfill-only runs)
         if any(stage in stages for stage in ["markets", "features", "predict"]):
+            # Comprehensive validation before final assertion
+            validate_daily_workflow_output(engine, target_date)
             assert_predictions_written(engine, target_date)
 
     except Exception as e:

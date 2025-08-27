@@ -622,7 +622,8 @@ class IncrementalUltra80System:
 
         # --- Park factors (parks table or EG fallback) ---
         pf_runs  = row.get('park_pf_runs_3y')
-        if pf_runs is None or not np.isfinite(float(pf_runs or 0)):
+        pf_original_missing = pf_runs is None or not np.isfinite(float(pf_runs or 0))
+        if pf_original_missing:
             pf_runs = _to_float(row.get('eg_ballpark_run_factor', 1.0), 1.0)
         else:
             pf_runs = _to_float(pf_runs, 1.0)
@@ -632,6 +633,10 @@ class IncrementalUltra80System:
         f['park_altitude_kft'] = altitude / 1000.0
         roof               = str(row.get('park_roof_type', '') or '').lower()
         f['park_roof_closed'] = 1.0 if roof in ('dome', 'closed', 'fixed') else 0.0
+
+        # --- Missing data flags (before any imputation) ---
+        f['flag_missing_park'] = int(pf_original_missing and row.get('eg_ballpark_run_factor') is None)
+        f['flag_missing_vs_splits'] = int(row.get('home_vs_rhp_xwoba') is None or row.get('away_vs_lhp_xwoba') is None)
 
         # --- Pitchers (as-of roll -> season -> default) ---
         def _pitcher_block(prefix: str):
@@ -826,8 +831,14 @@ class IncrementalUltra80System:
             q = prior_q
         else:
             recent = zbuf[-self.conformal_window:] if len(zbuf) > self.conformal_window else zbuf
-            # use the 0.80 quantile for 80% two-sided coverage on |res|
-            q_emp = float(np.quantile(recent, self.coverage_target))  # 0.80
+            # finite-sample conformal adjustment
+            n = len(recent)
+            if n >= 1:
+                alpha = 1 - self.coverage_target  # 0.20
+                k = int(np.ceil((n + 1) * (1 - alpha)))  # order statistic
+                q_emp = float(np.partition(recent, k-1)[k-1]) if k <= n else float(np.max(recent))
+            else:
+                q_emp = prior_q
             q = 0.6 * q_emp + 0.4 * prior_q
             q = float(np.clip(q, 1.1, 3.0))
 
@@ -872,9 +883,11 @@ class IncrementalUltra80System:
             agree = float(np.clip(1.0 - abs((rf_total - sgd_total)) / 1.4, 0.0, 1.0))
         return 0.35*var + 0.25*width + 0.25*dens + 0.15*agree
 
-    def _best_totals_odds_for_game(self, game_id: str, game_date, preferred_books: Optional[List[str]] = None) -> dict:
+    def _best_totals_odds_for_game(self, game_id: str, game_date, preferred_books: Optional[List[str]] = None,
+                                   target_total: Optional[float] = None, tol: float = 1e-6) -> dict:
         """
         Return best OVER/UNDER odds for this game_id/date; restrict to preferred_books if provided.
+        If target_total is specified, match odds to that line (± tolerance).
         Fallback to -110 if none found.
         """
         try:
@@ -892,9 +905,22 @@ class IncrementalUltra80System:
                 if df.empty:
                     return {'over_odds': -110, 'under_odds': -110, 'book_over': 'N/A', 'book_under': 'N/A'}
 
-            # pick the *best* (highest) over and under odds within the filter
-            over_row = df.loc[df['over_odds'].astype(int).idxmax()]
-            under_row = df.loc[df['under_odds'].astype(int).idxmax()]
+            # ensure float
+            df['total'] = pd.to_numeric(df['total'], errors='coerce')
+
+            if target_total is not None and np.isfinite(target_total):
+                mask = (df['total'] - float(target_total)).abs() <= tol
+                df_match = df[mask]
+                if df_match.empty:
+                    # closest available total
+                    df['gap'] = (df['total'] - float(target_total)).abs()
+                    df_match = df.sort_values('gap').head(1)
+            else:
+                df_match = df  # fallback
+
+            # pick the *best* (highest) over and under odds within the matched subset
+            over_row = df_match.loc[df_match['over_odds'].astype(int).idxmax()]
+            under_row = df_match.loc[df_match['under_odds'].astype(int).idxmax()]
             return {
                 'over_odds': int(over_row['over_odds']),
                 'under_odds': int(under_row['under_odds']),
@@ -1077,7 +1103,7 @@ class IncrementalUltra80System:
                 ""
             ]
 
-        path.write_text("\n".join(lines))
+        path.write_text("\n".join(lines), encoding='utf-8')
         print(f"🧾 One-pager: {path}")
         return str(path)
 
@@ -1167,7 +1193,8 @@ class IncrementalUltra80System:
                       bankroll: float = 100.0,   # paper bankroll
                       max_bet: float = 200.0,      # stake cap
                       outdir: str = 'outputs',
-                      tag: str = 'bets') -> pd.DataFrame:
+                      tag: str = 'bets',
+                      live_only: bool = False) -> pd.DataFrame:
         """
         Use the isotonic calibrator to map (pred_total - market_total) -> P(Over),
         then compute EV for Over and Under at best available odds from totals_odds.
@@ -1177,6 +1204,12 @@ class IncrementalUltra80System:
         if df_preds is None or df_preds.empty:
             print("⚠️  No predictions to simulate bets.")
             return pd.DataFrame()
+
+        # Check if this is backtest data (has actual outcomes)
+        has_actuals = 'actual_total' in df_preds.columns and df_preds['actual_total'].notna().any()
+        if has_actuals and not live_only:
+            print("⚠️  WARNING: simulate_bets() on historical data with actuals is not fair backtest.")
+            print("   Use simulate_bets_chrono() for historical evaluation to avoid look-ahead bias.")
 
         rows = []
         equity = bankroll
@@ -1196,8 +1229,8 @@ class IncrementalUltra80System:
             p_over = float(self.prob_cal.predict(diff, feats={}, sigma=1.0, market_total=market_total))
             p_under = 1.0 - p_over
 
-            # Odds (best across books today)
-            odds = self._best_totals_odds_for_game(str(game_id), date, self.preferred_books)
+            # Odds (best across books today) - match to the target line being evaluated
+            odds = self._best_totals_odds_for_game(str(game_id), date, self.preferred_books, target_total=market_total)
             over_odds  = odds['over_odds']
             under_odds = odds['under_odds']
 
@@ -1346,8 +1379,6 @@ class IncrementalUltra80System:
             print(f"⚠️  No upcoming games found for {target_date}")
             return games
 
-        # recent past-only isotonic for live EV
-        iso = self._recent_iso(n=800)
         rows = []
 
         for _, g in games.iterrows():
@@ -1393,7 +1424,7 @@ class IncrementalUltra80System:
             p_over = float(self.prob_cal.predict(diff, feats, sigma_adj, market_total))
 
             trust = self._trust_score(sigma_adj, margin, diff, sgd_total, rf_total)
-            odds = self._best_totals_odds_for_game(str(g['game_id']), g['date'], self.preferred_books)
+            odds = self._best_totals_odds_for_game(str(g['game_id']), g['date'], self.preferred_books, target_total=market_total)
             dec_over  = self._american_to_decimal(odds['over_odds'])
             dec_under = self._american_to_decimal(odds['under_odds'])
             ev_over   = p_over*(dec_over-1.0) - (1.0 - p_over)
@@ -1539,13 +1570,9 @@ class IncrementalUltra80System:
                 + self.var_boost['heat'] * hot
             )
 
-            # Defensive widening when key features are missing
-            missing_penalty = 1.0
-            if feats.get('park_pf_runs', 1.0) == 1.0 and feats.get('park_altitude_kft', 0.0) == 0.0:
-                missing_penalty += 0.06    # park unknown
-            if np.isnan(feats.get('home_vs_rhp_xwoba', np.nan)) or np.isnan(feats.get('away_vs_lhp_xwoba', np.nan)):
-                missing_penalty += 0.04    # vs-hand splits missing
-            sigma_adj *= missing_penalty
+            # Defensive widening when key features are missing (using pre-imputation flags)
+            sigma_adj *= (1.0 + 0.06 * feats.get('flag_missing_park', 0.0)
+                              + 0.04 * feats.get('flag_missing_vs_splits', 0.0))
 
             # Market total for context-aware conformal
             market_total = feats.get('market_total', 9.0)
@@ -1560,7 +1587,7 @@ class IncrementalUltra80System:
                 upper = lower + 30.0
 
             # Market signal & ROI tracking (stricter edge gate for profitability)
-            self._update_prob_calibration(total_pred, market_total, _to_float(row['total_runs']), feats, sigma_adj)
+            # BEFORE any updates for this game - compute p_over_est to prevent leakage
             p_over_est = self.prob_cal.predict(total_pred - market_total, feats, sigma_adj, float(market_total))
             edge = float(p_over_est - 0.5)
             EDGE_MIN = 0.05  # Stricter threshold for betting
@@ -1621,6 +1648,10 @@ class IncrementalUltra80System:
 
             # Update team aggregates after game
             self.update_team_stats(row)
+
+            # AFTER everything for this game settles: Update calibrators
+            self._update_prob_calibration(total_pred, market_total, actual_total, feats, sigma_adj)
+            self._update_market_calibration(total_pred, market_total, actual_total)
 
             # Progress ping every 200
             if (i + 1) % 200 == 0:
@@ -1754,8 +1785,8 @@ class IncrementalUltra80System:
             # gentle slope; roughly ±2.5 runs ~ ±0.5 prob swing
             return float(np.clip(0.5 + diff / 5.0, 0.1, 0.9))
 
-        # helper: best odds for this game/date (or -110)
-        def best_odds(gid, d):
+        # helper: best odds for this game/date (or -110) matching target total
+        def best_odds(gid, d, target_total=None):
             try:
                 q = text("""
                     SELECT book, total, over_odds, under_odds
@@ -1765,8 +1796,22 @@ class IncrementalUltra80System:
                 tdf = pd.read_sql(q, self.engine, params={'gid': str(gid), 'd': pd.to_datetime(d).date()})
                 if tdf.empty:
                     return -110, -110, 'N/A', 'N/A'
-                over_row = tdf.loc[tdf['over_odds'].astype(int).idxmax()]
-                under_row = tdf.loc[tdf['under_odds'].astype(int).idxmax()]
+                    
+                # ensure float
+                tdf['total'] = pd.to_numeric(tdf['total'], errors='coerce')
+                
+                if target_total is not None and np.isfinite(target_total):
+                    mask = (tdf['total'] - float(target_total)).abs() <= 1e-6
+                    tdf_match = tdf[mask]
+                    if tdf_match.empty:
+                        # closest available total
+                        tdf['gap'] = (tdf['total'] - float(target_total)).abs()
+                        tdf_match = tdf.sort_values('gap').head(1)
+                else:
+                    tdf_match = tdf  # fallback
+                    
+                over_row = tdf_match.loc[tdf_match['over_odds'].astype(int).idxmax()]
+                under_row = tdf_match.loc[tdf_match['under_odds'].astype(int).idxmax()]
                 return int(over_row['over_odds']), int(under_row['under_odds']), str(over_row['book']), str(under_row['book'])
             except Exception:
                 return -110, -110, 'N/A', 'N/A'
@@ -1812,8 +1857,9 @@ class IncrementalUltra80System:
             p_over = 0.5 + (p_raw - 0.5) * shrink_final
             p_under = 1.0 - p_over
 
-            # odds
-            over_odds, under_odds, book_over, book_under = best_odds(r.get('game_id', ''), r['date'])
+            # odds - match to the target line being evaluated
+            market_total = float(r.get('market_total', 9.0))
+            over_odds, under_odds, book_over, book_under = best_odds(r.get('game_id', ''), r['date'], target_total=market_total)
 
             # EVs
             ev_over  = ev_roi(p_over,  over_odds)
@@ -1986,8 +2032,11 @@ class IncrementalUltra80System:
         for k, v in feats.items():
             if v is None or (isinstance(v, float) and not np.isfinite(v)):
                 # Use reasonable defaults based on feature type
-                if 'era' in k.lower() or 'whip' in k.lower():
-                    cleaned[k] = 4.5  # league average ERA/WHIP
+                key = k.lower()
+                if 'era' in key:
+                    cleaned[k] = 4.5  # league average ERA
+                elif 'whip' in key:
+                    cleaned[k] = 1.30  # league average WHIP
                 elif 'runs' in k.lower() or 'offense' in k.lower():
                     cleaned[k] = 4.5  # league average runs
                 elif 'ratio' in k.lower() or 'momentum' in k.lower():
@@ -2103,6 +2152,10 @@ class IncrementalUltra80System:
 def main():
     print('🧠 ULTRA 80% PREDICTION INTERVAL COVERAGE SYSTEM')
     system = IncrementalUltra80System()
+    
+    # Modes switch for flexible workflows
+    mode = os.getenv('RUN_MODE', 'TRAIN_AND_SLATE')  # TRAIN_AND_SLATE | TRAIN_ONLY | SLATE_ONLY
+    
     force_reset = os.getenv('FORCE_RESET', '0') == '1'
     state_loaded = False if force_reset else system.load_state()
     if state_loaded:
@@ -2113,24 +2166,45 @@ def main():
     # Optional training window via env (e.g., train a few months)
     start_date = os.getenv('START_DATE')  # e.g., '2025-05-01'
     end_date   = os.getenv('END_DATE')    # e.g., '2025-08-01'
-    results = system.team_level_incremental_learn(start_date=start_date, end_date=end_date)
+    
+    results = None
+    if mode in ('TRAIN_AND_SLATE', 'TRAIN_ONLY'):
+        print(f'🚀 Running training mode: {mode}')
+        results = system.team_level_incremental_learn(start_date=start_date, end_date=end_date)
+        if results:
+            # Persist model state
+            system.save_state()
+            print('💾 State saved after training')
+            # Export backtest predictions
+            df_preds = system.predictions_to_dataframe(results['predictions']) if 'predictions' in results else pd.DataFrame()
+            if not df_preds.empty:
+                system.export_predictions_to_files(df_preds, outdir='outputs', tag='backtest')
+                # Optional DB persistence (uncomment when ready):
+                # system.persist_predictions_to_db(df_preds, table='team_level_predictions')
 
-    if results:
-        # Persist model state
-        system.save_state()
-        # Export backtest predictions
-        df_preds = system.predictions_to_dataframe(results['predictions']) if 'predictions' in results else pd.DataFrame()
-        if not df_preds.empty:
-            system.export_predictions_to_files(df_preds, outdir='outputs', tag='backtest')
-            # Optional DB persistence (uncomment when ready):
-            # system.persist_predictions_to_db(df_preds, table='team_level_predictions')
+    if mode in ('TRAIN_AND_SLATE', 'SLATE_ONLY'):
         # Optional: produce a future slate if SLATE_DATE is set
-        slate_date = os.getenv('SLATE_DATE')  # e.g., '2025-08-26'
-        if slate_date and system.is_fitted and system.feature_columns:
+        slate_date = os.getenv('SLATE_DATE') or pd.Timestamp.utcnow().date().isoformat()
+        if system.is_fitted and system.feature_columns and slate_date:
+            print(f'🎯 Running slate predictions for: {slate_date}')
             # Auto thresholds + one-pager for the slate
             thr = system.calibrate_thresholds_from_books()
+            
+            # Get all predictions for the slate
+            df = system.predict_future_slate(slate_date, outdir='outputs')
+            
+            if not df.empty:
+                # Pretty print key columns
+                cols = ["away_team","home_team","market_total","pred_total","lower_80","upper_80",
+                        "diff","p_over","best_side","best_odds","ev","trust"]
+                print(f"\n📊 TODAY'S PREDICTIONS ({slate_date}):")
+                print("="*80)
+                print(df[cols].sort_values(["ev","trust"], ascending=False).to_string(index=False))
+                print("="*80)
+            
             picks = system.recommend_slate_bets(slate_date, thresholds=thr)   # saves CSV with picks
             onepager_path = system.make_daily_onepager(slate_date, thresholds=thr, max_plays=3)
+            print(f"📄 One-pager saved: {onepager_path}")
             
             if not picks.empty:
                 print(f"\n💎 RECOMMENDED BETS for {slate_date}:")
@@ -2143,7 +2217,14 @@ def main():
                 print("="*60)
             else:
                 print(f"🔒 No high-confidence bets found for {slate_date}")
-        # Show a few historic predictions/outcomes
+        else:
+            print("❌ Model not ready—run a TRAIN job first or check state file exists.")
+            return
+
+    # Show training results if we trained
+    if mode in ('TRAIN_AND_SLATE', 'TRAIN_ONLY') and results:
+        # Export backtest predictions
+        df_preds = system.predictions_to_dataframe(results['predictions']) if 'predictions' in results else pd.DataFrame()
         if not df_preds.empty:
             # Run EV-based betting simulation
             bets = system.simulate_bets(df_preds,
@@ -2175,17 +2256,15 @@ def main():
                 print('📅 Recent daily rollup (last 10 days):')
                 print(df_daily.tail(10).to_string(index=False))
         
-        # Add comprehensive betting simulation with chronological integrity  
-        print('\n')
-        bet_results = system.simulate_bets_chrono(df_preds)
+            # Add comprehensive betting simulation with chronological integrity  
+            print('\n')
+            bet_results = system.simulate_bets_chrono(df_preds)
         
-        # One example inference
-        print('🔮 Example inference (mock):')
-        fut = system.predict_future_game('New York Yankees', 'Boston Red Sox', '2025-08-26', 9.5)
-        if fut:
-            print(f"   Market: {fut['market_total']} | Pred: {fut['pred_total']} | 80% PI: {fut['interval_80']} | Rec: {fut['recommendation']}")
-
-
+            # One example inference
+            print('🔮 Example inference (mock):')
+            fut = system.predict_future_game('New York Yankees', 'Boston Red Sox', '2025-08-26', 9.5)
+            if fut:
+                print(f"   Market: {fut['market_total']} | Pred: {fut['pred_total']} | 80% PI: {fut['interval_80']} | Rec: {fut['recommendation']}")
 
 
 if __name__ == '__main__':

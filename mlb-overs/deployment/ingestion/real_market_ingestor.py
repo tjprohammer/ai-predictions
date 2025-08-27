@@ -46,7 +46,7 @@ def get_market_totals_from_api(target_date=None, include_live=False):
     if target_date is None:
         target_date = datetime.now().strftime("%Y-%m-%d")
     
-    print("🔍 Attempting to fetch market totals...")
+    print("Attempting to fetch market totals...")
     
     # First try The Odds API (real betting data)
     real_odds = get_odds_api_data(target_date, include_live)
@@ -583,11 +583,11 @@ def main():
     
     print("[MARKET] Collecting Market Data (Betting Totals)")
     print("=" * 40)
-    print(f"📅 Target date: {target_date}")
+    print(f"Target date: {target_date}")
     if not args.include_live:
-        print("🎯 Mode: PREGAME ONLY (use --include-live for live games)")
+        print("Mode: PREGAME ONLY (use --include-live for live games)")
     else:
-        print("⚠️  Mode: INCLUDING LIVE GAMES")
+        print("Mode: INCLUDING LIVE GAMES")
     
     # Clear any existing bad transactions
     try:

@@ -51,11 +51,14 @@ def main():
     ap.add_argument("--price", type=int, default=-110, help="American price used for ROI sim")
     ap.add_argument("--stability_trials", type=int, default=0, help="0 = off; else number of jitter trials")
     ap.add_argument("--stability_min", type=float, default=0.80, help="min sign-agreement to keep a bet")
+    ap.add_argument("--target", choices=['opening', 'closing', 'steam'], default=None,
+                    help="Target type (overrides ULTRA_TARGET env var)")
     args = ap.parse_args()
 
-    # Target guard (for when switching to STEAM or OPENING residual later)
-    target = os.getenv("ULTRA_TARGET", "closing_resid")
-    print(f"Eval target: {target}")
+    # Target selection (CLI overrides environment)
+    target_mode = args.target or os.getenv("ULTRA_TARGET", "closing")
+    target_mode = target_mode.lower().replace("_resid", "")  # normalize
+    print(f"Eval target: {target_mode}")
 
     # Check for in-sample leakage
     import joblib
@@ -78,6 +81,8 @@ def main():
         gc.*,
         eg.total_runs,
         eg.market_total,
+        eg.opening_total,
+        eg.opening_is_proxy,
         eg.date,
         -- tiny pregame whitelist from EG:
         eg.plate_umpire,

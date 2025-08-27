@@ -51,21 +51,37 @@ class DualModelPredictor:
     
     def __init__(self):
         """Initialize both models"""
-        # Original model
+        # Initialize all attributes to safe defaults first
         self.original_model = None
+        self.learning_model = None
+        self.original_features = []
+        self.learning_features = []
+        self.loaded = False
+        
+        try:
+            self._load_models()
+            self.loaded = (self.original_model is not None) or (self.learning_model is not None)
+        except Exception as e:
+            log.error(f"❌ Failed to load legitimate dual models: {e}")
+            # Do not retry inside ctor; caller should fallback cleanly
+    
+    def _load_models(self):
+        """Load both models with proper error handling"""
+        # Original model
         if EnhancedBullpenPredictor:
             try:
                 self.original_model = EnhancedBullpenPredictor()
                 log.info("✅ Original EnhancedBullpenPredictor loaded")
             except Exception as e:
-                log.error(f"Failed to load original model: {e}")
+                log.error(f"❌ Failed to load original model: {e}")
+                self.original_model = None
         
         # Learning model
         try:
             self.learning_model = AdaptiveLearningPipeline()
             log.info("✅ Adaptive Learning Pipeline loaded")
         except Exception as e:
-            log.error(f"Failed to load learning model: {e}")
+            log.error(f"❌ Failed to load learning model: {e}")
             self.learning_model = None
     
     def predict_dual(self, X: pd.DataFrame, engine, target_date: str) -> dict:
@@ -113,10 +129,33 @@ class DualModelPredictor:
                 log.info("🟢 Running Learning Model (203-feature adaptive)...")
                 # AdaptiveLearningPipeline uses predict_with_learning method
                 learning_preds = self.learning_model.predict_with_learning(X)
-                results['learning'] = learning_preds
-                log.info(f"✅ Learning model: {len(learning_preds)} predictions")
-                log.info(f"   Range: {np.min(learning_preds):.2f} - {np.max(learning_preds):.2f}")
-                log.info(f"   Mean: {np.mean(learning_preds):.2f}")
+                
+                # 🚨 SANITY CHECK: Validate learning predictions before using
+                def learning_sane(pred):
+                    """Check if learning predictions are reasonable"""
+                    if pred is None or len(pred) == 0:
+                        return False
+                    pred = np.array(pred)
+                    if np.any(np.isnan(pred)):
+                        return False
+                    mean, std = pred.mean(), pred.std()
+                    # Check for reasonable range and variance
+                    if not (5.0 <= mean <= 11.5):
+                        return False
+                    if std < 0.30:  # Too little variance suggests collapsed model
+                        return False
+                    return True
+                
+                if learning_sane(learning_preds):
+                    results['learning'] = learning_preds
+                    log.info(f"✅ Learning model: {len(learning_preds)} predictions")
+                    log.info(f"   Range: {np.min(learning_preds):.2f} - {np.max(learning_preds):.2f}")
+                    log.info(f"   Mean: {np.mean(learning_preds):.2f}")
+                else:
+                    log.error("❌ Learning output degenerate; not using learning predictions.")
+                    log.error(f"   Mean: {np.mean(learning_preds):.2f}, Std: {np.std(learning_preds):.3f}")
+                    results['learning'] = None
+                    
             except Exception as e:
                 log.error(f"Learning model prediction failed: {e}")
                 results['learning'] = None
@@ -154,14 +193,33 @@ class DualModelPredictor:
         Get the primary prediction to use (for backward compatibility)
         
         Priority:
-        1. Learning model (if available and performing well)
-        2. Original model (fallback)
+        1. Original model (if available and sane)
+        2. Learning model (only if original failed and learning is sane)
         """
-        if results.get('learning') is not None:
-            log.info("Using learning model as primary prediction")
+        def predictions_sane(pred):
+            """Check if predictions are reasonable"""
+            if pred is None or len(pred) == 0:
+                return False
+            pred = np.array(pred)
+            if np.any(np.isnan(pred)):
+                return False
+            mean, std = pred.mean(), pred.std()
+            # Check for reasonable range and variance
+            if not (5.0 <= mean <= 11.5):
+                return False
+            if std < 0.3:  # Too little variance suggests collapsed model
+                return False
+            return True
+        
+        # Prioritize original model first (more stable)
+        if results.get('original') is not None and predictions_sane(results['original']):
+            log.info("Using original model as primary prediction")
+            return results['original']
+        elif results.get('learning') is not None and predictions_sane(results['learning']):
+            log.warning("Original model failed/unavailable, using learning model as primary prediction")
             return results['learning']
         elif results.get('original') is not None:
-            log.info("Using original model as primary prediction")
+            log.warning("Original model available but potentially bad quality, using anyway")
             return results['original']
         else:
             log.error("No predictions available from either model!")
@@ -178,6 +236,14 @@ def predict_and_upsert_dual(engine, X: pd.DataFrame, ids: pd.DataFrame, *, ancho
     
     # Initialize dual predictor
     dual_predictor = DualModelPredictor()
+    
+    # Guard against failed model loading
+    if not getattr(dual_predictor, "loaded", False):
+        log.warning("❌ No models loaded successfully (dual). Falling back.")
+        # Import fallback from daily_api_workflow
+        sys.path.append(str(Path(__file__).parent.parent / "deployment"))
+        from daily_api_workflow import predict_and_upsert
+        return predict_and_upsert(engine, X, ids, anchor_to_market=anchor_to_market)
     
     # Get target date from ids if available
     target_date = ids['date'].iloc[0] if len(ids) > 0 and 'date' in ids.columns else datetime.now().strftime('%Y-%m-%d')
@@ -244,9 +310,9 @@ def store_dual_predictions(engine, ids: pd.DataFrame, results: dict, target_date
         for idx, row in ids.iterrows():
             game_id = row['game_id']
             
-            # Prepare values
-            original_pred = results['original'][idx] if results['original'] is not None else None
-            learning_pred = results['learning'][idx] if results['learning'] is not None else None
+            # Prepare values - convert numpy types to native Python types
+            original_pred = float(results['original'][idx]) if results['original'] is not None else None
+            learning_pred = float(results['learning'][idx]) if results['learning'] is not None else None
             
             # Update query
             update_sql = text("""
@@ -260,7 +326,7 @@ def store_dual_predictions(engine, ids: pd.DataFrame, results: dict, target_date
             conn.execute(update_sql, {
                 'orig': original_pred,
                 'learn': learning_pred, 
-                'game_id': game_id,
+                'game_id': str(game_id),
                 'date': target_date
             })
     
