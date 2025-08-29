@@ -1,5 +1,5 @@
 @echo off
-REM Bootstrap the Ultra 80 system with 60-90 days of historical data
+REM Bootstrap the Ultra 80 system with 60-90 days of historical data (Updated for MLB structure)
 REM Run this ONCE to initialize the system
 
 echo 🚀 BOOTSTRAPPING ULTRA 80 SYSTEM...
@@ -12,12 +12,12 @@ set RUN_MODE=TRAIN_ONLY
 echo Training window: %START_DATE% to %END_DATE%
 echo.
 
-python mlb-overs\pipelines\incremental_ultra_80_system.py
+python mlb\systems\incremental_ultra_80_system.py
 
 if %ERRORLEVEL% equ 0 (
     echo.
     echo ✅ BOOTSTRAP COMPLETE!
-    echo 💾 State saved to: incremental_ultra80_state.joblib
+    echo 💾 State saved to: mlb\models\incremental_ultra80_state.joblib
     echo 📊 Backtest results in: outputs\
     echo.
     echo Next steps:

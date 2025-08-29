@@ -1,6 +1,6 @@
 @echo off
-REM Enhanced Daily Workflow with Incremental Learning
-REM ================================================
+REM Enhanced Daily Workflow with Incremental Learning (Updated for MLB structure)
+REM ============================================================================
 REM 
 REM This batch script runs the daily workflow which now includes:
 REM 1. Incremental learning updates from recent games (automatic)
@@ -32,7 +32,7 @@ echo ================================================================
 echo.
 
 REM Check if daily workflow exists
-if exist "mlb-overs\deployment\daily_api_workflow.py" (
+if exist "mlb\core\daily_api_workflow.py" (
     echo Running enhanced daily workflow for %TARGET_DATE%...
     echo The workflow will automatically:
     echo   1. Update incremental models from recent completed games
@@ -40,7 +40,7 @@ if exist "mlb-overs\deployment\daily_api_workflow.py" (
     echo   3. Export results and update the database
     echo.
     
-    cd mlb-overs\deployment
+    cd mlb\core
     python daily_api_workflow.py --target-date %TARGET_DATE% --stages markets,features,predict,odds,health,prob,export,audit
     cd ..\..
     
@@ -50,7 +50,7 @@ if exist "mlb-overs\deployment\daily_api_workflow.py" (
         echo ✅ Enhanced daily workflow completed successfully
     )
 ) else (
-    echo ❌ daily_api_workflow.py not found in mlb-overs\deployment\
+    echo ❌ daily_api_workflow.py not found in mlb\core\
     echo Please check the file path and try again.
 )
 
@@ -63,8 +63,8 @@ echo ================================================================
 echo.
 
 echo 📁 Generated Files:
-if exist "mlb-overs\deployment\exports\preds_%TARGET_DATE%.csv" (
-    echo    ✅ mlb-overs\deployment\exports\preds_%TARGET_DATE%.csv (daily workflow predictions)
+if exist "mlb\core\exports\preds_%TARGET_DATE%.csv" (
+    echo    ✅ mlb\core\exports\preds_%TARGET_DATE%.csv (daily workflow predictions)
 ) else (
     echo    ❌ No daily workflow predictions file found
 )
@@ -80,7 +80,7 @@ echo 🏁 Enhanced daily workflow complete for %TARGET_DATE%!
 echo.
 echo 🧠 The incremental learning system is now the PRIMARY predictor in the daily workflow.
 echo 📊 It automatically learns from recent completed games and generates today's predictions.
-echo 🎯 Check mlb-overs\deployment\exports\ for the main prediction outputs.
+echo 🎯 Check mlb\core\exports\ for the main prediction outputs.
 echo.
 
 pause

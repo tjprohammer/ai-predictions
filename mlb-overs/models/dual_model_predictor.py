@@ -2,7 +2,7 @@
 """
 Dual Model Predictor
 ===================
-Runs both the original EnhancedBullpenPredictor and the new 203-feature learning model.
+Runs both the original EnhancedBullpenPredictor and the new Incremental Ultra 80 System.
 Generates predictions from both models for comparison and tracking.
 
 Integration:
@@ -36,17 +36,25 @@ except ImportError as e:
         logging.error(f"Cannot import EnhancedBullpenPredictor: {e}, {e2}")
         EnhancedBullpenPredictor = None
 
-from adaptive_learning_pipeline import AdaptiveLearningPipeline
-
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+
+# Import the OLD learning model (AdaptiveLearningPipeline) for the "learning" slot
+try:
+    from adaptive_learning_pipeline import AdaptiveLearningPipeline
+    log.info("✅ AdaptiveLearningPipeline import successful")
+except ImportError as e:
+    log.error(f"❌ Cannot import AdaptiveLearningPipeline: {e}")
+    AdaptiveLearningPipeline = None
 
 class DualModelPredictor:
     """
     Dual model prediction system that runs both:
     1. Original EnhancedBullpenPredictor (current production model)
-    2. Adaptive Learning Pipeline (203-feature learning model)
+    2. AdaptiveLearningPipeline (old learning model with 203 features)
+    
+    NOTE: This is separate from the Ultra 80 Incremental System which runs independently.
     """
     
     def __init__(self):
@@ -76,12 +84,16 @@ class DualModelPredictor:
                 log.error(f"❌ Failed to load original model: {e}")
                 self.original_model = None
         
-        # Learning model
-        try:
-            self.learning_model = AdaptiveLearningPipeline()
-            log.info("✅ Adaptive Learning Pipeline loaded")
-        except Exception as e:
-            log.error(f"❌ Failed to load learning model: {e}")
+        # Learning model - OLD AdaptiveLearningPipeline (not Ultra 80)
+        if AdaptiveLearningPipeline:
+            try:
+                self.learning_model = AdaptiveLearningPipeline()
+                log.info("✅ AdaptiveLearningPipeline loaded")
+            except Exception as e:
+                log.error(f"❌ Failed to load AdaptiveLearningPipeline: {e}")
+                self.learning_model = None
+        else:
+            log.error("❌ AdaptiveLearningPipeline class not available")
             self.learning_model = None
     
     def predict_dual(self, X: pd.DataFrame, engine, target_date: str) -> dict:
@@ -126,7 +138,7 @@ class DualModelPredictor:
         # Learning model prediction
         if self.learning_model:
             try:
-                log.info("🟢 Running Learning Model (203-feature adaptive)...")
+                log.info("🟢 Running Learning Model (AdaptiveLearningPipeline)...")
                 # AdaptiveLearningPipeline uses predict_with_learning method
                 learning_preds = self.learning_model.predict_with_learning(X)
                 
@@ -225,17 +237,43 @@ class DualModelPredictor:
             log.error("No predictions available from either model!")
             raise ValueError("Both models failed to generate predictions")
 
+# Global cached instance to avoid repeated initialization
+_cached_dual_predictor = None
+
+def get_dual_predictor():
+    """Get or create cached dual predictor instance"""
+    global _cached_dual_predictor
+    if _cached_dual_predictor is None:
+        log.info("🚀 INITIALIZING DUAL MODEL PREDICTOR (first time)")
+        _cached_dual_predictor = DualModelPredictor()
+    return _cached_dual_predictor
+
 def predict_and_upsert_dual(engine, X: pd.DataFrame, ids: pd.DataFrame, *, anchor_to_market: bool = True) -> pd.DataFrame:
     """
-    Enhanced version of predict_and_upsert that runs both models.
+    Enhanced version of predict_and_upsert that runs both Original and Learning Model v1.
     
     This function maintains API compatibility with the existing daily_api_workflow.py
-    while adding dual model capabilities.
+    while adding dual model capabilities:
+    
+    1. Original Model (EnhancedBullpenPredictor) -> predicted_total_original 
+    2. Learning Model v1 (AdaptiveLearningPipeline) -> predicted_total
+    
+    NOTE: This is completely separate from the Ultra 80 Incremental System (Learning Model v2)
+    which runs independently via workflow stages and stores results in predicted_total_learning.
+    
+    Args:
+        engine: Database engine
+        X: Feature matrix
+        ids: Game IDs dataframe  
+        anchor_to_market: Whether to apply market anchoring
+        
+    Returns:
+        DataFrame with primary predictions (for backward compatibility)
     """
     log.info("🚀 STARTING DUAL MODEL PREDICTION")
     
-    # Initialize dual predictor
-    dual_predictor = DualModelPredictor()
+    # Use cached dual predictor to avoid repeated initialization
+    dual_predictor = get_dual_predictor()
     
     # Guard against failed model loading
     if not getattr(dual_predictor, "loaded", False):
@@ -277,6 +315,28 @@ def predict_and_upsert_dual(engine, X: pd.DataFrame, ids: pd.DataFrame, *, ancho
     
     return preds_df
 
+# ================================================================================
+# ULTRA 80 INCREMENTAL SYSTEM (Learning Model v2) - SEPARATE WORKFLOW
+# ================================================================================
+# 
+# The Ultra 80 Incremental System is completely separate from the dual model
+# predictor above. It runs via workflow stages (markets,ultra80) and uses
+# its own feature engineering and prediction pipeline.
+#
+# Ultra 80 System:
+# - Uses IncrementalUltra80System class
+# - Stores predictions in predicted_total_learning column
+# - Has 80% prediction interval coverage target
+# - Uses different feature engineering (94 features vs 201/138)
+# - Runs independently from daily_api_workflow.py dual model stages
+#
+# Integration points:
+# - daily_api_workflow.py -> stage_ultra80() function
+# - Saves predictions directly to database
+# - No interaction with this dual_model_predictor.py file
+#
+# ================================================================================
+
 def apply_market_anchoring(predictions: np.ndarray, market_totals: np.ndarray, alpha: float = 0.15) -> np.ndarray:
     """Apply market anchoring to predictions (same logic as original)"""
     anchored = predictions * (1 - alpha) + market_totals * alpha
@@ -288,7 +348,8 @@ def store_dual_predictions(engine, ids: pd.DataFrame, results: dict, target_date
     
     Adds new columns to enhanced_games:
     - predicted_total_original: Original model prediction  
-    - predicted_total_learning: Learning model prediction
+    - predicted_total: Learning model prediction
+    - predicted_total_learning: Ultra 80 Incremental System prediction (separate workflow)
     - prediction_date: When predictions were made
     """
     from sqlalchemy import text
@@ -314,11 +375,13 @@ def store_dual_predictions(engine, ids: pd.DataFrame, results: dict, target_date
             original_pred = float(results['original'][idx]) if results['original'] is not None else None
             learning_pred = float(results['learning'][idx]) if results['learning'] is not None else None
             
-            # Update query
+            # Update query - CORRECTED MAPPING:
+            # Original Model -> predicted_total_original  
+            # Learning Model -> predicted_total
             update_sql = text("""
                 UPDATE enhanced_games 
                 SET predicted_total_original = :orig,
-                    predicted_total_learning = :learn,
+                    predicted_total = :learn,
                     prediction_timestamp = NOW()
                 WHERE game_id = :game_id AND date = :date
             """)

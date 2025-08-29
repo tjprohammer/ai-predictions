@@ -1,0 +1,36 @@
+INCREMENTAL LEARNING A/B TEST RESULTS
+==================================================
+Test Period: 2025-04-01 to 2025-08-27
+Windows Tested: [7, 14]
+Test Date: 2025-08-28T23:14:14.055141
+
+PERFORMANCE SUMMARY
+-------------------------
+7d:
+  MAE: 3.716
+  Over/Under Accuracy: 0.497
+  Betting ROI: -0.051
+  Sample Size: 1517
+
+14d:
+  MAE: 3.665
+  Over/Under Accuracy: 0.488
+  Betting ROI: -0.068
+  Sample Size: 1517
+
+RECOMMENDATIONS
+--------------------
+Primary: Use 14d learning window
+Confidence: medium
+
+Reasoning:
+  - 14d won 3/5 performance metrics
+  - Win rate: 60.0% indicates medium confidence
+  - Performance advantage appears moderately significant
+  - Excelled in: mae, rmse, correlation
+
+Action Items:
+  1. Set INCREMENTAL_LEARNING_DAYS=14 in environment
+  1. Monitor performance for 1-2 weeks to validate results
+  1. Consider re-testing if performance degrades
+  1. Document configuration change in system logs

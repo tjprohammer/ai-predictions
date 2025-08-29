@@ -799,13 +799,15 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
                     eg.home_team_avg, eg.away_team_avg,
                     
                     -- Cast these to text to avoid Decimal.InvalidOperation at fetch-time
-                    eg.predicted_total::text   AS predicted_total,
-                    eg.confidence::text        AS confidence,
-                    eg.recommendation          AS recommendation,
-                    eg.edge::text              AS edge,
-                    eg.market_total::text      AS market_total,
-                    eg.over_odds::text         AS over_odds,
-                    eg.under_odds::text        AS under_odds,
+                    eg.predicted_total::text         AS predicted_total,           -- Learning Model
+                    eg.predicted_total_learning::text AS predicted_total_learning, -- Ultra 80 System
+                    eg.predicted_total_original::text AS predicted_total_original, -- Original Model (future)
+                    eg.confidence::text              AS confidence,
+                    eg.recommendation                AS recommendation,
+                    eg.edge::text                    AS edge,
+                    eg.market_total::text            AS market_total,
+                    eg.over_odds::text               AS over_odds,
+                    eg.under_odds::text              AS under_odds,
                     
                     eg.home_score, eg.away_score, eg.total_runs,
                     eg.day_night, eg.game_type, eg.game_time_utc, eg.game_timezone
@@ -840,8 +842,10 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
                             'game_state': 'Final' if game.total_runs is not None else 'Scheduled',
                             'start_time': game.game_time_utc or 'TBD',
                             
-                            # Core prediction data
-                            'predicted_total': safe_float_convert(game.predicted_total),
+                            # Core prediction data - THREE MODEL SYSTEM
+                            'predicted_total': safe_float_convert(game.predicted_total),           # Learning Model
+                            'predicted_total_learning': safe_float_convert(game.predicted_total_learning),  # Ultra 80 System
+                            'predicted_total_original': safe_float_convert(game.predicted_total_original),  # Original Model (future)
                             'market_total': safe_float_convert(game.market_total),
                             'edge': safe_float_convert(game.edge),
                             'confidence': safe_float_convert(game.confidence),  # Keep as percentage
@@ -896,22 +900,33 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
                                 'confidence_level': 'HIGH' if safe_float_convert(game.confidence) and safe_float_convert(game.confidence) > 0.8 else 'MEDIUM'
                             },
                             
-                            # Historical prediction for UI compatibility  
-                            'historical_prediction': {
-                                'predicted_total': safe_float_convert(game.predicted_total),
-                                'confidence': safe_float_convert(game.confidence),  # Keep as percentage
-                                'method': 'Enhanced ML Model v2.0'
-                            },
-                            
-                            # Real team stats from database
+            # Model Predictions for UI compatibility - THREE MODEL SYSTEM
+            'ultra_80_prediction': {
+                'predicted_total': safe_float_convert(game.predicted_total_learning),
+                'confidence': safe_float_convert(game.confidence),
+                'method': 'Ultra 80 Incremental System'
+            },
+            'learning_model_prediction': {
+                'predicted_total': safe_float_convert(game.predicted_total),
+                'confidence': safe_float_convert(game.confidence),
+                'method': 'Learning Model'
+            },
+            # Keep backward compatibility
+            'historical_prediction': {
+                'predicted_total': safe_float_convert(game.predicted_total_learning),  # Use Ultra 80 as primary
+                'confidence': safe_float_convert(game.confidence),
+                'method': 'Ultra 80 Incremental System'
+            },                            # Real team stats from database
                             'team_stats': get_real_team_stats(game.home_team, game.away_team)
                         }
                         
-                        # Add enhanced AI analysis
+                        # Add enhanced AI analysis - using Ultra 80 as primary prediction
                         ai_analysis_data = {
-                            'predicted_total': simple_game['predicted_total'],
-                            'market_total': simple_game['market_total'],
-                            'edge': simple_game['edge'],
+                            'predicted_total': safe_float_convert(game.predicted_total_learning) or safe_float_convert(game.predicted_total),  # Prefer Ultra 80
+                            'predicted_total_learning': safe_float_convert(game.predicted_total_learning),  # Ultra 80 System
+                            'predicted_total_standard': safe_float_convert(game.predicted_total),          # Learning Model
+                            'market_total': safe_float_convert(game.market_total),
+                            'edge': safe_float_convert(game.edge),
                             'confidence': safe_float_convert(game.confidence),  # Use raw database value (already in percentage)
                             'recommendation': simple_game['recommendation'],
                             'home_sp_name': game.home_sp_name,
@@ -1390,6 +1405,68 @@ def get_comprehensive_games_today():
     """Get comprehensive game data for today"""
     today = datetime.now().strftime("%Y-%m-%d")
     return get_comprehensive_games_by_date(today)
+
+@app.get("/api/predictions/{date}")
+def get_predictions_by_date(date: str):
+    """Get basic predictions for a specific date - compatibility endpoint"""
+    try:
+        engine = get_engine()
+        
+        query = """
+        SELECT 
+            game_id,
+            date,
+            home_team,
+            away_team,
+            venue_name,
+            home_sp_name,
+            away_sp_name,
+            COALESCE(home_sp_season_era, 0.0) as home_sp_season_era,
+            COALESCE(away_sp_season_era, 0.0) as away_sp_season_era,
+            COALESCE(home_sp_whip, 0.0) as home_sp_whip,
+            COALESCE(away_sp_whip, 0.0) as away_sp_whip,
+            COALESCE(market_total, 0.0) as market_total,
+            COALESCE(predicted_total_learning, predicted_total, 0.0) as predicted_total,
+            COALESCE(predicted_total_learning, 0.0) as predicted_total_learning,
+            COALESCE(predicted_total_original, 0.0) as predicted_total_original,
+            COALESCE(over_odds, 0) as over_odds,
+            COALESCE(under_odds, 0) as under_odds,
+            weather_condition,
+            COALESCE(temperature, 72) as temperature,
+            COALESCE(wind_speed, 5) as wind_speed,
+            wind_direction,
+            total_runs,
+            home_score,
+            away_score
+        FROM enhanced_games 
+        WHERE date = :date_param
+        ORDER BY game_id
+        """
+        
+        with engine.begin() as conn:
+            result = conn.execute(text(query), {"date_param": date})
+            games = [dict(row._mapping) for row in result]
+            
+        # Clean NaN values to prevent JSON serialization errors
+        for game in games:
+            for key, value in game.items():
+                if pd.isna(value) or (isinstance(value, float) and (np.isnan(value) or np.isinf(value))):
+                    if 'era' in key.lower() or 'whip' in key.lower():
+                        game[key] = 4.50  # Default ERA/WHIP
+                    elif 'total' in key.lower() or 'odds' in key.lower():
+                        game[key] = 0.0
+                    elif 'temperature' in key.lower():
+                        game[key] = 72
+                    elif 'wind_speed' in key.lower():
+                        game[key] = 5
+                    else:
+                        game[key] = None
+                        
+        return {"games": games, "total_games": len(games), "date": date}
+        
+    except Exception as e:
+        print(f"Error in predictions endpoint: {e}")
+        return {"error": f"Error fetching predictions for {date}: {str(e)}", "games": []}
 
 def transform_to_ml_predictions(comprehensive_data: dict) -> dict:
     """Transform comprehensive games data to ML predictions format"""
@@ -2262,9 +2339,26 @@ async def get_comprehensive_games_with_calibrated(date: str):
                 
                 games.append(game)
             
+            # Clean all NaN values from the response to prevent JSON serialization errors
+            def clean_nan_values(obj):
+                if isinstance(obj, dict):
+                    return {k: clean_nan_values(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [clean_nan_values(item) for item in obj]
+                elif isinstance(obj, float):
+                    if pd.isna(obj) or np.isnan(obj) or np.isinf(obj):
+                        return None
+                    return obj
+                elif pd.isna(obj):
+                    return None
+                else:
+                    return obj
+            
+            clean_games = clean_nan_values(games)
+            
             return {
-                "games": games,
-                "count": len(games),
+                "games": clean_games,
+                "count": len(clean_games),
                 "date": date,
                 "data_source": "database_with_calibrated"
             }
@@ -3064,15 +3158,23 @@ def get_learning_summary(target_date: str):
         raise HTTPException(status_code=500, detail=f"Error fetching learning summary: {str(e)}")
 
 
-# Import prediction tracking
+# Import prediction tracking from new organized structure
 try:
-    from prediction_tracker import PredictionTracker
-    prediction_tracker = PredictionTracker()
+    sys.path.append(str(Path(__file__).parent.parent.parent / "mlb" / "tracking" / "performance"))
+    from enhanced_prediction_tracker import EnhancedPredictionTracker
+    prediction_tracker = EnhancedPredictionTracker()
     TRACKING_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ Prediction tracking not available: {e}")
-    prediction_tracker = None
-    TRACKING_AVAILABLE = False
+    print(f"⚠️ Enhanced prediction tracking not available: {e}")
+    # Fallback to old structure
+    try:
+        from prediction_tracker import PredictionTracker
+        prediction_tracker = PredictionTracker()
+        TRACKING_AVAILABLE = True
+    except ImportError as e2:
+        print(f"⚠️ Prediction tracking not available: {e2}")
+        prediction_tracker = None
+        TRACKING_AVAILABLE = False
 
 @app.get("/api/prediction-performance/{start_date}")
 async def get_prediction_performance(start_date: str, end_date: str = None):
@@ -3271,11 +3373,11 @@ async def learning_model_analysis_detailed(start_date: str, end_date: str):
 # DUAL PREDICTION ENDPOINTS
 # ==============================================================================
 
-@app.get("/api/dual-predictions/{target_date}")
-async def get_dual_predictions_api(target_date: str):
+@app.get("/api/model-predictions/{target_date}")
+async def get_model_predictions_api(target_date: str):
     """
-    Get dual predictions (original + learning model) for a specific date
-    Returns comprehensive comparison between both models
+    Get predictions from multiple models (Learning Model + Ultra 80) for a specific date
+    Returns comprehensive comparison between both prediction systems
     """
     try:
         # Connect to database
@@ -3288,22 +3390,22 @@ async def get_dual_predictions_api(target_date: str):
                 eg.away_team,
                 eg.venue_name as venue,
                 eg.market_total,
-                eg.predicted_total,
-                eg.predicted_total_learning,  -- OLD learning model
-                COALESCE(u80.pred_total, eg.predicted_total_learning) as predicted_total_ultra80,
-                eg.predicted_total_ultra as predicted_total_ultra_sharp_v15,  -- Ultra Sharp V15 from enhanced_games
+                eg.predicted_total as learning_model_prediction,        -- Learning Model predictions
+                eg.predicted_total_learning as ultra_80_prediction,     -- Ultra 80 System predictions
+                eg.predicted_total_original as original_model_prediction, -- Original Model (future)
                 eg.prediction_timestamp,
                 eg.total_runs,
-                -- Use Ultra 80 betting data if available, otherwise fallback to enhanced_games
-                COALESCE(u80.best_odds, eg.over_odds) as over_odds,
-                COALESCE(u80.best_odds, eg.under_odds) as under_odds,
-                COALESCE(u80.best_side, eg.recommendation) as recommendation,
-                COALESCE(u80.diff, eg.edge) as edge,
-                COALESCE(u80.trust * 100, eg.confidence) as confidence,
+                -- Use enhanced_games betting data
+                eg.over_odds,
+                eg.under_odds,
+                eg.recommendation,
+                eg.edge,
+                eg.confidence,
+                -- Ultra 80 additional data if available
                 u80.ev,
                 u80.lower_80,
                 u80.upper_80,
-                u80.pred_total as ultra_sharp_v15_prediction,  -- NEW Ultra Sharp V15 from ultra80_predictions
+                u80.trust,
                 CASE 
                     WHEN eg.total_runs IS NOT NULL THEN 'completed'
                     WHEN eg.date < CURRENT_DATE THEN 'in_progress'
@@ -3339,6 +3441,44 @@ async def get_dual_predictions_api(target_date: str):
         dual_available = 0
         
         for _, row in df.iterrows():
+            # Extract prediction values
+            learning_pred = safe_float_convert(row['learning_model_prediction'])
+            ultra_80_pred = safe_float_convert(row['ultra_80_prediction'])
+            original_pred = safe_float_convert(row['original_model_prediction'])
+            market_total = safe_float_convert(row['market_total'])
+            over_odds = safe_float_convert(row['over_odds'])
+            under_odds = safe_float_convert(row['under_odds'])
+            
+            # Calculate individual betting recommendations for each model
+            def calculate_betting_recommendation(prediction, market):
+                if not prediction or not market:
+                    return {
+                        'recommendation': 'HOLD',
+                        'edge': 0,
+                        'confidence': 'Low'
+                    }
+                
+                edge = prediction - market
+                
+                if abs(edge) < 0.2:
+                    recommendation = 'HOLD'
+                    confidence = 'Low'
+                elif edge > 0.2:
+                    recommendation = 'OVER'
+                    confidence = 'Medium' if edge < 0.8 else 'High'
+                else:
+                    recommendation = 'UNDER'
+                    confidence = 'Medium' if edge > -0.8 else 'High'
+                
+                return {
+                    'recommendation': recommendation,
+                    'edge': round(edge, 2),
+                    'confidence': confidence
+                }
+            
+            learning_betting = calculate_betting_recommendation(learning_pred, market_total)
+            ultra_80_betting = calculate_betting_recommendation(ultra_80_pred, market_total)
+            
             # Basic game info
             game_data = {
                 'game_id': row['game_id'],
@@ -3349,25 +3489,54 @@ async def get_dual_predictions_api(target_date: str):
                 'status': row['status'],
                 'timestamp': row['prediction_timestamp'].isoformat() if pd.notna(row['prediction_timestamp']) else None,
                 
-                # Predictions - CLEAR naming to avoid confusion
-                'predictions': {
-                    'primary': None,  # Remove Enhanced Bullpen (was confusing)
-                    'original': None,  # Remove Enhanced Bullpen
-                    'learning': safe_float_convert(row['ultra_sharp_v15_prediction']),  # Ultra 80 Pro (NEW system, 9.53)
-                    'ultra': safe_float_convert(row['ultra_sharp_v15_prediction']),  # NEW Ultra Sharp V15 system (9.53)
-                    'ultra_sharp_v15': safe_float_convert(row['ultra_sharp_v15_prediction']),  # NEW Ultra Sharp V15 (9.53)
-                    'market': safe_float_convert(row['market_total']),
-                    'ensemble': None  # Remove for now
+                # Individual model predictions with their own betting recommendations
+                'learning_model': {
+                    'prediction': learning_pred,
+                    'betting': {
+                        **learning_betting,
+                        'over_odds': over_odds,
+                        'under_odds': under_odds
+                    }
+                } if learning_pred else None,
+                
+                'ultra_80': {
+                    'prediction': ultra_80_pred,
+                    'betting': {
+                        **ultra_80_betting,
+                        'over_odds': over_odds,
+                        'under_odds': under_odds
+                    }
+                } if ultra_80_pred else None,
+                
+                'original_model': {
+                    'prediction': original_pred,
+                    'betting': None  # Not implemented yet
+                } if original_pred else None,
+                
+                # Market data
+                'market': {
+                    'total': market_total,
+                    'over_odds': over_odds,
+                    'under_odds': under_odds
                 },
                 
-                # Betting info from Ultra 80 system
+                # Legacy predictions format for backward compatibility
+                'predictions': {
+                    'learning_model': learning_pred,
+                    'ultra_80': ultra_80_pred,
+                    'original_model': original_pred,
+                    'market': market_total,
+                    'primary': learning_pred,
+                    'learning': ultra_80_pred,
+                    'original': original_pred
+                },
+                
+                # Legacy betting (using learning model for compatibility)
                 'betting': {
-                    'recommendation': row['recommendation'],
-                    'edge': safe_float_convert(row['edge']),
-                    'confidence': safe_float_convert(row['confidence']),
+                    **learning_betting,
                     'ev': safe_float_convert(row['ev']) if pd.notna(row.get('ev')) else None,
-                    'over_odds': safe_float_convert(row['over_odds']),
-                    'under_odds': safe_float_convert(row['under_odds'])
+                    'over_odds': over_odds,
+                    'under_odds': under_odds
                 },
                 
                 # Ultra 80 interval data
@@ -3383,30 +3552,30 @@ async def get_dual_predictions_api(target_date: str):
                 }
             }
             
-            # Calculate comparison metrics between primary and Ultra Sharp V15
-            primary_pred = game_data['predictions']['primary']
-            ultra_pred = game_data['predictions']['ultra_sharp_v15']
+            # Calculate comparison metrics between Learning Model and Ultra 80
+            learning_pred = game_data['predictions']['learning_model']
+            ultra_80_pred = game_data['predictions']['ultra_80']
             
-            if primary_pred is not None and ultra_pred is not None:
+            if learning_pred is not None and ultra_80_pred is not None:
                 dual_available += 1
-                difference = ultra_pred - primary_pred
+                difference = ultra_80_pred - learning_pred  # Ultra 80 - Learning Model
                 differences.append(difference)
                 
                 game_data['comparison'] = {
                     'difference': round(difference, 2),
-                    'ultra_higher': difference > 0,
+                    'ultra_80_higher': difference > 0,
                     'agreement_level': 'high' if abs(difference) < 0.3 else 'medium' if abs(difference) < 0.8 else 'low',
                     'confidence_flag': 'significant_difference' if abs(difference) > 1.0 else 'moderate_difference' if abs(difference) > 0.5 else 'close_agreement'
                 }
                 
                 if difference > 0:
-                    learning_higher += 1
+                    learning_higher += 1  # Ultra 80 higher
                 elif difference < 0:
-                    original_higher += 1
+                    original_higher += 1  # Learning model higher
             else:
                 game_data['comparison'] = {
                     'difference': None,
-                    'learning_higher': None,
+                    'ultra_80_higher': None,
                     'agreement_level': 'unknown',
                     'confidence_flag': 'missing_data'
                 }
@@ -3416,16 +3585,16 @@ async def get_dual_predictions_api(target_date: str):
                 actual = game_data['result']['actual_total']
                 
                 accuracy_metrics = {}
-                if primary_pred is not None:
-                    accuracy_metrics['primary_error'] = round(abs(primary_pred - actual), 2)
-                if ultra_pred is not None:
-                    accuracy_metrics['ultra_error'] = round(abs(ultra_pred - actual), 2)
+                if learning_pred is not None:
+                    accuracy_metrics['learning_model_error'] = round(abs(learning_pred - actual), 2)
+                if ultra_80_pred is not None:
+                    accuracy_metrics['ultra_80_error'] = round(abs(ultra_80_pred - actual), 2)
                 if game_data['predictions']['market'] is not None:
                     accuracy_metrics['market_error'] = round(abs(game_data['predictions']['market'] - actual), 2)
                 
                 # Determine which model was more accurate
-                if primary_pred is not None and ultra_pred is not None:
-                    accuracy_metrics['better_model'] = 'ultra_sharp_v15' if accuracy_metrics['ultra_error'] < accuracy_metrics['primary_error'] else 'primary'
+                if learning_pred is not None and ultra_80_pred is not None:
+                    accuracy_metrics['better_model'] = 'ultra_80' if accuracy_metrics['ultra_80_error'] < accuracy_metrics['learning_model_error'] else 'learning_model'
                 
                 game_data['accuracy'] = accuracy_metrics
             
@@ -3437,8 +3606,8 @@ async def get_dual_predictions_api(target_date: str):
             'total_games': len(games),
             'dual_predictions_available': dual_available,
             'avg_difference': round(sum(differences) / len(differences), 3) if differences else 0,
-            'ultra_higher_count': learning_higher,
-            'primary_higher_count': original_higher,
+            'ultra_80_higher_count': learning_higher,  # When Ultra 80 > Learning Model
+            'learning_model_higher_count': original_higher,  # When Learning Model > Ultra 80
             'close_agreement_count': len([d for d in differences if abs(d) < 0.5]),
             'significant_differences': len([d for d in differences if abs(d) > 1.0]),
             'model_agreement_rate': round((len([d for d in differences if abs(d) < 0.5]) / len(differences)) * 100, 1) if differences else 0
@@ -3447,15 +3616,15 @@ async def get_dual_predictions_api(target_date: str):
         # Add completed game performance if available
         completed_games = [g for g in games if g['result']['completed'] and g['result']['actual_total'] is not None]
         if completed_games:
-            completed_with_both = [g for g in completed_games if g['predictions']['primary'] is not None and g['predictions']['ultra_sharp_v15'] is not None]
+            completed_with_both = [g for g in completed_games if g['predictions']['learning_model'] is not None and g['predictions']['ultra_80'] is not None]
             
             if completed_with_both:
-                ultra_wins = len([g for g in completed_with_both if g.get('accuracy', {}).get('better_model') == 'ultra_sharp_v15'])
+                ultra_80_wins = len([g for g in completed_with_both if g.get('accuracy', {}).get('better_model') == 'ultra_80'])
                 summary['performance'] = {
                     'completed_games': len(completed_with_both),
-                    'ultra_wins': ultra_wins,
-                    'primary_wins': len(completed_with_both) - ultra_wins,
-                    'ultra_win_rate': round((ultra_wins / len(completed_with_both)) * 100, 1)
+                    'ultra_80_wins': ultra_80_wins,
+                    'learning_model_wins': len(completed_with_both) - ultra_80_wins,
+                    'ultra_80_win_rate': round((ultra_80_wins / len(completed_with_both)) * 100, 1)
                 }
         
         result = {
@@ -3474,18 +3643,35 @@ async def get_dual_predictions_api(target_date: str):
         raise HTTPException(status_code=500, detail=f"Error fetching dual predictions: {str(e)}")
 
 
-@app.get("/api/dual-predictions/today")
-async def get_dual_predictions_today():
-    """Get dual predictions for today"""
+@app.get("/api/model-predictions/today")
+async def get_model_predictions_today():
+    """Get model predictions for today"""
     today = datetime.now().strftime("%Y-%m-%d")
-    return await get_dual_predictions_api(today)
+    return await get_model_predictions_api(today)
 
 
-@app.get("/api/dual-predictions/tomorrow")  
-async def get_dual_predictions_tomorrow():
-    """Get dual predictions for tomorrow"""
+@app.get("/api/model-predictions/tomorrow")  
+async def get_model_predictions_tomorrow():
+    """Get model predictions for tomorrow"""
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    return await get_dual_predictions_api(tomorrow)
+    return await get_model_predictions_api(tomorrow)
+
+
+# Backward compatibility routes
+@app.get("/api/dual-predictions/{target_date}")
+async def get_dual_predictions_api_legacy(target_date: str):
+    """Legacy route - redirects to model-predictions"""
+    return await get_model_predictions_api(target_date)
+
+@app.get("/api/dual-predictions/today")
+async def get_dual_predictions_today_legacy():
+    """Legacy route - redirects to model-predictions"""
+    return await get_model_predictions_today()
+
+@app.get("/api/dual-predictions/tomorrow")
+async def get_dual_predictions_tomorrow_legacy():
+    """Legacy route - redirects to model-predictions"""
+    return await get_model_predictions_tomorrow()
 
 
 @app.get("/api/ultra80-predictions/{target_date}")
@@ -3907,6 +4093,76 @@ async def get_dual_historical_analysis(start_date: str, end_date: str):
             'summary': summary,
             'games': games,
             'generated_at': datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"Error in dual performance summary: {e}")
+        return {
+            'error': str(e),
+            'summary': {},
+            'games': [],
+            'generated_at': datetime.now().isoformat()
+        }
+
+@app.get("/api/comprehensive-tracking")
+async def get_comprehensive_tracking(days: int = 14):
+    """Get comprehensive tracking analysis from organized tracking system"""
+    try:
+        # Quick database query instead of complex tracking analysis
+        engine = create_engine("postgresql://mlbuser:mlbpass@localhost/mlb")
+        
+        # Get recent performance data quickly
+        query = text("""
+            SELECT 
+                COUNT(*) as total_games,
+                COUNT(CASE WHEN total_runs IS NOT NULL THEN 1 END) as completed_games,
+                COUNT(CASE WHEN predicted_total_learning IS NOT NULL THEN 1 END) as learning_predictions,
+                COUNT(CASE WHEN predicted_total_ultra IS NOT NULL THEN 1 END) as ultra_predictions,
+                AVG(CASE WHEN predicted_total_learning IS NOT NULL AND total_runs IS NOT NULL 
+                    THEN ABS(predicted_total_learning - total_runs) END) as learning_mae,
+                AVG(CASE WHEN predicted_total_ultra IS NOT NULL AND total_runs IS NOT NULL 
+                    THEN ABS(predicted_total_ultra - total_runs) END) as ultra_mae,
+                AVG(CASE WHEN market_total IS NOT NULL AND total_runs IS NOT NULL 
+                    THEN ABS(market_total - total_runs) END) as market_mae
+            FROM enhanced_games 
+            WHERE date >= CURRENT_DATE - INTERVAL ':days days'
+        """)
+        
+        with engine.connect() as conn:
+            result = conn.execute(query, {'days': days}).fetchone()
+        
+        return {
+            'tracking_source': 'fast_organized_tracking',
+            'days_analyzed': days,
+            'performance': {
+                'total_games': result[0] if result else 0,
+                'completed_games': result[1] if result else 0, 
+                'learning_predictions': result[2] if result else 0,
+                'ultra_predictions': result[3] if result else 0,
+                'learning_mae': float(result[4]) if result and result[4] else None,
+                'ultra_mae': float(result[5]) if result and result[5] else None,
+                'market_mae': float(result[6]) if result and result[6] else None
+            },
+            'generated_at': datetime.now().isoformat(),
+            'system_status': {
+                'tracking_available': True,
+                'organized_structure': True,
+                'fast_mode': True
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error in comprehensive tracking: {e}")
+        return {
+            'tracking_source': 'fallback',
+            'error': str(e),
+            'performance': {},
+            'generated_at': datetime.now().isoformat(),
+            'system_status': {
+                'tracking_available': False,
+                'organized_structure': False,
+                'error': str(e)
+            }
         }
         
     except Exception as e:

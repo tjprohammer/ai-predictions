@@ -1,5 +1,5 @@
 @echo off
-REM Pregame slate - fast display of today's predictions
+REM Pregame slate - fast display of today's predictions (Updated for MLB structure)
 REM Run this anytime to see current predictions without training
 
 echo 🎯 PREGAME SLATE PREDICTIONS...
@@ -12,7 +12,7 @@ set RUN_MODE=SLATE_ONLY
 echo Generating predictions for: %SLATE_DATE%
 echo.
 
-python mlb-overs\pipelines\incremental_ultra_80_system.py
+python mlb\systems\incremental_ultra_80_system.py
 
 if %ERRORLEVEL% equ 0 (
     echo.

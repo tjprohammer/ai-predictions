@@ -161,9 +161,9 @@ def main():
     # Final verification
     logger.info("🔍 Running final model verification...")
     try:
-        sys.path.append('mlb-overs/deployment')
-        from dual_model_integration import DualModelPredictor
-        predictor = DualModelPredictor()
+        sys.path.append('mlb-overs/models')
+        from dual_model_predictor import get_dual_predictor
+        predictor = get_dual_predictor()
         if predictor.original_model:
             logger.info(f"✅ Final models loaded: {len(predictor.features)} features")
             logger.info("🎯 Ready for production predictions!")

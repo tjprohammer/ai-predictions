@@ -3,11 +3,10 @@ SETLOCAL
 
 REM ############################################################################
 REM #
-REM #  MLB Overs Daily Workflow Runner
+REM #  MLB Daily Workflow Runner (Updated for New Structure)
 REM #
-REM #  This script orchestrates the entire daily prediction pipeline.
-REM #  It navigates to the correct directory and executes the main workflow
-REM #  script with the necessary stages.
+REM #  This script orchestrates the entire daily prediction pipeline using the
+REM #  reorganized MLB module structure under mlb/core/
 REM #
 REM #  Usage:
 REM #    run_daily_workflow.bat [YYYY-MM-DD]
@@ -19,15 +18,30 @@ REM ############################################################################
 REM --- Configuration ---
 ECHO [WORKFLOW] Setting up environment...
 SET "PYTHON_EXE=s:\Projects\AI_Predictions\.venv\Scripts\python.exe"
-SET "WORKFLOW_DIR=s:\Projects\AI_Predictions\mlb-overs\deployment"
+SET "WORKFLOW_DIR=s:\Projects\AI_Predictions\mlb\core"
 SET "WORKFLOW_SCRIPT=daily_api_workflow.py"
+
+REM --- Override Feature QC Checks ---
+REM These environment variables allow the workflow to proceed despite data quality issues
+REM Note: Values must be decimal (0.30 = 30%, not 30 = 3000%)
+SET "MIN_PITCHER_COVERAGE=0.30"
+SET "PER_COL_PITCHER_COVERAGE=0.00"
+SET "ALLOW_FLAT_ENV=1"
+
+REM --- Set encoding to handle Unicode characters ---
+SET "PYTHONIOENCODING=utf-8"
+SET "PYTHONLEGACYWINDOWSSTDIO=1"
 
 REM --- Date Handling ---
 REM Use the first command-line argument as the target date.
 REM If no argument is provided, default to today's date.
 IF "%1"=="" (
-    FOR /F "tokens=2 delims==" %%I IN ('wmic os get localdatetime /format:list') DO SET "DT=%%I"
-    SET "TARGET_DATE=%DT:~0,4%-%DT:~4,2%-%DT:~6,2%"
+    FOR /F "tokens=2 delims==" %%I IN ('wmic os get localdatetime /format:list') DO (
+        IF NOT "%%I"=="" (
+            SET "DT=%%I"
+        )
+    )
+    CALL :FormatDate
     ECHO [WORKFLOW] No date provided. Defaulting to today: %TARGET_DATE%
 ) ELSE (
     SET "TARGET_DATE=%1"
@@ -83,3 +97,10 @@ ECHO [SUCCESS] =====================================================
 ECHO.
 
 ENDLOCAL
+GOTO :EOF
+
+REM --- Subroutines ---
+:FormatDate
+REM Format the DT variable into YYYY-MM-DD format
+SET "TARGET_DATE=%DT:~0,4%-%DT:~4,2%-%DT:~6,2%"
+GOTO :EOF

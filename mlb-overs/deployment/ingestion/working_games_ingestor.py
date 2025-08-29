@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 WORKING Games Ingestor
 ====================
@@ -12,9 +13,16 @@ import datetime as dt
 import pandas as pd
 import statsapi
 import os
+import sys
 from sqlalchemy import create_engine, text
 import psycopg2
 from dotenv import load_dotenv
+
+# Fix encoding issues on Windows
+if sys.platform == "win32":
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
 
 # Load environment variables from .env file
 load_dotenv()
