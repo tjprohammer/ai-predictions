@@ -803,6 +803,8 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
                     eg.predicted_total::text         AS predicted_total,           -- Learning Model
                     eg.predicted_total_learning::text AS predicted_total_learning, -- Ultra 80 System
                     eg.predicted_total_original::text AS predicted_total_original, -- Original Model (future)
+                    eg.predicted_total_ultra::text   AS predicted_total_ultra,     -- Ultra Sharp V15
+                    eg.ultra_confidence::text        AS ultra_confidence,          -- Ultra Sharp V15 Confidence
                     eg.confidence::text              AS confidence,
                     eg.recommendation                AS recommendation,
                     eg.edge::text                    AS edge,
@@ -843,10 +845,12 @@ def get_comprehensive_games_by_date(target_date: str) -> Dict[str, Any]:
                             'game_state': 'Final' if game.total_runs is not None else 'Scheduled',
                             'start_time': game.game_time_utc or 'TBD',
                             
-                            # Core prediction data - THREE MODEL SYSTEM
+                            # Core prediction data - FOUR MODEL SYSTEM
                             'predicted_total': safe_float_convert(game.predicted_total),           # Learning Model
                             'predicted_total_learning': safe_float_convert(game.predicted_total_learning),  # Ultra 80 System
                             'predicted_total_original': safe_float_convert(game.predicted_total_original),  # Original Model (future)
+                            'predicted_total_ultra': safe_float_convert(game.predicted_total_ultra),        # Ultra Sharp V15
+                            'ultra_confidence': safe_float_convert(game.ultra_confidence),                  # Ultra Sharp V15 Confidence
                             'market_total': safe_float_convert(game.market_total),
                             'edge': safe_float_convert(game.edge),
                             'confidence': safe_float_convert(game.confidence),  # Keep as percentage
@@ -1430,6 +1434,8 @@ def get_predictions_by_date(date: str):
             COALESCE(predicted_total_learning, predicted_total, 0.0) as predicted_total,
             COALESCE(predicted_total_learning, 0.0) as predicted_total_learning,
             COALESCE(predicted_total_original, 0.0) as predicted_total_original,
+            COALESCE(predicted_total_ultra, 0.0) as predicted_total_ultra,
+            COALESCE(ultra_confidence, 0.0) as ultra_confidence,
             COALESCE(over_odds, 0) as over_odds,
             COALESCE(under_odds, 0) as under_odds,
             weather_condition,
@@ -3394,6 +3400,8 @@ async def get_model_predictions_api(target_date: str):
                 eg.predicted_total as learning_model_prediction,        -- Learning Model predictions
                 eg.predicted_total_learning as ultra_80_prediction,     -- Ultra 80 System predictions
                 eg.predicted_total_original as original_model_prediction, -- Original Model (future)
+                eg.predicted_total_ultra as ultra_sharp_v15_prediction,  -- Ultra Sharp V15 predictions
+                eg.ultra_confidence as ultra_sharp_v15_confidence,       -- Ultra Sharp V15 Confidence
                 eg.prediction_timestamp,
                 eg.total_runs,
                 -- Use enhanced_games betting data
@@ -3446,6 +3454,8 @@ async def get_model_predictions_api(target_date: str):
             learning_pred = safe_float_convert(row['learning_model_prediction'])
             ultra_80_pred = safe_float_convert(row['ultra_80_prediction'])
             original_pred = safe_float_convert(row['original_model_prediction'])
+            ultra_sharp_v15_pred = safe_float_convert(row['ultra_sharp_v15_prediction'])
+            ultra_sharp_v15_conf = safe_float_convert(row['ultra_sharp_v15_confidence'])
             market_total = safe_float_convert(row['market_total'])
             over_odds = safe_float_convert(row['over_odds'])
             under_odds = safe_float_convert(row['under_odds'])
@@ -3479,6 +3489,7 @@ async def get_model_predictions_api(target_date: str):
             
             learning_betting = calculate_betting_recommendation(learning_pred, market_total)
             ultra_80_betting = calculate_betting_recommendation(ultra_80_pred, market_total)
+            ultra_sharp_v15_betting = calculate_betting_recommendation(ultra_sharp_v15_pred, market_total)
             
             # Basic game info
             game_data = {
@@ -3514,6 +3525,16 @@ async def get_model_predictions_api(target_date: str):
                     'betting': None  # Not implemented yet
                 } if original_pred else None,
                 
+                'ultra_sharp_v15': {
+                    'prediction': ultra_sharp_v15_pred,
+                    'confidence': ultra_sharp_v15_conf,
+                    'betting': {
+                        **ultra_sharp_v15_betting,
+                        'over_odds': over_odds,
+                        'under_odds': under_odds
+                    }
+                } if ultra_sharp_v15_pred else None,
+                
                 # Market data
                 'market': {
                     'total': market_total,
@@ -3526,10 +3547,12 @@ async def get_model_predictions_api(target_date: str):
                     'learning_model': learning_pred,
                     'ultra_80': ultra_80_pred,
                     'original_model': original_pred,
+                    'ultra_sharp_v15': ultra_sharp_v15_pred,
                     'market': market_total,
                     'primary': learning_pred,
                     'learning': ultra_80_pred,
-                    'original': original_pred
+                    'original': original_pred,
+                    'ultra_sharp': ultra_sharp_v15_pred
                 },
                 
                 # Legacy betting (using learning model for compatibility)

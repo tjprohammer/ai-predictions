@@ -102,6 +102,7 @@ def get_odds_api_data(target_date, include_live=False):
         
         odds_data = response.json()
         market_data = []
+        comprehensive_odds = []  # Store all bookmaker data
         skipped_live = 0
         
         # Map API data to our games - include game_time for DH disambiguation
@@ -196,13 +197,92 @@ def get_odds_api_data(target_date, include_live=False):
                         continue  # Skip games with bad time data
             
             if best_match is not None:
-                # Get the best total and odds from bookmakers
+                # Get the best total and odds from bookmakers - PRIORITIZE FANDUEL
                 best_total = None
                 over_odds = None
                 under_odds = None
                 bookmaker_name = None
                 
+                # First pass: Look specifically for FanDuel
+                fanduel_found = False
                 for bookmaker in api_game.get('bookmakers', []):
+                    bookmaker_title = bookmaker.get('title', '').lower()
+                    if 'fanduel' in bookmaker_title:
+                        for market in bookmaker.get('markets', []):
+                            if market.get('key') == 'totals':
+                                temp_total = None
+                                temp_over_odds = None
+                                temp_under_odds = None
+                                
+                                for outcome in market.get('outcomes', []):
+                                    point = outcome.get('point')
+                                    price = outcome.get('price')
+                                    name = outcome.get('name')
+                                    
+                                    if point and name:
+                                        if name == 'Over':
+                                            temp_total = float(point)
+                                            temp_over_odds = int(price)
+                                        elif name == 'Under':
+                                            temp_under_odds = int(price)
+                                
+                                if temp_total and temp_over_odds and temp_under_odds:
+                                    best_total = temp_total
+                                    over_odds = temp_over_odds
+                                    under_odds = temp_under_odds
+                                    bookmaker_name = bookmaker.get('title', 'Unknown')
+                                    fanduel_found = True
+                                    print(f"   🎯 Using FanDuel data for {best_match['away_team']} @ {best_match['home_team']}")
+                                    break
+                        if fanduel_found:
+                            break
+                
+                # Second pass: If no FanDuel, use any available bookmaker
+                if not fanduel_found:
+                    for bookmaker in api_game.get('bookmakers', []):
+                        for market in bookmaker.get('markets', []):
+                            if market.get('key') == 'totals':
+                                temp_total = None
+                                temp_over_odds = None
+                                temp_under_odds = None
+                                
+                                for outcome in market.get('outcomes', []):
+                                    point = outcome.get('point')
+                                    price = outcome.get('price')
+                                    name = outcome.get('name')
+                                    
+                                    if point and name:
+                                        if name == 'Over':
+                                            temp_total = float(point)
+                                            temp_over_odds = int(price)
+                                        elif name == 'Under':
+                                            temp_under_odds = int(price)
+                                
+                                if temp_total and temp_over_odds and temp_under_odds:
+                                    best_total = temp_total
+                                    over_odds = temp_over_odds
+                                    under_odds = temp_under_odds
+                                    bookmaker_name = bookmaker.get('title', 'Unknown')
+                                    break
+                        if best_total:
+                            break
+                
+                if best_total:
+                    market_data.append({
+                        'game_id': best_match['game_id'],
+                        'home_team': best_match['home_team'],
+                        'away_team': best_match['away_team'],
+                        'market_total': best_total,
+                        'over_odds': over_odds,
+                        'under_odds': under_odds,
+                        'source': f'real_api_{bookmaker_name}'
+                    })
+                    print(f"   📊 {best_match['away_team']} @ {best_match['home_team']}: O/U {best_total} (O:{over_odds:+d}/U:{under_odds:+d}) [{bookmaker_name}]")
+                    used_api_games.add(api_idx)  # Mark API game as used
+                
+                # ALSO COLLECT ALL BOOKMAKER DATA for comprehensive storage
+                for bookmaker in api_game.get('bookmakers', []):
+                    bookmaker_title = bookmaker.get('title', 'Unknown')
                     for market in bookmaker.get('markets', []):
                         if market.get('key') == 'totals':
                             temp_total = None
@@ -222,26 +302,15 @@ def get_odds_api_data(target_date, include_live=False):
                                         temp_under_odds = int(price)
                             
                             if temp_total and temp_over_odds and temp_under_odds:
-                                best_total = temp_total
-                                over_odds = temp_over_odds
-                                under_odds = temp_under_odds
-                                bookmaker_name = bookmaker.get('title', 'Unknown')
-                                break
-                    if best_total:
-                        break
-                
-                if best_total:
-                    market_data.append({
-                        'game_id': best_match['game_id'],
-                        'home_team': best_match['home_team'],
-                        'away_team': best_match['away_team'],
-                        'market_total': best_total,
-                        'over_odds': over_odds,
-                        'under_odds': under_odds,
-                        'source': f'real_api_{bookmaker_name}'
-                    })
-                    print(f"   📊 {best_match['away_team']} @ {best_match['home_team']}: O/U {best_total} (O:{over_odds:+d}/U:{under_odds:+d}) [{bookmaker_name}]")
-                    used_api_games.add(api_idx)  # Mark API game as used
+                                comprehensive_odds.append({
+                                    'game_id': best_match['game_id'],
+                                    'home_team': best_match['home_team'],
+                                    'away_team': best_match['away_team'],
+                                    'market_total': temp_total,
+                                    'over_odds': temp_over_odds,
+                                    'under_odds': temp_under_odds,
+                                    'book': bookmaker_title
+                                })
         
         # Check API usage
         remaining = response.headers.get('x-requests-remaining')
@@ -252,11 +321,69 @@ def get_odds_api_data(target_date, include_live=False):
         if skipped_live > 0:
             print(f"   🚫 Skipped {skipped_live} live/started games (pregame only)")
         
+        # Store comprehensive odds data in totals_odds table
+        if comprehensive_odds:
+            store_comprehensive_odds(comprehensive_odds, target_date)
+        
         return market_data if market_data else None
         
     except Exception as e:
         print(f"   ❌ The Odds API failed: {e}")
         return None
+
+def store_comprehensive_odds(comprehensive_odds, target_date):
+    """Store comprehensive odds data from all bookmakers in totals_odds table"""
+    if not comprehensive_odds:
+        return
+    
+    print(f"   📚 Storing comprehensive odds from {len(comprehensive_odds)} bookmaker entries...")
+    
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            # Ensure totals_odds table exists
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS totals_odds (
+                  game_id      varchar NOT NULL,
+                  "date"       date    NOT NULL,
+                  book         text    NOT NULL,
+                  total        numeric NOT NULL,
+                  over_odds    integer,
+                  under_odds   integer,
+                  collected_at timestamp NOT NULL DEFAULT now(),
+                  PRIMARY KEY (game_id, "date", book, total, collected_at)
+                )
+            """))
+            
+            ins_hist = text("""
+                INSERT INTO totals_odds (game_id, date, book, total, over_odds, under_odds)
+                VALUES (:gid, :d, :book, :total, :over_odds, :under_odds)
+                ON CONFLICT (game_id, date, book, total, collected_at) DO NOTHING
+            """)
+            
+            books_stored = set()
+            for odds in comprehensive_odds:
+                params = {
+                    "gid": str(odds["game_id"]),
+                    "d": target_date,
+                    "book": odds["book"],
+                    "total": _snap_to_half(odds["market_total"]),
+                    "over_odds": odds.get("over_odds"),
+                    "under_odds": odds.get("under_odds")
+                }
+                
+                try:
+                    conn.execute(ins_hist, params)
+                    books_stored.add(odds["book"])
+                except Exception as e:
+                    # Handle duplicate key or other constraints gracefully
+                    pass
+            
+            if books_stored:
+                print(f"   ✅ Stored odds from: {', '.join(sorted(books_stored))}")
+                
+    except Exception as e:
+        print(f"   ⚠️  Warning: Could not store comprehensive odds: {e}")
 
 def get_espn_market_data(target_date):
     """Get market totals from ESPN API (free)"""
