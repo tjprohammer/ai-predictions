@@ -7,17 +7,17 @@
 ```
 mlb/
 ├── core/                              # Core prediction engines and workflow
-│   ├── daily_api_workflow.py          # Main orchestration workflow  
+│   ├── daily_api_workflow.py          # Main orchestration workflow
 │   ├── enhanced_bullpen_predictor.py  # Enhanced ML predictor with bullpen factors
 │   └── learning_model_predictor.py    # Adaptive learning model predictor
 │
-├── systems/                           # Specialized prediction systems  
+├── systems/                           # Specialized prediction systems
 │   ├── incremental_ultra_80_system.py # Ultra 80 incremental learning system
 │   └── ultra_80_percent_system.py     # Ultra 80 percent model system
 │
 ├── ingestion/                         # Data collection and ingestion
 │   ├── working_games_ingestor.py      # Game schedule and lineup data
-│   ├── real_market_ingestor.py        # Live odds and market data  
+│   ├── real_market_ingestor.py        # Live odds and market data
 │   ├── working_pitcher_ingestor.py    # Pitcher stats and ratings
 │   ├── working_team_ingestor.py       # Team statistics and trends
 │   └── weather_ingestor.py            # Weather conditions
@@ -28,7 +28,7 @@ mlb/
 │
 ├── training/                          # Model training and maintenance
 │   ├── training_bundle_audit.py       # Training bundle validation and audit
-│   ├── retrain_model.py               # Model retraining pipeline  
+│   ├── retrain_model.py               # Model retraining pipeline
 │   └── backfill_range.py              # Historical data backfill
 │
 ├── tracking/                          # Performance tracking and monitoring
@@ -49,7 +49,7 @@ mlb/
 ├── models/                            # Model artifacts and state files
 │   ├── adaptive_learning_model.joblib # Adaptive learning model bundle
 │   ├── legitimate_model_latest.joblib # Main production model bundle
-│   ├── incremental_ultra80_state.joblib # Ultra 80 system state  
+│   ├── incremental_ultra80_state.joblib # Ultra 80 system state
 │   ├── ultra_80_model.joblib          # Ultra 80 model bundle
 │   └── ultra_ensemble_model.joblib    # Ensemble model bundle
 │
@@ -65,6 +65,7 @@ mlb/
 ## 🚀 **Quick Start**
 
 ### **Daily Prediction Workflow**
+
 ```bash
 cd mlb/core
 python daily_api_workflow.py --stages markets,features,predict,ultra80,health,prob,export
@@ -73,6 +74,7 @@ python daily_api_workflow.py --stages markets,features,predict,ultra80,health,pr
 ### **Individual Components**
 
 **Run Enhanced Predictor:**
+
 ```python
 from mlb.core.enhanced_bullpen_predictor import EnhancedBullpenPredictor
 predictor = EnhancedBullpenPredictor()
@@ -80,14 +82,16 @@ predictions = predictor.predict_today_games("2025-08-28")
 ```
 
 **Run Ultra 80 System:**
+
 ```python
-from mlb.systems.incremental_ultra_80_system import IncrementalUltra80System  
+from mlb.systems.incremental_ultra_80_system import IncrementalUltra80System
 system = IncrementalUltra80System()
 system.load_state("../models/incremental_ultra80_state.joblib")
 predictions = system.predict_for_date("2025-08-28")
 ```
 
 **Run Learning Model:**
+
 ```python
 from mlb.core.learning_model_predictor import predict_and_upsert_learning
 predictions = predict_and_upsert_learning(engine, X, ids, "2025-08-28")
@@ -96,8 +100,9 @@ predictions = predict_and_upsert_learning(engine, X, ids, "2025-08-28")
 ## 🔧 **Configuration**
 
 ### **Environment Variables**
+
 ```bash
-DATABASE_URL="postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"  
+DATABASE_URL="postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"
 MODEL_BUNDLE_PATH="../models/legitimate_model_latest.joblib"
 MIN_PITCHER_COVERAGE=0.8
 ALLOW_FLAT_ENV=false
@@ -105,8 +110,9 @@ DISABLE_MARKET_ANCHORING=false
 ```
 
 ### **Workflow Stages**
+
 - `markets` - Pull market data and odds from APIs
-- `features` - Build enhanced features for prediction  
+- `features` - Build enhanced features for prediction
 - `predict` - Generate base ML predictions
 - `ultra80` - Generate Ultra 80 system predictions with intervals and EV
 - `health` - Validate system calibration health before trading
@@ -117,33 +123,39 @@ DISABLE_MARKET_ANCHORING=false
 ## 🏗️ **Architecture**
 
 ### **Three-Model System**
+
 1. **Original Model** (`enhanced_bullpen_predictor.py`) - Static, well-calibrated baseline
 2. **Learning Model** (`learning_model_predictor.py`) - Market-anchored adaptive predictions
 3. **Ultra 80 System** (`incremental_ultra_80_system.py`) - Advanced incremental learning
 
 ### **Data Flow**
+
 ```
 Ingestion → Feature Engineering → Prediction → Validation → Database → UI
 ```
 
 ### **Database Schema**
+
 - `enhanced_games.predicted_total` - Learning model predictions
-- `enhanced_games.predicted_total_learning` - Ultra 80 system predictions  
+- `enhanced_games.predicted_total_learning` - Ultra 80 system predictions
 - `enhanced_games.predicted_total_original` - Original model predictions
 
 ## 📊 **Model Performance**
 
 ### **Ultra 80 System**
+
 - **Realistic Range:** 7.84 - 10.24 runs
 - **State Persistence:** Incremental learning with joblib state files
 - **Update Frequency:** After each completed game
 
-### **Learning Model** 
-- **Realistic Range:** 6.86 - 8.82 runs  
+### **Learning Model**
+
+- **Realistic Range:** 6.86 - 8.82 runs
 - **Market Anchoring:** Controlled anchoring to prevent extreme deviations
 - **Calibration:** Market-anchored to maintain realistic MLB ranges
 
 ### **Original Model**
+
 - **Stable Baseline:** Well-calibrated historical performance
 - **Feature Rich:** Enhanced bullpen and weather factors
 - **Production Ready:** Thoroughly tested and validated
@@ -151,16 +163,19 @@ Ingestion → Feature Engineering → Prediction → Validation → Database →
 ## 🔄 **Daily Operations**
 
 ### **Morning Routine**
+
 1. `python daily_api_workflow.py --stages markets` - Pull fresh data
-2. `python daily_api_workflow.py --stages features,predict` - Generate predictions  
+2. `python daily_api_workflow.py --stages features,predict` - Generate predictions
 3. `python daily_api_workflow.py --stages health` - Validate system health
 
 ### **Pre-Game Validation**
+
 1. `python daily_api_workflow.py --stages prob` - Calculate probabilities
 2. `python daily_api_workflow.py --stages export` - Export for UI
 3. Review health gate status and prediction ranges
 
-### **Post-Game Analysis**  
+### **Post-Game Analysis**
+
 1. `python daily_api_workflow.py --stages scores` - Collect final scores
 2. `python daily_api_workflow.py --stages audit` - Performance audit
 3. Ultra 80 system automatically updates with new results
@@ -168,18 +183,21 @@ Ingestion → Feature Engineering → Prediction → Validation → Database →
 ## 🛠️ **Maintenance**
 
 ### **Model Retraining**
+
 ```bash
 cd mlb/training
 python retrain_model.py --end 2025-08-28 --window-days 150 --deploy
 ```
 
 ### **Historical Backfill**
+
 ```bash
-cd mlb/training  
+cd mlb/training
 python backfill_range.py --start 2025-08-01 --end 2025-08-28 --predict
 ```
 
 ### **Manual Overrides**
+
 ```bash
 cd mlb/utils
 python apply_prediction_override.py --game-id "game123" --total 8.5
@@ -188,6 +206,7 @@ python apply_prediction_override.py --game-id "game123" --total 8.5
 ## 🔍 **Tracking & Monitoring**
 
 ### **Performance Tracking**
+
 ```bash
 # Comprehensive performance analysis
 python mlb/tracking/performance/enhanced_prediction_tracker.py
@@ -195,11 +214,12 @@ python mlb/tracking/performance/enhanced_prediction_tracker.py
 # Weekly performance summaries
 python mlb/tracking/performance/weekly_performance_tracker.py
 
-# Learning model impact analysis  
+# Learning model impact analysis
 python mlb/tracking/performance/learning_impact_tracker.py
 ```
 
 ### **Results Tracking**
+
 ```bash
 # Real-time game result monitoring
 python mlb/tracking/results/game_result_tracker.py
@@ -212,6 +232,7 @@ python mlb/tracking/results/manual_results_updater.py
 ```
 
 ### **Validation & Monitoring**
+
 ```bash
 # Final prediction validation
 python mlb/tracking/validation/check_predictions_final.py
@@ -226,27 +247,31 @@ python mlb/tracking/monitoring/auto_prediction_tracker.py
 ## 🧪 **Testing**
 
 ### **Import Verification**
+
 ```bash
 python test_mlb_imports.py
 ```
 
 ### **Prediction Quality Checks**
+
 - **Variance Check:** σ > 0.25 (prevents constant predictions)
-- **Reality Check:** Mean 6.5-9.8 runs (realistic MLB range)  
+- **Reality Check:** Mean 6.5-9.8 runs (realistic MLB range)
 - **Coverage Check:** > 80% pitcher data availability
 - **Health Gate:** Automated calibration monitoring
 
 ## 📈 **Monitoring**
 
 ### **Key Metrics**
+
 - **MAE:** Mean Absolute Error vs actual totals
-- **Bias:** Systematic over/under prediction  
+- **Bias:** Systematic over/under prediction
 - **Calibration:** R² and slope vs actual outcomes
 - **Coverage:** Prediction availability percentage
 
 ### **Alerts**
+
 - Prediction variance < 0.25 (flat predictions)
-- Mean predictions > 9.8 or < 6.5 (unrealistic)  
+- Mean predictions > 9.8 or < 6.5 (unrealistic)
 - Health gate failures (calibration drift)
 - Ingestion failures (missing data)
 

@@ -2407,8 +2407,9 @@ def get_simple_performance(days: int = 14):
                 home_team,
                 away_team,
                 total_runs,
-                predicted_total,
-                COALESCE(market_total, predicted_total) as market_total,
+                predicted_total as learning_adaptive_prediction,
+                predicted_total_learning as ultra80_incremental_prediction,
+                COALESCE(market_total, COALESCE(predicted_total_learning, predicted_total)) as market_total,
                 COALESCE(confidence, 50) as confidence,
                 venue_name,
                 COALESCE(temperature, 70) as temperature,
@@ -2418,9 +2419,9 @@ def get_simple_performance(days: int = 14):
                 AND date <= :end_date
                 AND home_score IS NOT NULL 
                 AND away_score IS NOT NULL
-                AND predicted_total IS NOT NULL
+                AND (predicted_total_learning IS NOT NULL OR predicted_total IS NOT NULL)
                 AND total_runs IS NOT NULL
-                AND predicted_total > 0
+                AND COALESCE(predicted_total_learning, predicted_total) > 0
                 AND total_runs > 0
             ORDER BY date DESC
             LIMIT 200
@@ -2434,36 +2435,56 @@ def get_simple_performance(days: int = 14):
             games = []
             for row in result:
                 try:
-                    predicted_total = float(row.predicted_total)
+                    # Get both prediction systems
+                    learning_adaptive = float(row.learning_adaptive_prediction) if row.learning_adaptive_prediction else None
+                    ultra80_incremental = float(row.ultra80_incremental_prediction) if row.ultra80_incremental_prediction else None
+                    
+                    # Use Ultra 80 as primary for backward compatibility, fallback to learning adaptive
+                    primary_prediction = ultra80_incremental if ultra80_incremental else learning_adaptive
+                    
+                    if not primary_prediction:
+                        continue  # Skip if no predictions available
+                    
                     actual_total = int(row.total_runs)
                     market_total = float(row.market_total)
                     confidence = float(row.confidence)
                     temperature = float(row.temperature)
                     
                     # Skip if any value is invalid
-                    if not all(isinstance(x, (int, float)) and not (isinstance(x, float) and x != x) for x in [predicted_total, actual_total, market_total, confidence]):
+                    if not all(isinstance(x, (int, float)) and not (isinstance(x, float) and x != x) for x in [primary_prediction, actual_total, market_total, confidence]):
                         continue
                     
-                    prediction_error = abs(predicted_total - actual_total)
+                    # Calculate errors for both systems
+                    primary_error = abs(primary_prediction - actual_total)
+                    learning_adaptive_error = abs(learning_adaptive - actual_total) if learning_adaptive else None
+                    ultra80_error = abs(ultra80_incremental - actual_total) if ultra80_incremental else None
                     market_error = abs(market_total - actual_total)
-                    edge = predicted_total - market_total
+                    edge = primary_prediction - market_total
                     
                     game_data = {
                         'date': str(row.date),
                         'game_id': str(row.game_id),
                         'home_team': str(row.home_team or ''),
                         'away_team': str(row.away_team or ''),
-                        'predicted_total': round(predicted_total, 1),
+                        'predicted_total': round(primary_prediction, 1),
+                        'learning_adaptive_prediction': round(learning_adaptive, 1) if learning_adaptive else None,
+                        'ultra80_incremental_prediction': round(ultra80_incremental, 1) if ultra80_incremental else None,
                         'market_total': round(market_total, 1),
                         'actual_total': actual_total,
-                        'prediction_error': round(prediction_error, 2),
+                        'prediction_error': round(primary_error, 2),
+                        'learning_adaptive_error': round(learning_adaptive_error, 2) if learning_adaptive_error else None,
+                        'ultra80_error': round(ultra80_error, 2) if ultra80_error else None,
                         'market_error': round(market_error, 2),
                         'edge': round(edge, 2),
                         'confidence': round(confidence, 1),
                         'venue_name': str(row.venue_name or 'Unknown'),
                         'temperature': round(temperature, 1),
                         'weather_condition': str(row.weather_condition or 'Clear'),
-                        'was_prediction_better': prediction_error < market_error
+                        'was_prediction_better': primary_error < market_error,
+                        'primary_model': 'Ultra 80 Incremental' if ultra80_incremental else 'Learning Adaptive',
+                        'has_both_predictions': bool(learning_adaptive and ultra80_incremental),
+                        'has_learning_adaptive': bool(learning_adaptive),
+                        'has_ultra80_incremental': bool(ultra80_incremental)
                     }
                     games.append(game_data)
                 except (ValueError, TypeError) as e:
@@ -2558,7 +2579,8 @@ def get_model_performance(days: int = 14):
                 market_total,
                 over_odds,
                 under_odds,
-                predicted_total,
+                predicted_total as learning_adaptive_prediction,
+                predicted_total_learning as ultra80_incremental_prediction,
                 confidence,
                 edge,
                 recommendation
@@ -2567,7 +2589,7 @@ def get_model_performance(days: int = 14):
                 AND date <= :end_date
                 AND home_score IS NOT NULL 
                 AND away_score IS NOT NULL
-                AND predicted_total IS NOT NULL
+                AND (predicted_total_learning IS NOT NULL OR predicted_total IS NOT NULL)
                 AND total_runs IS NOT NULL
             ORDER BY date DESC, game_id
             """)
@@ -2579,28 +2601,42 @@ def get_model_performance(days: int = 14):
             
             games = []
             for row in result:
-                # Clean and validate all numeric values
-                predicted_total = float(row.predicted_total) if row.predicted_total is not None else 0.0
+                # Clean and validate all numeric values, handle both prediction systems
+                learning_adaptive = float(row.learning_adaptive_prediction) if row.learning_adaptive_prediction is not None else None
+                ultra80_incremental = float(row.ultra80_incremental_prediction) if row.ultra80_incremental_prediction is not None else None
+                
+                # Use Ultra 80 as primary for display, fallback to learning adaptive
+                primary_prediction = ultra80_incremental if ultra80_incremental else learning_adaptive
+                
+                if not primary_prediction:
+                    continue  # Skip if no predictions available
+                
                 actual_total = float(row.total_runs) if row.total_runs is not None else 0.0
-                market_total = float(row.market_total) if row.market_total is not None else predicted_total
+                market_total = float(row.market_total) if row.market_total is not None else primary_prediction
                 confidence = float(row.confidence) if row.confidence is not None else 50.0
-                edge = float(row.edge) if row.edge is not None else predicted_total - market_total
+                edge = float(row.edge) if row.edge is not None else primary_prediction - market_total
                 temperature = float(row.temperature) if row.temperature is not None else 70.0
                 wind_speed = float(row.wind_speed) if row.wind_speed is not None else 10.0
                 
-                # Calculate errors safely
-                prediction_error = abs(predicted_total - actual_total)
-                market_error = abs(market_total - actual_total) if market_total != predicted_total else prediction_error + 1.0
+                # Calculate errors for both systems
+                primary_error = abs(primary_prediction - actual_total)
+                learning_adaptive_error = abs(learning_adaptive - actual_total) if learning_adaptive else None
+                ultra80_error = abs(ultra80_incremental - actual_total) if ultra80_incremental else None
+                market_error = abs(market_total - actual_total) if market_total != primary_prediction else primary_error + 1.0
                 
                 game_data = {
                     'date': str(row.date),
                     'game_id': str(row.game_id),
                     'home_team': str(row.home_team),
                     'away_team': str(row.away_team),
-                    'predicted_total': predicted_total,
+                    'predicted_total': primary_prediction,
+                    'learning_adaptive_prediction': learning_adaptive,
+                    'ultra80_incremental_prediction': ultra80_incremental,
                     'market_total': market_total,
                     'actual_total': actual_total,
-                    'prediction_error': prediction_error,
+                    'prediction_error': primary_error,
+                    'learning_adaptive_error': learning_adaptive_error,
+                    'ultra80_error': ultra80_error,
                     'market_error': market_error,
                     'edge': edge,
                     'confidence': confidence,
@@ -2609,10 +2645,14 @@ def get_model_performance(days: int = 14):
                     'temperature': temperature,
                     'wind_speed': wind_speed,
                     'weather_condition': str(row.weather_condition) if row.weather_condition else 'Clear',
-                    'was_prediction_better': prediction_error < market_error,
-                    'prediction_accuracy_category': 'Excellent' if prediction_error <= 1 else 
-                                                   'Good' if prediction_error <= 2 else 
-                                                   'Fair' if prediction_error <= 3 else 'Poor'
+                    'was_prediction_better': primary_error < market_error,
+                    'primary_model': 'Ultra 80 Incremental' if ultra80_incremental else 'Learning Adaptive',
+                    'has_both_predictions': bool(learning_adaptive and ultra80_incremental),
+                    'has_learning_adaptive': bool(learning_adaptive),
+                    'has_ultra80_incremental': bool(ultra80_incremental),
+                    'prediction_accuracy_category': 'Excellent' if primary_error <= 1 else 
+                                                   'Good' if primary_error <= 2 else 
+                                                   'Fair' if primary_error <= 3 else 'Poor'
                 }
                 games.append(game_data)
         
@@ -3550,8 +3590,8 @@ async def get_model_predictions_api(target_date: str):
                     'ultra_sharp_v15': ultra_sharp_v15_pred,
                     'market': market_total,
                     'primary': learning_pred,
-                    'learning': ultra_80_pred,
-                    'original': original_pred,
+                    'learning': learning_pred,        # Fixed: Learning Adaptive prediction
+                    'original': ultra_sharp_v15_pred, # Fixed: Use Ultra Sharp V15 as baseline
                     'ultra_sharp': ultra_sharp_v15_pred
                 },
                 

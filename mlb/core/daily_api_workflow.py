@@ -648,6 +648,9 @@ def run_ingestors(target_date: str):
     # 2. Starters / pitchers
     _run([sys.executable, os.path.join(ingestion_dir, "working_pitcher_ingestor.py"), "--target-date", target_date], "working_pitcher_ingestor")
     
+    # 2b. Rolling pitcher stats for enhanced predictions
+    _run([sys.executable, os.path.join(ingestion_dir, "daily_pitcher_rolling_stats.py"), "--target-date", target_date], "daily_pitcher_rolling_stats")
+    
     # 3. Team stats (pass target date)
     _run([sys.executable, os.path.join(ingestion_dir, "working_team_ingestor.py"), "--target-date", target_date], "working_team_ingestor")
     
@@ -748,9 +751,10 @@ def upsert_markets(engine, market_df: pd.DataFrame, target_date: str):
 
 def engineer_and_align(df: pd.DataFrame, target_date: str, reset_state: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Use the best available pipeline for prediction.
-    Priority: 1) Incremental Ultra 80 (continuous learning), 2) Ultra Sharp V15, 3) Enhanced Bullpen
-    Returns (featured_df, X_aligned, predictions).
+    Use dual prediction pipeline: Learning Adaptive + Ultra 80 Incremental systems.
+    1) First runs Learning Adaptive systems (Ultra Sharp V15 or Enhanced Bullpen) → stores in predicted_total
+    2) Then runs Ultra 80 Incremental system separately → stores in predicted_total_learning
+    Returns (featured_df, X_aligned, predictions from Learning Adaptive).
     """
     
     # ✨ NEW: Apply enhanced recency+matchup features to input dataframe
@@ -766,7 +770,51 @@ def engineer_and_align(df: pd.DataFrame, target_date: str, reset_state: bool = F
         log.warning(f"⚠️ Enhanced feature enhancement failed: {e}")
         log.info("🔄 Continuing with basic features")
     
-    # First priority: Try Incremental Ultra 80 System (continuous learning)
+    # Step 1: Run Learning Adaptive Systems (Ultra Sharp V15 or Enhanced Bullpen)
+    learning_adaptive_result = None
+    
+    # Try Ultra Sharp V15 first
+    try:
+        from ultra_sharp_integration import integrate_ultra_sharp_predictor, check_ultra_sharp_available
+        
+        log.info("🎯 Attempting Ultra Sharp V15 System (Learning Adaptive)")
+        
+        if check_ultra_sharp_available():
+            learning_adaptive_result = integrate_ultra_sharp_predictor(df, target_date)
+            
+            if learning_adaptive_result is not None:
+                featured, X, preds = learning_adaptive_result
+                log.info(f"✅ Ultra Sharp V15 successful: {len(preds)} predictions (Learning Adaptive)")
+            else:
+                log.warning("❌ Ultra Sharp V15 returned None")
+        else:
+            log.warning("❌ Ultra Sharp V15 not available")
+    except Exception as e:
+        log.warning(f"❌ Ultra Sharp V15 failed: {e}")
+    
+    # Fallback to Enhanced Bullpen if Ultra Sharp failed
+    if learning_adaptive_result is None:
+        try:
+            log.info("🛡️ Falling back to Enhanced Bullpen Predictor (Learning Adaptive)")
+            
+            from enhanced_bullpen_predictor import EnhancedBullpenPredictor
+            
+            # Use the existing predict_today_games method which returns (predictions_df, featured_df, X)
+            predictor = EnhancedBullpenPredictor()
+            preds, featured, X = predictor.predict_today_games(target_date)
+            learning_adaptive_result = (featured, X, preds)
+            
+            if preds is not None and len(preds) > 0:
+                log.info(f"✅ Enhanced Bullpen successful: {len(preds)} predictions (Learning Adaptive)")
+            else:
+                log.error("❌ Enhanced Bullpen returned empty predictions")
+                return None, None, None
+        except Exception as e:
+            log.error(f"❌ Enhanced Bullpen failed: {e}")
+            return None, None, None
+    
+    # Step 2: Run Ultra 80 Incremental System separately (parallel to Learning Adaptive)
+    ultra80_success = False
     try:
         import sys
         from pathlib import Path
@@ -774,7 +822,7 @@ def engineer_and_align(df: pd.DataFrame, target_date: str, reset_state: bool = F
         sys.path.append(str(Path(__file__).parent.parent / "systems"))  # Incremental system is now in systems/
         from incremental_ultra_80_system import IncrementalUltra80System
         
-        log.info("🧠 Attempting Incremental Ultra 80 System (continuous learning)")
+        log.info("🧠 Running Ultra 80 Incremental System (parallel to Learning Adaptive)")
         
         # Handle state reset if requested
         state_path = Path(__file__).parent.parent / "models" / "incremental_ultra80_state.joblib"  # State file moved to models/
@@ -940,115 +988,192 @@ def engineer_and_align(df: pd.DataFrame, target_date: str, reset_state: bool = F
                             
                             log.info(f"💾 Stored incremental predictions for {incremental_updated} games in predicted_total_learning column")
                     
-                    # Create ids dataframe for upsert (matching what workflow expects)
-                    ids = predictions[['game_id', 'date']].copy()
-                    
-                    # Create minimal featured and X dataframes (not used by incremental system)
-                    featured = df.copy()
-                    X = pd.DataFrame(index=range(len(predictions)))  # Empty but with right length
-                    
-                    # Log incremental system metrics
-                    if 'trust' in predictions_df.columns:
-                        avg_trust = predictions_df['trust'].mean()
-                        log.info(f"📊 Average prediction trust: {avg_trust:.3f}")
-                    
-                    if 'ev' in predictions_df.columns:
-                        high_ev_count = (predictions_df['ev'] >= 0.05).sum()
-                        log.info(f"💎 High-EV opportunities: {high_ev_count}/{len(predictions_df)}")
-                    
-                    log.info("✅ Incremental Ultra 80 System successfully integrated")
-                    return featured, X, predictions
+                    log.info("✅ Ultra 80 Incremental System successfully completed (stored separately)")
+                    ultra80_success = True
             else:
-                log.warning("Incremental system returned no predictions for target date")
+                log.warning("Ultra 80 system returned no predictions for target date")
         else:
-            log.warning("Incremental system not fitted - falling back to next predictor")
+            log.warning("Ultra 80 system not fitted - continuing without incremental predictions")
             
     except ImportError as e:
-        log.info(f"Incremental Ultra 80 System not available: {e}")
+        log.info(f"Ultra 80 Incremental System not available: {e}")
     except Exception as e:
-        log.warning(f"Incremental Ultra 80 System failed: {e}, falling back to Ultra Sharp")
+        log.warning(f"Ultra 80 Incremental System failed: {e}")
     
-    # Second priority: Try Ultra Sharp Pipeline (V15 with smart calibration + ROI filtering)
+    # Return Learning Adaptive results (regardless of Ultra 80 success)
+    if learning_adaptive_result is not None:
+        featured, X, preds = learning_adaptive_result
+        log.info(f"🎯 Returning Learning Adaptive predictions: {len(preds)} games")
+        if ultra80_success:
+            log.info("🧠 Ultra 80 predictions stored separately in predicted_total_learning")
+        return featured, X, preds
+    else:
+        log.error("❌ No prediction systems succeeded")
+        return None, None, None
+
+
+def run_ingestors_broken(target_date: str):
+    """
+    Run all necessary ingestors for the target date
+    """
+    log.info(f"🔄 Running ingestors for {target_date}")
+    
     try:
-        from ultra_sharp_integration import integrate_ultra_sharp_predictor, check_ultra_sharp_available
+        # Run games ingestor
+        result = subprocess.run([
+            'python', '../ingestion/working_games_ingestor.py', 
+            '--target-date', target_date
+        ], check=True, capture_output=True, text=True, cwd=os.getcwd())
+        log.info("✅ Games ingestor completed")
         
-        if check_ultra_sharp_available():
-            log.info("🚀 Using Ultra Sharp V15 Pipeline (smart calibration + ROI filtering)")
-            predictions, featured, X = integrate_ultra_sharp_predictor(target_date)
-            
-            if predictions is not None and not predictions.empty:
-                # Log Ultra Sharp specific metrics
-                if 'high_confidence' in predictions.columns:
-                    hc_count = predictions['high_confidence'].sum()
-                    log.info(f"🔥 Ultra Sharp high-confidence games: {hc_count}/{len(predictions)}")
-                    
-                if 'ev_110' in predictions.columns:
-                    hc_mask = predictions.get('high_confidence', 0) == 1
-                    if hc_mask.sum() > 0:
-                        avg_ev = predictions.loc[hc_mask, 'ev_110'].mean()
-                        log.info(f"🔥 High-confidence average EV: {avg_ev:.3f}")
-                
-                return featured, X, predictions
-            else:
-                log.warning("Ultra Sharp Pipeline returned empty predictions, falling back")
-                
-    except ImportError:
-        log.info("Ultra Sharp Pipeline not available, using Enhanced Bullpen predictor")
+        # Run enhanced markets ingestor
+        result = subprocess.run([
+            'python', '../ingestion/real_market_ingestor.py', 
+            '--target-date', target_date
+        ], check=True, capture_output=True, text=True, cwd=os.getcwd())
+        log.info("✅ Enhanced markets ingestor completed")
+        
+        # Run pitchers ingestor
+        result = subprocess.run([
+            'python', '../ingestion/working_pitcher_ingestor.py', 
+            '--target-date', target_date
+        ], check=True, capture_output=True, text=True, cwd=os.getcwd())
+        log.info("✅ Pitchers ingestor completed")
+        
+    except subprocess.CalledProcessError as e:
+        log.error(f"❌ Ingestor failed: {e}")
+        log.error(f"STDOUT: {e.stdout}")
+        log.error(f"STDERR: {e.stderr}")
+        raise
     except Exception as e:
-        log.warning(f"Ultra Sharp Pipeline failed: {e}, falling back to Enhanced Bullpen predictor")
-    
-    # Third priority: Fallback to Enhanced Bullpen Predictor
-    try:
-        from enhanced_bullpen_predictor import EnhancedBullpenPredictor
-    except ImportError as e:
-        log.error(f"Cannot import EnhancedBullpenPredictor: {e}")
+        log.error(f"❌ Error running ingestors: {e}")
         raise
 
-    log.info("🔄 Using Enhanced Bullpen Predictor (fallback)")
-    predictor = EnhancedBullpenPredictor()
 
-    # Coalesce some values similar to your audit (only if present in df)
-    # (If your predictor.engineer_features handles this already, you can skip.)
-    df = df.copy()
-    if "market_total_final" in df.columns:
-        df["market_total"] = df.pop("market_total_final")
-
-    # 🚫 REMOVED: Market anchoring causes predictions to track live odds
-    # Let the model use its learned priors instead of anchoring to market_total
-    # if "market_total" in df.columns:
-    #     df["expected_total"] = pd.to_numeric(df["market_total"], errors="coerce")
-    #     log.info("🔧 expected_total = market_total for %d games", len(df))
-
-    # Use our tested predict_today_games method with all fixes
-    predictions, featured, X = predictor.predict_today_games(target_date)
+def generate_predictions_parallel_systems(target_date: str):
+    """
+    Generate predictions using both Learning Adaptive and Ultra 80 Incremental systems in parallel
+    Returns both sets of predictions for proper tracking
+    """
+    log.info("🔄 Starting parallel prediction generation...")
     
-    # Handle case where enhanced predictor couldn't process the data
-    if predictions is None or featured is None or X is None:
-        log.warning("Enhanced predictor failed, falling back to manual feature engineering")
+    learning_adaptive_predictions = None
+    ultra80_predictions = None
+    featured_data = None
+    X_data = None
+    
+    # ==========================================
+    # STEP 1: Generate Learning Adaptive System Predictions (V15)
+    # ==========================================
+    log.info("🧠 Generating Learning Adaptive System predictions (Ultra Sharp V15)...")
+    try:
+        from ultra_sharp_pipeline import UltraSharpPipeline
         
-        # Fall back to manual feature engineering (simplified version)
-        featured = predictor.engineer_features(df)
-        X = predictor.align_serving_features(featured, strict=False)
-        predictions = None
-    else:
-        log.info(f"predict_today_games complete → featured: {featured.shape}, X: {X.shape}")
+        pipeline = UltraSharpPipeline()
+        
+        # Generate predictions using V15 system
+        featured, X, predictions = pipeline.predict_games_ultra_sharp_v15(target_date)
+        
+        if not predictions.empty:
+            learning_adaptive_predictions = predictions.copy()
+            featured_data = featured
+            X_data = X
+            
+            log.info(f"✅ Learning Adaptive System generated {len(predictions)} predictions")
+            
+            # Log Ultra Sharp specific metrics
+            if 'high_confidence' in predictions.columns:
+                hc_count = predictions['high_confidence'].sum()
+                log.info(f"🔥 Learning Adaptive high-confidence games: {hc_count}/{len(predictions)}")
+                
+            if 'ev_110' in predictions.columns:
+                hc_mask = predictions.get('high_confidence', 0) == 1
+                if hc_mask.sum() > 0:
+                    avg_ev = predictions.loc[hc_mask, 'ev_110'].mean()
+                    log.info(f"🔥 Learning Adaptive high-confidence average EV: {avg_ev:.3f}")
+        else:
+            log.warning("❌ Learning Adaptive System returned empty predictions")
+            
+    except ImportError:
+        log.warning("⚠️ Ultra Sharp Pipeline not available for Learning Adaptive System")
+    except Exception as e:
+        log.warning(f"⚠️ Learning Adaptive System failed: {e}")
     
-    # Show the predictions we got
-    if predictions is not None and not predictions.empty:
-        pred_mean = predictions['predicted_total'].mean()
-        pred_std = predictions['predicted_total'].std()
-        log.info(f"✅ Predictions: mean={pred_mean:.2f}, std={pred_std:.3f}")
+    # ==========================================
+    # STEP 2: Fallback to Enhanced Bullpen if V15 failed
+    # ==========================================
+    if learning_adaptive_predictions is None or learning_adaptive_predictions.empty:
+        log.info("🔄 Fallback: Using Enhanced Bullpen Predictor for Learning Adaptive System...")
+        try:
+            from enhanced_bullpen_predictor import EnhancedBullpenPredictor
+            
+            predictor = EnhancedBullpenPredictor()
+            predictions, featured, X = predictor.predict_today_games(target_date)
+            
+            if predictions is not None and not predictions.empty:
+                learning_adaptive_predictions = predictions.copy()
+                featured_data = featured
+                X_data = X
+                log.info(f"✅ Enhanced Bullpen generated {len(predictions)} Learning Adaptive predictions")
+            else:
+                log.error("❌ Enhanced Bullpen Predictor also failed")
+                
+        except ImportError as e:
+            log.error(f"❌ Cannot import EnhancedBullpenPredictor: {e}")
+        except Exception as e:
+            log.error(f"❌ Enhanced Bullpen Predictor failed: {e}")
     
-    # Debug key feature visibility from enhanced pipeline
-    for c in ["combined_offense_rpg", "expected_total", "ballpark_run_factor", "ballpark_hr_factor", 
-              "wind_speed", "temperature", "offense_imbalance"]:
-        if c in featured.columns:
-            s = pd.to_numeric(featured[c], errors="coerce")
-            log.info("DBG %s: non-null %d/%d, min=%.3f, median=%.3f, max=%.3f, std=%.3f",
-                     c, s.notna().sum(), len(s),
-                     float(np.nanmin(s)), float(np.nanmedian(s)), float(np.nanmax(s)), float(s.std(skipna=True)))
+    # ==========================================
+    # STEP 3: Generate Ultra 80 Incremental System Predictions (Parallel)
+    # ==========================================
+    log.info("� Generating Ultra 80 Incremental System predictions...")
+    try:
+        from incremental_ultra_80_system import IncrementalUltra80System
+        
+        ultra80_system = IncrementalUltra80System()
+        
+        # Generate incremental predictions using predict_future_slate
+        incremental_predictions = ultra80_system.predict_future_slate(target_date)
+        
+        if incremental_predictions is not None and not incremental_predictions.empty:
+            ultra80_predictions = incremental_predictions.copy()
+            
+            # Map column names to match workflow expectations
+            if 'pred_total' in ultra80_predictions.columns and 'predicted_total' not in ultra80_predictions.columns:
+                ultra80_predictions['predicted_total'] = ultra80_predictions['pred_total']
+                log.info("🔧 Mapped pred_total → predicted_total for Ultra 80 system")
+            
+            log.info(f"✅ Ultra 80 Incremental System generated {len(incremental_predictions)} predictions")
+            
+            # Log Ultra 80 specific metrics
+            if 'predicted_total' in ultra80_predictions.columns:
+                avg_prediction = ultra80_predictions['predicted_total'].mean()
+                log.info(f"🔥 Ultra 80 average prediction: {avg_prediction:.2f}")
+        else:
+            log.warning("❌ Ultra 80 Incremental System returned empty predictions")
+            
+    except ImportError:
+        log.warning("⚠️ Ultra 80 Incremental System not available")
+    except Exception as e:
+        log.warning(f"⚠️ Ultra 80 Incremental System failed: {e}")
     
-    return featured, X, predictions
+    # ==========================================
+    # STEP 4: Return Results from Both Systems
+    # ==========================================
+    if learning_adaptive_predictions is None or learning_adaptive_predictions.empty:
+        log.error("❌ No Learning Adaptive predictions generated!")
+        raise ValueError("Failed to generate Learning Adaptive predictions")
+    
+    log.info(f"📊 Final Results:")
+    log.info(f"   Learning Adaptive: {len(learning_adaptive_predictions) if learning_adaptive_predictions is not None else 0} predictions")
+    log.info(f"   Ultra 80 Incremental: {len(ultra80_predictions) if ultra80_predictions is not None else 0} predictions")
+    
+    return {
+        'learning_adaptive': learning_adaptive_predictions,
+        'ultra80_incremental': ultra80_predictions,
+        'featured': featured_data,
+        'X': X_data
+    }
 
 def _validate_feature_variance(featured: pd.DataFrame, min_pitcher_cov: float = 0.8, per_col_cov: float = 0.8) -> dict:
     """Validate signal coverage & variance. Returns metrics dict; exits on hard failure."""
@@ -1509,14 +1634,13 @@ def predict_and_upsert(engine, X: pd.DataFrame, ids: pd.DataFrame, *, anchor_to_
     return out
 
 def upsert_predictions_df(engine, df: pd.DataFrame) -> int:
-    """Upsert predicted_totals into enhanced_games for (game_id, date)."""
+    """Upsert predicted_totals into enhanced_games for (game_id, date). Only updates predicted_total (Learning Adaptive), preserves predicted_total_learning (Ultra 80)."""
     if df is None or df.empty:
         return 0
     with engine.begin() as conn:
         sql = text("""
             UPDATE enhanced_games
                SET predicted_total = :predicted_total,
-                   predicted_total_learning = :predicted_total,
                    prediction_timestamp = NOW()
              WHERE game_id = :game_id
                AND "date"  = :date
@@ -1742,6 +1866,49 @@ def stage_retrain(target_date: str, window_days=150, holdout_days=21, deploy=Tru
 # Pipeline stages
 # -----------------------------
 
+def sync_real_market_data(engine, target_date: str):
+    """
+    Sync real market data from totals_odds back to enhanced_games.
+    This ensures the UI shows actual sportsbook lines instead of estimates.
+    """
+    try:
+        with engine.begin() as conn:
+            # Update enhanced_games with real market data from totals_odds
+            # Use FanDuel as the primary source, fallback to other books
+            result = conn.execute(text("""
+                UPDATE enhanced_games eg
+                SET 
+                    market_total = to_odds.total,
+                    over_odds = to_odds.over_odds,
+                    under_odds = to_odds.under_odds
+                FROM (
+                    SELECT DISTINCT ON (game_id) 
+                        game_id, total, over_odds, under_odds
+                    FROM totals_odds 
+                    WHERE date = :target_date
+                    ORDER BY game_id, 
+                             CASE book 
+                                WHEN 'FanDuel' THEN 1 
+                                WHEN 'DraftKings' THEN 2 
+                                WHEN 'BetMGM' THEN 3
+                                ELSE 4 
+                             END,
+                             collected_at DESC
+                ) to_odds
+                WHERE eg.game_id = to_odds.game_id 
+                  AND eg.date = :target_date
+            """), {'target_date': target_date})
+            
+            updated_count = result.rowcount
+            
+            if updated_count > 0:
+                log.info(f"✅ Synced real market data to {updated_count} enhanced_games records")
+            else:
+                log.warning("⚠️ No market data synced - check if totals_odds has data for today")
+                
+    except Exception as e:
+        log.error(f"Failed to sync real market data: {e}")
+
 def stage_markets(engine, target_date: str, greedy: bool = True):
     """
     Stage: Markets.
@@ -1754,6 +1921,9 @@ def stage_markets(engine, target_date: str, greedy: bool = True):
     
     # 2. NEW: Pull fresh data from APIs into enhanced_games
     run_ingestors(target_date)
+    
+    # 2.1. NEW: Sync real market data from totals_odds to enhanced_games
+    sync_real_market_data(engine, target_date)
     
     # 3. Read the fresh odds from enhanced_games after ingestion
     mk = fetch_markets_for_date(engine, target_date)
@@ -1858,111 +2028,117 @@ def stage_features_and_predict(engine, target_date: str, reset_state: bool = Fal
     if len(ids) != len(X):
         log.warning(f"Identity/predictor row count mismatch: ids={len(ids)} X={len(X)}")
 
-    # 🔄 PARALLEL PREDICTION SYSTEM: Both incremental and dual models run independently
-    log.info("🔄 Running parallel prediction systems:")
+    # 🔄 NEW PARALLEL PREDICTION SYSTEM: Both Learning Adaptive and Ultra 80 run independently
+    log.info("🔄 Running parallel prediction systems (Learning Adaptive + Ultra 80)...")
     
-    # Run the learning model predictor to populate predicted_total 
-    anchor_env = os.getenv("DISABLE_MARKET_ANCHORING") not in ("1","true","TRUE")
-    
-    # TEMPORARY: Re-enable learning model with fixes
-    LEARNING_MODEL_TEMPORARILY_DISABLED = False
-    
-    if LEARNING_MODEL_AVAILABLE and not LEARNING_MODEL_TEMPORARILY_DISABLED:
-        log.info("🤖 Running learning model predictor for predicted_total...")
-        try:
-            learning_preds = predict_and_upsert_learning(engine, X, ids, target_date, anchor_to_market=anchor_env)
-            log.info(f"✅ Learning model predictor completed for {len(learning_preds) if learning_preds is not None else 0} games")
-        except Exception as e:
-            log.error(f"❌ Learning model predictor failed: {e}")
-            log.info("🔄 Using enhanced bullpen predictor fallback...")
-            learning_preds = predict_and_upsert(engine, X, ids, anchor_to_market=anchor_env)
-            log.info(f"✅ Enhanced bullpen predictor fallback completed for {len(learning_preds) if learning_preds is not None else 0} games")
-    else:
-        log.warning("⚠️ Learning model temporarily disabled - focusing on Ultra 80 system")
-        learning_preds = None
-        log.info(f"✅ Single predictor fallback completed for {len(learning_preds) if learning_preds is not None else 0} games")
-    
-    # The incremental system already ran and stored its predictions in predicted_total_learning
-    if predictions is not None and not predictions.empty:
-        log.info(f"✅ Incremental system completed with {len(predictions)} games")
-        log.info("💾 Incremental predictions already stored in predicted_total_learning column")
-    else:
-        log.info("ℹ️ No incremental predictions available for this slate")
+    try:
+        # Generate predictions from both systems in parallel
+        parallel_results = generate_predictions_parallel_systems(target_date)
+        
+        # Extract results
+        learning_adaptive_predictions = parallel_results['learning_adaptive']
+        ultra80_predictions = parallel_results['ultra80_incremental']
+        
+        # Store Learning Adaptive predictions in predicted_total column
+        if learning_adaptive_predictions is not None and not learning_adaptive_predictions.empty:
+            log.info(f"📊 Storing Learning Adaptive predictions for {len(learning_adaptive_predictions)} games...")
+            upsert_count = upsert_predictions_df(engine, learning_adaptive_predictions)
+            log.info(f"✅ Learning Adaptive: {upsert_count} predictions stored in predicted_total")
+        else:
+            log.warning("⚠️ No Learning Adaptive predictions to store")
+        
+        # Store Ultra 80 predictions in predicted_total_learning column separately
+        if ultra80_predictions is not None and not ultra80_predictions.empty:
+            log.info(f"🚀 Storing Ultra 80 Incremental predictions for {len(ultra80_predictions)} games...")
+            # Create a copy and modify for Ultra 80 storage
+            ultra80_for_db = ultra80_predictions.copy()
+            # Ensure we store in the learning column
+            ultra80_for_db['predicted_total_learning'] = ultra80_for_db['predicted_total']
+            
+            # Use specialized upsert for incremental predictions
+            upsert_count_ultra80 = upsert_predictions_incremental_only(engine, ultra80_for_db)
+            log.info(f"✅ Ultra 80 Incremental: {upsert_count_ultra80} predictions stored in predicted_total_learning")
+        else:
+            log.warning("⚠️ No Ultra 80 Incremental predictions to store")
+        
+        # Return the Learning Adaptive predictions as the primary result
+        final_predictions = learning_adaptive_predictions if learning_adaptive_predictions is not None else pd.DataFrame()
+        
+    except Exception as e:
+        log.error(f"❌ Parallel prediction system failed: {e}")
+        log.info("🔄 Falling back to enhanced bullpen predictor...")
+        
+        # Fallback to single system
+        anchor_env = os.getenv("DISABLE_MARKET_ANCHORING") not in ("1","true","TRUE")
+        final_predictions = predict_and_upsert(engine, X, ids, anchor_to_market=anchor_env)
+        log.info(f"✅ Fallback predictor completed for {len(final_predictions) if final_predictions is not None else 0} games")
     
     # Get final predictions from database (combining both systems)
     with engine.connect() as conn:
         preds = pd.read_sql(
             text('''SELECT game_id, "date"::date AS date, 
                            predicted_total, 
-                           predicted_total_learning, 
-                           predicted_total_original 
+                           predicted_total_learning,
+                           confidence, recommendation
                     FROM enhanced_games 
-                    WHERE "date"=:d'''),
-            conn, params={"d": target_date}
+                    WHERE date = :target_date 
+                      AND predicted_total IS NOT NULL
+                    ORDER BY game_id'''),
+            conn, params={'target_date': target_date}
         )
     
-    # Log the parallel system results
-    if not preds.empty:
-        dual_count = preds['predicted_total'].notna().sum()
-        incremental_count = preds['predicted_total_learning'].notna().sum() 
-        original_count = preds['predicted_total_original'].notna().sum()
-        
-        log.info(f"🎯 Parallel prediction summary:")
-        log.info(f"   📊 Main predictor (predicted_total): {dual_count}/{len(preds)} games")
-        log.info(f"   🧠 Incremental system (predicted_total_learning): {incremental_count}/{len(preds)} games") 
-        log.info(f"   🔄 Original model (predicted_total_original): {original_count}/{len(preds)} games")
+    log.info(f"📊 Final prediction summary:")
+    log.info(f"   Learning Adaptive (predicted_total): {(preds['predicted_total'].notna()).sum()} games")
+    log.info(f"   Ultra 80 Incremental (predicted_total_learning): {(preds['predicted_total_learning'].notna()).sum()} games")
+    log.info(f"   Both systems: {((preds['predicted_total'].notna()) & (preds['predicted_total_learning'].notna())).sum()} games")
     
-    # Optional: Publish Ultra-80 as primary prediction
-    if os.getenv("PUBLISH_ULTRA80_AS_PRIMARY") in ("1", "true", "TRUE"):
-        with engine.begin() as conn:
+    return final_predictions if final_predictions is not None else pd.DataFrame()
+
+
+def upsert_predictions_incremental_only(engine, df: pd.DataFrame) -> int:
+    """
+    Upsert Ultra 80 Incremental predictions specifically to predicted_total_learning column
+    """
+    if df is None or df.empty:
+        log.warning("No Ultra 80 incremental predictions to upsert")
+        return 0
+    
+    required_cols = ['game_id', 'predicted_total']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns for Ultra 80 predictions: {missing_cols}")
+    
+    log.info(f"Upserting {len(df)} Ultra 80 incremental predictions...")
+    
+    # Prepare the predictions for upsert
+    df_clean = df[required_cols].copy()
+    df_clean = df_clean.dropna(subset=['predicted_total'])
+    
+    if df_clean.empty:
+        log.warning("No valid Ultra 80 predictions after cleaning")
+        return 0
+    
+    upsert_count = 0
+    
+    with engine.begin() as conn:
+        # Update predicted_total_learning for Ultra 80 incremental predictions
+        for _, row in df_clean.iterrows():
             result = conn.execute(
                 text("""
-                    UPDATE enhanced_games
-                    SET predicted_total = predicted_total_learning
-                    WHERE "date" = :d AND predicted_total_learning IS NOT NULL
+                    UPDATE enhanced_games 
+                    SET predicted_total_learning = :pred_total
+                    WHERE game_id = :game_id
                 """),
-                {"d": target_date}
+                {
+                    "pred_total": float(row['predicted_total']),
+                    "game_id": row['game_id']
+                }
             )
-            updated_count = result.rowcount
-            log.info(f"🚀 Published Ultra-80 as primary prediction for {updated_count} games")
+            if result.rowcount > 0:
+                upsert_count += 1
     
-    # 🔁 Ensure ORIGINAL is populated side-by-side, and publish Learning (or Blend)
-    try:
-        with engine.begin() as conn:
-            # If baseline wasn't run by this path, backfill original with the published model
-            conn.execute(text("""
-                UPDATE enhanced_games
-                   SET predicted_total_original = predicted_total
-                 WHERE "date" = :d
-                   AND predicted_total IS NOT NULL
-                   AND predicted_total_original IS NULL
-            """), {"d": target_date})
-
-            if os.getenv("PUBLISH_BLEND", "0").lower() in ("1", "true", "yes"):
-                # 70% learning, 30% original (safe if one side missing)
-                conn.execute(text("""
-                    UPDATE enhanced_games
-                       SET predicted_total = ROUND(
-                           0.7*COALESCE(predicted_total_learning, predicted_total_original, predicted_total)
-                         + 0.3*COALESCE(predicted_total_original, predicted_total_learning, predicted_total), 2)
-                     WHERE "date" = :d
-                """), {"d": target_date})
-                log.info("Publishing BLEND: 70%% learning, 30%% original")
-            else:
-                # Publish learning when present; else original; else keep existing
-                conn.execute(text("""
-                    UPDATE enhanced_games
-                       SET predicted_total = COALESCE(predicted_total_learning, predicted_total_original, predicted_total)
-                     WHERE "date" = :d
-                """), {"d": target_date})
-                log.info("Publishing LEARNING (fallback to ORIGINAL if missing)")
-    except Exception as e:
-        log.warning(f"Dual publish/backfill step failed (non-fatal): {e}")
-
-    # Postprocess: calculate edge and recommendation for frontend
-    postprocess_signals(engine, target_date)
-    
-    return preds
+    log.info(f"✅ Upserted {upsert_count} Ultra 80 incremental predictions to predicted_total_learning")
+    return upsert_count
 
 # -----------------------------
 # Environment variance helpers
@@ -2235,6 +2411,15 @@ def stage_probabilities(target_date: str, window_days: int = 30, model_version: 
     Writes to probability_predictions (p_over/p_under, EV, Kelly).
     """
     import subprocess, sys as _sys, os
+    from datetime import datetime
+    
+    # Convert date format from MM-DD-YYYY to YYYY-MM-DD if needed
+    if len(target_date.split('-')[0]) == 2:  # MM-DD-YYYY format
+        month, day, year = target_date.split('-')
+        target_date_iso = f"{year}-{month}-{day}"
+    else:  # Already YYYY-MM-DD format
+        target_date_iso = target_date
+    
     # Optional: pass a safer sigma floor through env (if you made it configurable)
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
@@ -2243,7 +2428,7 @@ def stage_probabilities(target_date: str, window_days: int = 30, model_version: 
 
     cmd = [
         _sys.executable, os.path.join(os.path.dirname(__file__), "..", "validation", "probabilities_and_ev.py"),
-        "--date", target_date,
+        "--date", target_date_iso,
         "--window-days", str(window_days),
         "--model-version", f"wf_{model_version}"
     ]
@@ -2875,7 +3060,11 @@ def validate_daily_workflow_output(engine, target_date: str):
             
             log.info(f"✅ Validation passed: {result.total_games} games with dual predictions")
             log.info(f"  📊 Original: avg={result.avg_original:.2f}, std={result.std_original:.2f}")
-            log.info(f"  📊 Learning: avg={result.avg_learning:.2f}, std={result.std_learning:.2f}")
+            
+            # Handle potential None values for learning predictions
+            avg_learning = result.avg_learning if result.avg_learning is not None else 0.0
+            std_learning = result.std_learning if result.std_learning is not None else 0.0
+            log.info(f"  📊 Learning: avg={avg_learning:.2f}, std={std_learning:.2f}")
             log.info(f"  📊 Market coverage: {market_coverage:.1%}")
             
     except Exception as e:

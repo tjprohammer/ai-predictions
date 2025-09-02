@@ -1,0 +1,28 @@
+diff --git a/mlb/core/daily_api_workflow.py b/mlb/core/daily_api_workflow.py
+--- a/mlb/core/daily_api_workflow.py
++++ b/mlb/core/daily_api_workflow.py
+@@ -1234,6 +1234,17 @@
+     return export_predictions_csv(df, target_date)
+ 
++def stage_hitprops(target_date: str):
++    """Run hitter prop predictions (HITS 0.5 / 1.5)."""
++    try:
++        from mlb.hitting.predict.hitprops_predictor import run as run_hitprops
++    except Exception as e:
++        log.error(f"hitprops stage unavailable: {e}")
++        return
++    log.info(f"🎯 Running hitter props for {target_date}")
++    run_hitprops(target_date)
++    log.info("hitprops stage complete")
++
+ def stage_audit(target_date: str):
+     run_audit(target_date)
+@@ -1440,6 +1451,8 @@
+         if "prob" in stages or "probabilities" in stages:
+             stage_probabilities(target_date)
+             refresh_api_view(engine)
++        if "hitprops" in stages:
++            stage_hitprops(target_date)
+ 
+         if "export" in stages:
+             stage_export(preds, target_date)

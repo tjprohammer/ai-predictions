@@ -14,12 +14,14 @@ The Ultra-80 system is a comprehensive MLB prediction platform that combines inc
 ## 🚀 Key Features
 
 ### ⚡ Ultra-80 Incremental Learning System
+
 - **14-day optimal learning window** (A/B tested on 1,517+ games)
 - **SGD-based incremental models** that learn from recent games daily
 - **Side-by-side comparison** with baseline models for validation
 - **Configurable blending** (70% learning + 30% baseline for conservative approach)
 
 ### 🧠 Enhanced Baseball Intelligence
+
 - **Pitcher Recency Analysis**: Days rest, last start performance, handedness matchups
 - **Team vs Handedness Splits**: Performance vs RHP/LHP with Empirical Bayes blending
 - **Lineup Composition**: Handedness distribution and batting order insights
@@ -27,12 +29,14 @@ The Ultra-80 system is a comprehensive MLB prediction platform that combines inc
 - **30+ new database columns** with comprehensive baseball features
 
 ### 🔄 Real-Time Data Integration
+
 - **Live odds and market data** integration
 - **Weather condition analysis** for game-day impacts
 - **Automatic daily updates** with robust error handling
 - **PostgreSQL database** with optimized schema and indexing
 
 ### 🌐 Production-Ready API
+
 - **FastAPI backend** with automatic documentation
 - **Dual prediction endpoints** (learning vs baseline models)
 - **Clean project structure** with organized folders
@@ -41,15 +45,17 @@ The Ultra-80 system is a comprehensive MLB prediction platform that combines inc
 ## 📊 Performance Metrics
 
 ### A/B Testing Results (1,517 games)
-| Metric | 7-day Window | **14-day Window** | Winner |
-|--------|-------------|---------------|---------|
-| MAE | 3.716 | **3.665** | ✅ 14-day |
-| RMSE | Higher | **Lower** | ✅ 14-day |
-| Correlation | Lower | **Higher** | ✅ 14-day |
+
+| Metric      | 7-day Window | **14-day Window** | Winner    |
+| ----------- | ------------ | ----------------- | --------- |
+| MAE         | 3.716        | **3.665**         | ✅ 14-day |
+| RMSE        | Higher       | **Lower**         | ✅ 14-day |
+| Correlation | Lower        | **Higher**        | ✅ 14-day |
 
 **Result**: 14-day learning window is optimal (60% win rate across metrics)
 
 ### System Capabilities
+
 - **Ultra-80 Accuracy**: 80%+ on high-confidence predictions
 - **Daily Processing**: All MLB games (typically 8-15 per day)
 - **Feature Engineering**: 50+ features including weather, market, and baseball intelligence
@@ -110,6 +116,7 @@ The Ultra-80 system is a comprehensive MLB prediction platform that combines inc
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Python 3.13+
 - PostgreSQL 16+
 - Git
@@ -203,12 +210,14 @@ See [docs/AB_TEST_RESULTS_SUMMARY.md](docs/AB_TEST_RESULTS_SUMMARY.md) for compl
 ## 📋 Major System Accomplishments
 
 ### ✅ Ultra-80 Incremental Learning System (August 2025)
+
 - **Complete incremental learning implementation** with SGD-based models
 - **A/B tested optimal 14-day learning window** on 1,517+ games
 - **Daily model updates** that learn from completed games automatically
 - **Incremental state persistence** with `incremental_ultra80_state.joblib`
 
 ### ✅ Enhanced Baseball Intelligence Features
+
 - **30+ new database columns** with pitcher recency and team matchup data
 - **Pitcher last start analysis**: runs allowed, pitch count, days rest
 - **Team vs handedness splits**: wRC+ vs RHP/LHP with multiple time windows
@@ -216,12 +225,14 @@ See [docs/AB_TEST_RESULTS_SUMMARY.md](docs/AB_TEST_RESULTS_SUMMARY.md) for compl
 - **Empirical Bayes blending** for proper statistical inference
 
 ### ✅ A/B Testing Framework & Validation
+
 - **Statistical validation on 1,517+ MLB games** (April-August 2025)
 - **Proven 14-day window superiority**: MAE 3.665 vs 3.716 (7-day)
 - **Comprehensive performance tracking** with JSON-based results storage
 - **Side-by-side model comparison** system for ongoing validation
 
 ### ✅ Production-Ready Batch Operations
+
 - **12+ specialized batch files** for different operational modes:
   - `run_optimal_incremental.bat` - A/B tested optimal configuration
   - `run_side_by_side_ab_test.bat` - Dual model comparison
@@ -231,6 +242,7 @@ See [docs/AB_TEST_RESULTS_SUMMARY.md](docs/AB_TEST_RESULTS_SUMMARY.md) for compl
   - `pregame_slate.bat` - Pre-game analysis
 
 ### ✅ Repository Modernization (August 2025)
+
 - **Removed 400+ legacy files** from old mlb-overs structure
 - **Clean project organization** with proper folder hierarchy
 - **API moved to mlb/api/** for better structure
@@ -238,6 +250,7 @@ See [docs/AB_TEST_RESULTS_SUMMARY.md](docs/AB_TEST_RESULTS_SUMMARY.md) for compl
 - **Git history preserved** while eliminating technical debt
 
 ### ✅ Enhanced Prediction Pipeline
+
 - **PREDICT_ALL_TODAY functionality** (processes all 8+ games daily)
 - **Signature-safe feature integration** preserving model compatibility
 - **Robust error handling** with graceful fallbacks
@@ -304,6 +317,7 @@ set RECENCY_WINDOWS=7,14,30        # Multi-window feature analysis
 ## 🧠 Model Architecture & Ensemble
 
 ### Ultra-80 Model Ensemble
+
 Our system employs a sophisticated ensemble of 25+ specialized models for robust predictions:
 
 ```
@@ -313,7 +327,7 @@ Our system employs a sophisticated ensemble of 25+ specialized models for robust
 │
 ├── Primary Models:
 │   ├── ultra_xgb_primary.joblib        # XGBoost primary
-│   ├── ultra_lgb_primary.joblib        # LightGBM primary  
+│   ├── ultra_lgb_primary.joblib        # LightGBM primary
 │   ├── ultra_rf_primary.joblib         # Random Forest primary
 │   └── ultra_gb_primary.joblib         # Gradient Boosting primary
 │
@@ -346,8 +360,9 @@ Our system employs a sophisticated ensemble of 25+ specialized models for robust
 ```
 
 ### Incremental Learning Architecture
+
 - **SGD-based learning**: Real-time updates from completed games
-- **14-day rolling window**: A/B tested optimal configuration  
+- **14-day rolling window**: A/B tested optimal configuration
 - **Feature-stable integration**: New features added without breaking existing models
 - **State persistence**: Model state saved daily for continuity
 
@@ -392,6 +407,7 @@ ALTER TABLE enhanced_games ADD COLUMN home_lineup_l_batter_pct FLOAT;
 This is an active development project with continuous improvements:
 
 ### Current Focus Areas
+
 - **Model calibration refinement** for better uncertainty quantification
 - **Additional data source integration** (Statcast, advanced metrics)
 - **Performance optimization** for larger datasets
@@ -427,4 +443,4 @@ isort scripts/ mlb/
 
 ---
 
-*Built with ❤️ for baseball analytics and powered by modern MLOps practices*
+_Built with ❤️ for baseball analytics and powered by modern MLOps practices_

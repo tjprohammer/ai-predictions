@@ -41,7 +41,12 @@ def get_todays_starting_pitchers(target_date=None):
     
     # Use target date if provided, otherwise use today
     if target_date:
-        game_date = target_date
+        # Convert from MM-DD-YYYY to YYYY-MM-DD if needed
+        if len(target_date.split('-')[0]) == 2:  # MM-DD-YYYY format
+            month, day, year = target_date.split('-')
+            game_date = f"{year}-{month}-{day}"
+        else:
+            game_date = target_date  # Already YYYY-MM-DD
     else:
         game_date = datetime.now().strftime('%Y-%m-%d')
     
@@ -243,24 +248,24 @@ def update_pitcher_ids(pitcher_updates):
     try:
         with engine.begin() as conn:
             for u in pitcher_updates:
-                # Use COALESCE to preserve existing values and filter by target date
+                # Always update with latest pitcher stats (no COALESCE preservation)
                 sql = text("""
                     UPDATE enhanced_games
                     SET
-                        home_sp_id           = COALESCE(:home_sp_id, home_sp_id),
-                        away_sp_id           = COALESCE(:away_sp_id, away_sp_id),
-                        home_sp_name         = COALESCE(:home_sp_name, home_sp_name),
-                        away_sp_name         = COALESCE(:away_sp_name, away_sp_name),
-                        home_sp_season_era   = COALESCE(:home_era, home_sp_season_era),
-                        away_sp_season_era   = COALESCE(:away_era, away_sp_season_era),
-                        home_sp_whip         = COALESCE(:home_whip, home_sp_whip),
-                        away_sp_whip         = COALESCE(:away_whip, away_sp_whip),
-                        home_sp_season_k     = COALESCE(:home_strikeouts, home_sp_season_k),
-                        away_sp_season_k     = COALESCE(:away_strikeouts, away_sp_season_k),
-                        home_sp_season_bb    = COALESCE(:home_walks, home_sp_season_bb),
-                        away_sp_season_bb    = COALESCE(:away_walks, away_sp_season_bb),
-                        home_sp_season_ip    = COALESCE(:home_innings_pitched, home_sp_season_ip),
-                        away_sp_season_ip    = COALESCE(:away_innings_pitched, away_sp_season_ip)
+                        home_sp_id           = :home_sp_id,
+                        away_sp_id           = :away_sp_id,
+                        home_sp_name         = :home_sp_name,
+                        away_sp_name         = :away_sp_name,
+                        home_sp_season_era   = :home_era,
+                        away_sp_season_era   = :away_era,
+                        home_sp_whip         = :home_whip,
+                        away_sp_whip         = :away_whip,
+                        home_sp_season_k     = :home_strikeouts,
+                        away_sp_season_k     = :away_strikeouts,
+                        home_sp_season_bb    = :home_walks,
+                        away_sp_season_bb    = :away_walks,
+                        home_sp_season_ip    = :home_innings_pitched,
+                        away_sp_season_ip    = :away_innings_pitched
                     WHERE game_id = :game_id AND date = :date
                 """)
                 

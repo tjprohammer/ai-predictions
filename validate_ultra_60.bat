@@ -15,7 +15,7 @@ set VALIDATION_MODE=true
 set TEST_DATE_RANGE=recent
 
 echo Testing Ultra-60 configuration...
-echo Target: 88.6%% accuracy, 69.2%% ROI
+echo Current performance: ~50%% accuracy (developing system)
 echo Confidence threshold: 3.0
 echo.
 
@@ -25,6 +25,6 @@ python mlb\analysis\comprehensive_ab_testing.py --test-learning-windows --start-
 echo.
 echo =========================================================
 echo Validation test completed!
-echo Compare results to expected: 88.6%% accuracy, 69.2%% ROI
+echo Check actual results vs current ~50%% accuracy baseline
 echo =========================================================
 pause

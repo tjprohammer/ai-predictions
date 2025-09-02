@@ -54,6 +54,8 @@ class EnhancedPredictionTracker:
                 over_odds,
                 under_odds,
                 predicted_total,
+                predicted_total_learning,
+                COALESCE(predicted_total_learning, predicted_total) as primary_prediction,
                 confidence,
                 edge,
                 recommendation
@@ -62,7 +64,7 @@ class EnhancedPredictionTracker:
                 AND date <= :end_date
                 AND home_score IS NOT NULL 
                 AND away_score IS NOT NULL
-                AND predicted_total IS NOT NULL
+                AND (predicted_total_learning IS NOT NULL OR predicted_total IS NOT NULL)
             ORDER BY date DESC, game_id
             """)
             
@@ -100,11 +102,14 @@ class EnhancedPredictionTracker:
             return {}
     
     def _calculate_comprehensive_metrics(self, df: pd.DataFrame) -> Dict:
-        """Calculate comprehensive performance metrics"""
+        """Calculate comprehensive performance metrics using primary prediction (Ultra 80 when available)"""
         
-        # Basic accuracy metrics
-        df['prediction_error'] = abs(df['predicted_total'] - df['total_runs'])
-        df['prediction_bias'] = df['predicted_total'] - df['total_runs']
+        # Basic accuracy metrics using primary prediction (Ultra 80 when available)
+        df['prediction_error'] = abs(df['primary_prediction'] - df['total_runs'])
+        df['prediction_bias'] = df['primary_prediction'] - df['total_runs']
+        
+        # Track which model was used
+        df['model_used'] = df['predicted_total_learning'].notna().map({True: 'Ultra 80 Incremental', False: 'Learning Model'})
         
         # Scoring ranges for analysis
         df['scoring_range'] = pd.cut(df['total_runs'], 
@@ -113,7 +118,7 @@ class EnhancedPredictionTracker:
         
         # Market comparison
         df['market_error'] = abs(df['market_total'] - df['total_runs']) if 'market_total' in df.columns else None
-        df['vs_market'] = df['predicted_total'] - df['market_total'] if 'market_total' in df.columns else None
+        df['vs_market'] = df['primary_prediction'] - df['market_total'] if 'market_total' in df.columns else None
         
         # Confidence-based analysis (simplified since we don't have is_high_confidence flags)
         high_conf = df[df['confidence'] >= 75] if 'confidence' in df.columns else pd.DataFrame()

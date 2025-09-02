@@ -1,0 +1,154 @@
+--- a/daily_api_workflow.py
++++ b/daily_api_workflow.py
+@@ -15,6 +15,7 @@
+ from datetime import datetime, timedelta
+ import logging
+ from pathlib import Path
++import sys
+ 
+ # Import existing workflow modules
+ from fetch_games import GamesFetcher
+@@ -22,6 +23,9 @@
+ from fetch_player_logs import MLBPlayerLogsFetcher
+ from update_predictions import PredictionUpdater
+ 
++# Add hitting props module
++sys.path.append(str(Path(__file__).parent / 'mlb' / 'hitting' / 'predict'))
++from run_hitprops import run_hitting_props_workflow
++
+ # Setup logging
+ logging.basicConfig(
+     level=logging.INFO,
+@@ -45,6 +49,7 @@
+         self.games_fetcher = GamesFetcher()
+         self.player_logs_fetcher = MLBPlayerLogsFetcher()
+         self.prediction_updater = PredictionUpdater()
++        self.hitting_enabled = True
+         
+     def refresh_materialized_views(self):
+         """Refresh all materialized views"""
+@@ -62,6 +67,12 @@
+             conn.execute(text("REFRESH MATERIALIZED VIEW mv_team_form;"))
+             log.info("✓ Refreshed mv_team_form")
+             
++            # Hitting materialized views
++            if self.hitting_enabled:
++                conn.execute(text("REFRESH MATERIALIZED VIEW mv_hitter_form;"))
++                conn.execute(text("REFRESH MATERIALIZED VIEW mv_bvp_agg;"))
++                conn.execute(text("REFRESH MATERIALIZED VIEW mv_pa_distribution;"))
++                log.info("✓ Refreshed hitting materialized views")
++            
+         log.info("All materialized views refreshed")
+ 
+     def fetch_daily_data(self, target_date: str):
+@@ -89,6 +100,12 @@
+         
+         log.info(f"Fetched {len(player_logs)} player logs")
+         
++        # Store in instance for hitting props
++        self.latest_player_logs = player_logs
++        
+         return {
+             'games': games,
+             'odds': odds_data,
+@@ -119,6 +136,17 @@
+         
+         log.info(f"Generated {len(predictions)} ML predictions")
+         
++        # Generate hitting props predictions
++        hitting_predictions = []
++        if self.hitting_enabled:
++            try:
++                log.info("Generating hitting props predictions...")
++                hitting_success = run_hitting_props_workflow(target_date)
++                if hitting_success:
++                    log.info("✓ Hitting props predictions generated")
++            except Exception as e:
++                log.error(f"Hitting props failed: {e}")
++        
+         return predictions
+ 
+     def run_daily_workflow(self, target_date: str = None):
+@@ -146,6 +174,7 @@
+             # Step 4: Generate predictions
+             predictions = self.generate_predictions(target_date, daily_data)
+             
++            # Hitting props are generated within generate_predictions()
++            
+             # Step 5: Summary report
+             self.generate_summary_report(target_date, daily_data, predictions)
+             
+@@ -165,6 +194,12 @@
+         log.info(f"=== DAILY WORKFLOW SUMMARY - {target_date} ===")
+         log.info(f"Games fetched: {len(daily_data.get('games', []))}")
+         log.info(f"Player logs: {len(daily_data.get('player_logs', []))}")
+         log.info(f"ML predictions: {len(predictions)}")
++        
++        # Add hitting props summary if available
++        if self.hitting_enabled:
++            # Query hitting props count for today
++            with self.engine.connect() as conn:
++                hitting_count = conn.execute(text(
++                    "SELECT COUNT(*) FROM hitting_props WHERE date = :date"
++                ), {'date': target_date}).fetchone()[0]
++                log.info(f"Hitting props: {hitting_count}")
+         
+         log.info("Daily workflow completed successfully")
+ 
+@@ -185,6 +220,9 @@
+     parser.add_argument('--skip-odds', action='store_true',
+                        help='Skip odds fetching')
+     parser.add_argument('--skip-predictions', action='store_true',
+                        help='Skip prediction generation')
++    parser.add_argument('--skip-hitting', action='store_true',
++                       help='Skip hitting props predictions')
+     
+     args = parser.parse_args()
+     
+@@ -207,6 +245,10 @@
+     workflow = DailyAPIWorkflow()
+     
++    # Configure hitting props
++    if args.skip_hitting:
++        workflow.hitting_enabled = False
++    
+     # Run workflow
+     success = workflow.run_daily_workflow(target_date)
+     
+@@ -218,4 +260,37 @@
+         sys.exit(1)
+ 
++def validate_hitting_integration():
++    """Validate hitting props integration"""
++    
++    log.info("Validating hitting props integration...")
++    
++    try:
++        # Test import
++        from run_hitprops import run_hitting_props_workflow
++        log.info("✓ Hitting props module imported successfully")
++        
++        # Test database connection
++        from sqlalchemy import create_engine, text
++        engine = create_engine("postgresql://mlbuser:mlbpass@localhost/mlb")
++        
++        with engine.connect() as conn:
++            # Check hitting tables
++            result = conn.execute(text("""
++                SELECT COUNT(*) FROM information_schema.tables 
++                WHERE table_name IN ('player_game_logs', 'hitting_props')
++            """)).fetchone()[0]
++            
++            if result >= 2:
++                log.info("✓ Hitting database tables found")
++            else:
++                log.warning("⚠ Missing hitting database tables")
++                
++    except ImportError as e:
++        log.error(f"✗ Import error: {e}")
++    except Exception as e:
++        log.error(f"✗ Validation error: {e}")
++
+ if __name__ == "__main__":
++    # validate_hitting_integration()  # Uncomment to test integration
+     main()

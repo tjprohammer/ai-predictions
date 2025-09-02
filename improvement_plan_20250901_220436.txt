@@ -1,0 +1,27 @@
+MLB Prediction Improvement Plan - 2025-09-01 22:04:36.201953
+============================================================
+
+Week 1 - Basic Enhancements:
+  1. Add pitcher L5 game ERA and WHIP
+  2. Include team offensive rating last 15 games
+  3. Add ballpark temperature interaction terms
+  4. Include day vs night game effects
+
+Week 2 - Matchup Features:
+  1. Add pitcher vs opposing team history
+  2. Include bullpen usage last 3 games
+  3. Add team vs LHP/RHP splits
+  4. Include home/away performance gaps
+
+Week 3 - Advanced Features:
+  1. Add umpire run environment history
+  2. Include weather trend effects
+  3. Add lineup protection metrics
+  4. Include park-specific wind effects
+
+Week 4 - Model Optimization:
+  1. Feature selection via importance
+  2. Add feature interactions
+  3. Implement ensemble methods
+  4. Add prediction confidence scoring
+
