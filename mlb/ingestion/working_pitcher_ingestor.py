@@ -1,17 +1,10 @@
 #!/usr/bin/env python3
 """
-WORKING Pitcher Ingestor
-=======================
+WORKING Pitcher Ingestor (enhanced with whitelist pitcher metrics)
+=================================================================
 
-Collects starting pitcher information for today's games.
-Updates enhanced_games table with starting pitcher IDs.
-For future games, game stats (ER, I                if result.rowcount > 0:
-                    updated_count += 1
-                    print(f"✅ Updated pitchers for {update['away_team']} @ {update['home_team']}")
-                    print(f"   Home: {update['home_pitcher_name']} (ERA: {update['home_era']})")
-                    print(f"   Away: {update['away_pitcher_name']} (ERA: {update['away_era']})")
-                else:
-                    print(f"⚠️ No rows updated for game {update['game_id']}")B, H) will be 0 since games haven't been played.
+Collects starting pitcher information and real season stats (ERA, WHIP, IP, K, BB, HR) for today's games.
+Adds derived per-9 metrics (K/9, BB/9, HR/9) and updates enhanced_games, ensuring whitelist columns exist.
 """
 
 import requests
@@ -29,10 +22,38 @@ if sys.platform == "win32":
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
     sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
 
+PITCHER_WHITELIST_COLUMNS = {
+    'home_sp_k_per_9': 'DOUBLE PRECISION',
+    'away_sp_k_per_9': 'DOUBLE PRECISION',
+    'home_sp_bb_per_9': 'DOUBLE PRECISION',
+    'away_sp_bb_per_9': 'DOUBLE PRECISION',
+    'home_sp_hr_per_9': 'DOUBLE PRECISION',
+    'away_sp_hr_per_9': 'DOUBLE PRECISION'
+}
+
 def get_engine():
     """Get database engine"""
     url = os.environ.get('DATABASE_URL', 'postgresql://mlbuser:mlbpass@localhost:5432/mlb')
     return create_engine(url)
+
+def ensure_pitcher_whitelist_columns(engine):
+    """Ensure enhanced_games table has all columns for whitelist metrics"""
+    try:
+        with engine.begin() as conn:
+            existing = conn.execute(text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name='enhanced_games'
+            """)).fetchall()
+            existing_cols = {r[0] for r in existing}
+            for col, ddl in PITCHER_WHITELIST_COLUMNS.items():
+                if col not in existing_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE enhanced_games ADD COLUMN IF NOT EXISTS {col} {ddl}"))
+                        print(f"🆕 Added enhanced_games.{col}")
+                    except Exception as ce:
+                        print(f"⚠️ Could not add column {col}: {ce}")
+    except Exception as e:
+        print(f"⚠️ Column check failed: {e}")
 
 def get_todays_starting_pitchers(target_date=None):
     """Get starting pitcher info for target date's games"""
@@ -53,6 +74,7 @@ def get_todays_starting_pitchers(target_date=None):
     print(f"📅 Collecting data for: {game_date}")
     
     engine = get_engine()
+    ensure_pitcher_whitelist_columns(engine)
     pitcher_updates = []
     
     try:
@@ -119,6 +141,22 @@ def get_todays_starting_pitchers(target_date=None):
                     home_stats = get_pitcher_season_stats(pitcher_info.get('home_pitcher_id'))
                     away_stats = get_pitcher_season_stats(pitcher_info.get('away_pitcher_id'))
                     
+                    def per9(val, ip):
+                        """Calculate per-9 inning rate"""
+                        try:
+                            if val is not None and ip and ip > 0:
+                                return (float(val) / float(ip)) * 9.0
+                        except Exception:
+                            pass
+                        return None
+                    
+                    home_k9 = per9(home_stats['strikeouts'], home_stats['innings_pitched'])
+                    away_k9 = per9(away_stats['strikeouts'], away_stats['innings_pitched'])
+                    home_bb9 = per9(home_stats['walks'], home_stats['innings_pitched'])
+                    away_bb9 = per9(away_stats['walks'], away_stats['innings_pitched'])
+                    home_hr9 = per9(home_stats.get('home_runs'), home_stats['innings_pitched'])
+                    away_hr9 = per9(away_stats.get('home_runs'), away_stats['innings_pitched'])
+                    
                     pitcher_updates.append({
                         'date': game_date,  # Include target date for filtering
                         'game_id': game_id,
@@ -137,11 +175,19 @@ def get_todays_starting_pitchers(target_date=None):
                         'home_strikeouts': home_stats['strikeouts'],
                         'away_strikeouts': away_stats['strikeouts'],
                         'home_walks': home_stats['walks'],
-                        'away_walks': away_stats['walks']
+                        'away_walks': away_stats['walks'],
+                        'home_sp_k_per_9': home_k9,
+                        'away_sp_k_per_9': away_k9,
+                        'home_sp_bb_per_9': home_bb9,
+                        'away_sp_bb_per_9': away_bb9,
+                        'home_sp_hr_per_9': home_hr9,
+                        'away_sp_hr_per_9': away_hr9
                     })
                     
-                    print(f"   Home SP: {pitcher_info.get('home_pitcher_name', 'Unknown')} (ID: {pitcher_info.get('home_pitcher_id')}) - ERA: {home_stats['era']}")
-                    print(f"   Away SP: {pitcher_info.get('away_pitcher_name', 'Unknown')} (ID: {pitcher_info.get('away_pitcher_id')}) - ERA: {away_stats['era']}")
+                    def fmt(x):
+                        return f"{x:.2f}" if (x is not None and x == x) else "NA"
+                    print(f"   Home SP: {pitcher_info.get('home_pitcher_name', 'Unknown')} ERA {fmt(home_stats['era'])} K9 {fmt(home_k9)} BB9 {fmt(home_bb9)} HR9 {fmt(home_hr9)}")
+                    print(f"   Away SP: {pitcher_info.get('away_pitcher_name', 'Unknown')} ERA {fmt(away_stats['era'])} K9 {fmt(away_k9)} BB9 {fmt(away_bb9)} HR9 {fmt(away_hr9)}")
                 else:
                     print(f"   ⚠️ No pitcher info found for game {game_id}")
                     
@@ -210,14 +256,16 @@ def _to_float(x):
     except:
         return None
 
+# Replace original get_pitcher_season_stats with extended version
+
 def get_pitcher_season_stats(pitcher_id, season=None):
     """Fetch season ERA and stats for a pitcher, returning None for missing data"""
     season = season or datetime.now().year
     if not pitcher_id:
-        return {'era': None, 'whip': None, 'innings_pitched': None, 'strikeouts': None, 'walks': None}
+        return {'era': None, 'whip': None, 'innings_pitched': None, 'strikeouts': None, 'walks': None, 'home_runs': None}
     
     try:
-        url = f"https://statsapi.mlb.com/api/v1/people/{pitcher_id}/stats?stats=season&gameType=R&season={season}"
+        url = f"https://statsapi.mlb.com/api/v1/people/{pitcher_id}/stats?stats=season&group=pitching&gameType=R&season={season}"
         response = requests.get(url, timeout=10)
         
         if response.status_code == 200:
@@ -229,13 +277,14 @@ def get_pitcher_season_stats(pitcher_id, season=None):
                     'era': _to_float(stat.get('era')),
                     'whip': _to_float(stat.get('whip')),
                     'innings_pitched': _ip_to_float(stat.get('inningsPitched')),
-                    'strikeouts': int(stat['strikeOuts']) if stat.get('strikeOuts') is not None else None,
-                    'walks': int(stat['baseOnBalls']) if stat.get('baseOnBalls') is not None else None,
+                    'strikeouts': _to_float(stat.get('strikeOuts')),
+                    'walks': _to_float(stat.get('baseOnBalls')),
+                    'home_runs': _to_float(stat.get('homeRuns'))
                 }
     except Exception as e:
         print(f"      ⚠️ Error fetching stats for pitcher {pitcher_id}: {e}")
     
-    return {'era': None, 'whip': None, 'innings_pitched': None, 'strikeouts': None, 'walks': None}
+    return {'era': None, 'whip': None, 'innings_pitched': None, 'strikeouts': None, 'walks': None, 'home_runs': None}
 
 def update_pitcher_ids(pitcher_updates):
     """Update enhanced_games table with starting pitcher IDs and season stats"""
@@ -265,7 +314,13 @@ def update_pitcher_ids(pitcher_updates):
                         home_sp_season_bb    = :home_walks,
                         away_sp_season_bb    = :away_walks,
                         home_sp_season_ip    = :home_innings_pitched,
-                        away_sp_season_ip    = :away_innings_pitched
+                        away_sp_season_ip    = :away_innings_pitched,
+                        home_sp_k_per_9      = :home_sp_k_per_9,
+                        away_sp_k_per_9      = :away_sp_k_per_9,
+                        home_sp_bb_per_9     = :home_sp_bb_per_9,
+                        away_sp_bb_per_9     = :away_sp_bb_per_9,
+                        home_sp_hr_per_9     = :home_sp_hr_per_9,
+                        away_sp_hr_per_9     = :away_sp_hr_per_9
                     WHERE game_id = :game_id AND date = :date
                 """)
                 
@@ -286,6 +341,12 @@ def update_pitcher_ids(pitcher_updates):
                     'away_walks': u['away_walks'],
                     'home_innings_pitched': u['home_innings_pitched'],
                     'away_innings_pitched': u['away_innings_pitched'],
+                    'home_sp_k_per_9': u.get('home_sp_k_per_9'),
+                    'away_sp_k_per_9': u.get('away_sp_k_per_9'),
+                    'home_sp_bb_per_9': u.get('home_sp_bb_per_9'),
+                    'away_sp_bb_per_9': u.get('away_sp_bb_per_9'),
+                    'home_sp_hr_per_9': u.get('home_sp_hr_per_9'),
+                    'away_sp_hr_per_9': u.get('away_sp_hr_per_9'),
                 }
                 
                 result = conn.execute(sql, params)
@@ -293,8 +354,6 @@ def update_pitcher_ids(pitcher_updates):
                 if result.rowcount > 0:
                     updated_count += 1
                     print(f"✅ Updated pitchers for {u['away_team']} @ {u['home_team']}")
-                    print(f"   Home: {u['home_pitcher_name']} (ERA: {u['home_era']})")
-                    print(f"   Away: {u['away_pitcher_name']} (ERA: {u['away_era']})")
                 else:
                     print(f"⚠️ No game found to update for game_id {u['game_id']} on {u['date']}")
         
@@ -306,12 +365,12 @@ def update_pitcher_ids(pitcher_updates):
 
 def main():
     """Main function"""
-    parser = argparse.ArgumentParser(description='Collect starting pitcher data for MLB games')
+    parser = argparse.ArgumentParser(description='Collect starting pitcher data (with whitelist metrics)')
     parser.add_argument('--target-date', type=str, help='Target date (YYYY-MM-DD)')
     
     args = parser.parse_args()
     
-    print("Starting Pitcher Data Collection")
+    print("Starting Pitcher Data Collection (Whitelist Metrics)")
     print("=" * 40)
     
     pitcher_updates = get_todays_starting_pitchers(args.target_date)

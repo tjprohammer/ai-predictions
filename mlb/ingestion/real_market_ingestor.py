@@ -35,13 +35,14 @@ def get_engine():
 def _table_columns(engine, table_name):
     """Get list of column names for a table."""
     try:
-        result = engine.execute(text(f"""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = '{table_name}'
-            ORDER BY ordinal_position
-        """))
-        return [row[0] for row in result]
+        with engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = :t
+                ORDER BY ordinal_position
+            """), {"t": table_name})
+            return [row[0] for row in result]
     except Exception as e:
         print(f"Warning: Could not get columns for {table_name}: {e}")
         return []
@@ -71,6 +72,51 @@ def get_market_totals_from_api(target_date=None, include_live=False):
     # Final fallback to intelligent estimates
     print("⚠️  No real market data available, using intelligent estimates")
     return get_estimated_market_data(target_date)
+
+def _canonical_team(name: str) -> str:
+    """Return a canonicalized team string for robust matching.
+    Lowercase, remove punctuation, collapse whitespace, and apply common aliases.
+    """
+    if not name:
+        return ""
+    import re
+    n = name.lower().strip()
+    # Common short aliases to full names
+    aliases = {
+        'la angels': 'los angeles angels', 'los angeles a.': 'los angeles angels',
+        'st. louis cardinals': 'st louis cardinals', 'chi white sox': 'chicago white sox',
+        'chi cubs': 'chicago cubs', 'ny yankees': 'new york yankees', 'ny mets': 'new york mets',
+        'sd padres': 'san diego padres', 'sf giants': 'san francisco giants',
+        'az diamondbacks': 'arizona diamondbacks', 'kc royals': 'kansas city royals',
+        'tb rays': 'tampa bay rays', 'cleveland guardians': 'cleveland guardians',
+        'chi w sox': 'chicago white sox', 'chi sox': 'chicago white sox',
+        'washington natl.': 'washington nationals', 'wsh nationals': 'washington nationals',
+        'mia marlins': 'miami marlins', 'sdg padres': 'san diego padres', 'la dodgers': 'los angeles dodgers',
+        'bos red sox': 'boston red sox'
+    }
+    n = aliases.get(n, n)
+    # Remove punctuation and special chars
+    n = re.sub(r"[^a-z0-9\s]", " ", n)
+    # Normalize multiple spaces
+    n = re.sub(r"\s+", " ", n).strip()
+    return n
+
+def _teams_match(a_api: str, a_db: str) -> bool:
+    """Heuristic match for team names. Uses canonical strings and substring/word overlap.
+    Avoids external dependencies while being robust to minor naming differences.
+    """
+    ca, cb = _canonical_team(a_api), _canonical_team(a_db)
+    if not ca or not cb:
+        return False
+    if ca == cb:
+        return True
+    # Substring either way (e.g., 'chi white sox' vs 'chicago white sox')
+    if ca in cb or cb in ca:
+        return True
+    # Word overlap threshold
+    wa, wb = set(ca.split()), set(cb.split())
+    inter = len(wa & wb)
+    return inter >= max(1, min(len(wa), len(wb)) - 1)
 
 def get_odds_api_data(target_date, include_live=False):
     """Get real market totals from The Odds API - PREGAME ONLY by default"""
@@ -123,7 +169,7 @@ def get_odds_api_data(target_date, include_live=False):
         # Track used API games to prevent reuse in doubleheaders
         used_api_games = set()
         
-        # Process each API game - filter live games unless requested
+    # Process each API game - filter live games unless requested
         for api_idx, api_game in enumerate(odds_data):
             if api_idx in used_api_games:
                 continue  # Skip already matched API games
@@ -160,15 +206,21 @@ def get_odds_api_data(target_date, include_live=False):
             # Time-based doubleheader disambiguation
             api_hour = ct.hour if ct else 12  # Default to noon if no time
             
-            # Find potential team matches first
+            # Find potential team matches first (robust canonical match)
             team_matches = []
             for _, db_game in todays_games.iterrows():
-                if (db_game['home_team'] in home_team or home_team in db_game['home_team']) and \
-                   (db_game['away_team'] in away_team or away_team in db_game['away_team']):
+                if _teams_match(home_team, db_game['home_team']) and _teams_match(away_team, db_game['away_team']):
                     team_matches.append(db_game)
             
             if not team_matches:
-                continue  # No team match found
+                # No direct match; try swapped in case API flips home/away naming
+                for _, db_game in todays_games.iterrows():
+                    if _teams_match(home_team, db_game['away_team']) and _teams_match(away_team, db_game['home_team']):
+                        team_matches.append(db_game)
+                if not team_matches:
+                    # Emit one-line debug to help diagnose mismatches
+                    print(f"   ⚠️  No team match for API game: {away_team} @ {home_team} at {ct.isoformat() if ct else 'N/A'}")
+                    continue  # Still no match
             
             # If multiple matches (doubleheader), use time-based matching
             best_match = None

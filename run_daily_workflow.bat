@@ -1,5 +1,5 @@
 @echo off
-SETLOCAL
+SETLOCAL ENABLEDELAYEDEXPANSION
 
 REM ############################################################################
 REM #
@@ -20,6 +20,35 @@ ECHO [WORKFLOW] Setting up environment...
 SET "PYTHON_EXE=s:\Projects\AI_Predictions\.venv\Scripts\python.exe"
 SET "WORKFLOW_DIR=s:\Projects\AI_Predictions\mlb\core"
 SET "WORKFLOW_SCRIPT=daily_api_workflow.py"
+
+REM --- Prediction Serving Defaults (Whitelist Primary + Optional Market Blend) ---
+REM WHITELIST_PRIMARY=1 promotes calibrated whitelist predictions to primary (predicted_total)
+REM WHITELIST_MARKET_BLEND alpha: 1.0 = pure model, 0.0 = pure market line, e.g. 0.8 strong model influence
+REM Pass desired alpha as 2nd arg: run_daily_workflow.bat 2025-09-11 0.8
+REM Use keyword 'pure' for 1.0, 'market' for 0.2, or 'off' to disable blend (unsets variable)
+SET "WHITELIST_PRIMARY=1"
+IF NOT "%2"=="" (
+    IF /I "%2"=="pure" (
+        SET "WHITELIST_MARKET_BLEND=1.0"
+    ) ELSE IF /I "%2"=="market" (
+        SET "WHITELIST_MARKET_BLEND=0.2"
+    ) ELSE IF /I "%2"=="off" (
+        ECHO [BLEND] Disabling market blend (pure whitelist model)
+        SET "WHITELIST_MARKET_BLEND="
+    ) ELSE (
+        SET "WHITELIST_MARKET_BLEND=%2"
+    )
+) ELSE (
+    IF NOT DEFINED WHITELIST_MARKET_BLEND SET "WHITELIST_MARKET_BLEND=0.8"
+)
+IF DEFINED WHITELIST_MARKET_BLEND (
+    ECHO [BLEND] Using whitelist market blend alpha=%WHITELIST_MARKET_BLEND%
+) ELSE (
+    ECHO [BLEND] No blend alpha set (model-only predictions)
+)
+
+REM Include live odds by default for freshest lines
+SET "ODDS_INCLUDE_LIVE=1"
 
 REM --- ULTRA-60 OPTIMAL CONFIGURATION (A/B Tested) ---
 REM System in development: Current performance ~50% accuracy
@@ -51,7 +80,7 @@ SET "PYTHONLEGACYWINDOWSSTDIO=1"
 REM --- Date Handling ---
 REM Use the first command-line argument as the target date.
 REM If no argument is provided, default to today's date.
-IF "%1"=="" (
+IF "%~1"=="" (
     FOR /F "tokens=2 delims==" %%I IN ('wmic os get localdatetime /format:list') DO (
         IF NOT "%%I"=="" (
             SET "DT=%%I"
@@ -60,14 +89,15 @@ IF "%1"=="" (
     CALL :FormatDate
     ECHO [WORKFLOW] No date provided. Defaulting to today: %TARGET_DATE%
 ) ELSE (
-    SET "TARGET_DATE=%1"
-    ECHO [WORKFLOW] Target date set from argument: %TARGET_DATE%
+    SET "TARGET_DATE=%~1"
+    ECHO [WORKFLOW] Target date set from argument: !TARGET_DATE!
 )
 
 REM --- Define Workflow Stages ---
 REM These are the core stages required for a full daily run.
 SET "STAGES=markets,features,predict,ultra80,odds,health,prob,export,audit"
 ECHO [WORKFLOW] Running stages: %STAGES%
+ECHO [WORKFLOW] Whitelist primary: %WHITELIST_PRIMARY% ^| Live odds: %ODDS_INCLUDE_LIVE%
 
 REM --- Pre-flight Checks ---
 IF NOT EXIST "%PYTHON_EXE%" (
@@ -82,7 +112,7 @@ IF NOT EXIST "%WORKFLOW_DIR%\%WORKFLOW_SCRIPT%" (
 
 REM --- Execute Workflow ---
 ECHO.
-ECHO [WORKFLOW] Starting Daily MLB Overs Pipeline for %TARGET_DATE%...
+ECHO [WORKFLOW] Starting Daily MLB Overs Pipeline for !TARGET_DATE!...
 ECHO ==================================================================
 
 REM Change to the workflow directory to ensure all relative paths in the script work correctly.
@@ -92,7 +122,7 @@ REM Run the main Python workflow script
 ECHO [WORKFLOW] Executing: %WORKFLOW_SCRIPT% --date %TARGET_DATE% --stages %STAGES%
 ECHO.
 
-"%PYTHON_EXE%" "%WORKFLOW_SCRIPT%" --date %TARGET_DATE% --stages %STAGES%
+"%PYTHON_EXE%" "%WORKFLOW_SCRIPT%" --date !TARGET_DATE! --stages %STAGES%
 
 REM Check for errors from the Python script
 IF %ERRORLEVEL% NEQ 0 (

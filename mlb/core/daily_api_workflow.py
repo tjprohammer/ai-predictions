@@ -17,16 +17,19 @@ Workflow Stages:
   markets   - Pull market data and odds from APIs
   features  - Build enhanced features for prediction
   predict   - Generate base ML predictions
+    whitelist - Generate predictions using the trained whitelist-only model
   ultra80   - Generate Ultra 80 system predictions with intervals and EV
   odds      - Load comprehensive odds data for all games
   health    - Validate system calibration health before trading
   prob      - Calculate enhanced probability predictions with EV/Kelly
   export    - Export results to files
   audit     - Audit and validate results
+    winrate   - Compute last-N-days bet win% vs market (no leakage; completed games only)
 
 Environment:
   DATABASE_URL=postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb
   MODEL_BUNDLE_PATH=../models/legitimate_model_latest.joblib  (optional; predictor usually handles model)
+    WHITELIST_MODEL_DIR=../models/whitelist_xxx  (optional; override latest autodetect)
 """
 
 import os
@@ -48,11 +51,91 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import ProgrammingError
 from datetime import timedelta
 
+# --- Lightweight shared retrained model support ---------------------------------
+try:  # pragma: no cover (best-effort optional import)
+    from mlb.features.shared_feature_builder import build_feature_matrix as shared_build
+    _SHARED_BUILDER_AVAILABLE = True
+except Exception:
+    _SHARED_BUILDER_AVAILABLE = False
+    shared_build = None  # type: ignore
+
+def _load_latest_retrained_model():
+    """Return (model, metadata dict) for newest retrained_totals_model_* or (None,None).
+    Non-fatal if missing. Cached per run (simple attribute)."""
+    import glob
+    import joblib
+    if hasattr(_load_latest_retrained_model, '_cache'):
+        return getattr(_load_latest_retrained_model, '_cache')  # type: ignore
+    meta_files = sorted(glob.glob(os.path.join('models', 'retrained_totals_model_*_metadata.json')))
+    if not meta_files:
+        setattr(_load_latest_retrained_model, '_cache', (None, None))
+        return None, None
+    latest_meta_path = meta_files[-1]
+    try:
+        with open(latest_meta_path, 'r', encoding='utf-8') as f:
+            meta = json.load(f)
+        model_path = latest_meta_path.replace('_metadata.json', '.joblib')
+        model = joblib.load(model_path)
+        setattr(_load_latest_retrained_model, '_cache', (model, meta))
+        return model, meta
+    except Exception as e:  # pragma: no cover
+        log.warning(f"Failed loading retrained model: {e}")
+        setattr(_load_latest_retrained_model, '_cache', (None, None))
+        return None, None
+
+def _predict_with_retrained_model(df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """Produce simple totals predictions using the latest retrained model.
+    - Uses shared feature builder if available & model trained with it (metadata.feature_builder)
+    - Falls back to minimal on mismatch
+    Returns dataframe with columns: game_id, date, predicted_total (raw model output)
+    Calibration now applied later via upsert (already integrated)."""
+    model, meta = _load_latest_retrained_model()
+    if model is None or meta is None:
+        return None
+    required_cols = {'game_id', 'date', 'market_total', 'home_team', 'away_team'}
+    if df.empty or not required_cols.issubset(df.columns):
+        log.warning("Retrained model skipping (missing required columns or empty df)")
+        return None
+    try:
+        feature_builder = meta.get('feature_builder', 'minimal')
+        # Reconstruct minimal feature set path if shared not available or not used during training
+        if feature_builder == 'shared' and _SHARED_BUILDER_AVAILABLE:
+            X_full, _y_unused = shared_build(df.assign(total_runs=np.nan))
+        else:
+            # Minimal inline reproduction (month/dow + one-hot teams + market_total + park_factor if present)
+            work = df[['date','home_team','away_team','market_total']].copy()
+            work['month'] = pd.to_datetime(work['date']).dt.month
+            work['dow'] = pd.to_datetime(work['date']).dt.dayofweek
+            # park factor might be present already
+            if 'park_factor' not in work.columns and 'ballpark_run_factor' in df.columns:
+                work['park_factor'] = pd.to_numeric(df['ballpark_run_factor'], errors='coerce').fillna(1.0)
+            teams = pd.concat([work['home_team'], work['away_team']]).astype(str).unique()
+            for t in teams:
+                work[f'home_{t}'] = (work['home_team'].astype(str) == t).astype(int)
+                work[f'away_{t}'] = (work['away_team'].astype(str) == t).astype(int)
+            # Align to stored feature columns order
+            feat_cols = meta.get('feature_columns', [])
+            missing = [c for c in feat_cols if c not in work.columns]
+            for mcol in missing:
+                work[mcol] = 0.0  # neutral fill
+            X_full = work[feat_cols].apply(pd.to_numeric, errors='coerce').fillna(0.0)
+        # Prediction
+        raw_pred = model.predict(X_full)
+        out = df[['game_id','date']].copy()
+        out['predicted_total'] = raw_pred.astype(float)
+        log.info(f"Retrained model produced {len(out)} predictions (mean={out.predicted_total.mean():.2f})")
+        return out
+    except Exception as e:  # pragma: no cover
+        log.warning(f"Retrained model prediction failed: {e}")
+        return None
+
 try:
     # also try to import optional feature hook
     from enhanced_feature_pipeline import apply_serving_calibration, integrate_enhanced_pipeline, attach_recency_and_matchup_features
 except ImportError:
     apply_serving_calibration, integrate_enhanced_pipeline, attach_recency_and_matchup_features = None, None, None
+    # Bet win rate helper placeholder when enhanced pipeline absent
+    _compute_bet_outcomes = None  # type: ignore
 
 # Add learning model support
 try:
@@ -146,6 +229,17 @@ logging.basicConfig(
 )
 log = logging.getLogger("daily_api_workflow")
 
+# Early load of .env (non-fatal if missing)
+try:
+    from dotenv import load_dotenv
+    _env_loaded = load_dotenv()
+    if _env_loaded:
+        log.info("✅ .env loaded successfully")
+    else:
+        log.info("ℹ️ No .env file found or already loaded")
+except Exception as e:
+    log.debug(f"dotenv load skipped: {e}")
+
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb")
 
 # -----------------------------
@@ -217,6 +311,12 @@ def enforce_feature_contract(df: pd.DataFrame, expected_features: List[str]) -> 
     
     # Step 1: Apply renaming map for backwards compatibility
     df_renamed = df.rename(columns=RENAME_MAP)
+
+    # Optional: import bet win-rate helper
+    try:
+        from bet_win_rate_report import compute_bet_outcomes as _compute_bet_outcomes
+    except Exception:
+        _compute_bet_outcomes = None
     renamed_count = sum(1 for old_name in RENAME_MAP.keys() if old_name in df.columns)
     if renamed_count > 0:
         log.info(f"  📝 Renamed {renamed_count} columns using RENAME_MAP")
@@ -252,6 +352,47 @@ def enforce_feature_contract(df: pd.DataFrame, expected_features: List[str]) -> 
     
     # Step 4: Select and order by expected features
     result = df_safe[expected_features]
+
+    # Step 5: Coerce feature dtypes to numeric (robust against Y/N, True/False, etc.)
+    for col in result.columns:
+        s = result[col]
+        try:
+            # Normalize boolean dtypes first
+            if pd.api.types.is_bool_dtype(s):
+                result[col] = s.astype(float)
+                continue
+
+            # Fast path: numeric-like already
+            if pd.api.types.is_numeric_dtype(s):
+                # Ensure no stray strings
+                result[col] = pd.to_numeric(s, errors='coerce')
+                # Fill any coercion NaNs with neutral default
+                result[col] = result[col].fillna(0.0)
+                continue
+
+            # Object/category handling: map common boolean-like tokens to {0,1}
+            if s.dtype == object or pd.api.types.is_categorical_dtype(s):
+                normalized = s.astype(str).str.strip().str.lower()
+                # Detect boolean-like series
+                bool_tokens = {'y','yes','true','t','1','n','no','false','f','0','', 'nan', 'none', 'null'}
+                if normalized.isin(bool_tokens).all():
+                    mapping = {
+                        'y': 1.0, 'yes': 1.0, 'true': 1.0, 't': 1.0, '1': 1.0,
+                        'n': 0.0, 'no': 0.0, 'false': 0.0, 'f': 0.0, '0': 0.0,
+                        '': 0.0, 'nan': 0.0, 'none': 0.0, 'null': 0.0
+                    }
+                    result[col] = normalized.map(mapping).astype(float)
+                else:
+                    # General numeric coercion; non-numeric -> 0.0
+                    coerced = pd.to_numeric(s, errors='coerce')
+                    result[col] = coerced.fillna(0.0)
+                continue
+
+            # Fallback: try numeric coercion
+            result[col] = pd.to_numeric(s, errors='coerce').fillna(0.0)
+        except Exception:
+            # Last resort default
+            result[col] = pd.to_numeric(result[col], errors='coerce').fillna(0.0)
     
     log.info(f"  ✅ Contract enforced: {len(result.columns)} features, {len(result)} rows")
     return result
@@ -468,6 +609,162 @@ def safe_asof(left: pd.DataFrame, right: pd.DataFrame, on: str, by: str = None) 
         log.warning("  🔄 Falling back to left dataframe only")
         return left
 
+def _ensure_column(engine, table: str, column: str, ddl: str = 'DOUBLE PRECISION'):
+    """Ensure a column exists in a table with the given DDL type."""
+    try:
+        with engine.begin() as conn:
+            exists = conn.execute(text("""
+                SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = current_schema()
+                   AND table_name = :t AND column_name = :c
+                 LIMIT 1
+            """), {"t": table, "c": column}).scalar()
+            if not exists:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl}"))
+                log.info(f"🆕 Added column {table}.{column}")
+    except Exception as e:
+        log.warning(f"Could not ensure column {table}.{column}: {e}")
+
+def _find_latest_whitelist_model_dir() -> Optional[Path]:
+    """Return path to latest whitelist_* model dir, or env override if provided.
+    Expanded search: repo(models, models_ultra_feature_test), mlb/, CWD, plus explicit env.
+    """
+    override = os.getenv('WHITELIST_MODEL_DIR')
+    if override:
+        p = Path(override)
+        if p.is_file() and p.name.endswith('model.joblib'):
+            p = p.parent
+        if p.exists() and (p / 'model.joblib').exists():
+            return p
+
+    core_dir = Path(__file__).parent
+    repo_root = core_dir.parent.parent
+    mlb_root = core_dir.parent
+    cwd_root = Path.cwd()
+
+    search_subdirs = ['models', 'models_ultra_feature_test', 'models_ultra_feature_prod']
+    roots: list[Path] = []
+    for base in (repo_root, mlb_root, cwd_root):
+        for sub in search_subdirs:
+            p = base / sub
+            if p.exists():
+                roots.append(p)
+
+    candidates: list[Path] = []
+    for root in roots:
+        for d in root.iterdir():
+            if d.is_dir() and d.name.startswith('whitelist_') and (d / 'model.joblib').exists():
+                candidates.append(d)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0]
+
+def stage_whitelist(engine, target_date: str, use_as_primary: Optional[bool] = None) -> Optional[pd.DataFrame]:
+    """Predict using the saved whitelist-only model and upsert to predicted_total_whitelist.
+
+    If use_as_primary is True (or WHITELIST_PRIMARY env is truthy), also write predictions
+    into predicted_total to replace the old learning model in downstream workflow.
+    """
+    log.info("🎯 Stage: whitelist (predict using saved whitelist model)")
+    df = load_today_games(engine, target_date)
+    if df.empty:
+        log.info("No target rows for whitelist predictions")
+        return None
+
+    model_dir = _find_latest_whitelist_model_dir()
+    if not model_dir:
+        log.warning("No whitelist model found. Skipping stage.")
+        return None
+
+    try:
+        import joblib
+        bundle = joblib.load(model_dir / 'model.joblib')
+        model = bundle.get('model')
+        features = bundle.get('features') or []
+        if not model or not features:
+            log.warning("Whitelist bundle missing model or features. Skipping.")
+            return None
+        X = enforce_feature_contract(df.copy(), features)
+        preds = np.clip(model.predict(X), 3, 18)
+
+        # Apply saved calibration (bias + optional linear) if available
+        try:
+            calib = _load_calibration(model_dir)
+            if calib and (calib.get('apply_bias') or calib.get('apply_linear')):
+                base_mean = float(np.mean(preds))
+                if calib.get('apply_bias'):
+                    preds = preds - float(calib.get('bias_shift', 0.0))
+                if calib.get('apply_linear'):
+                    a = float(calib.get('intercept', 0.0))
+                    b = float(calib.get('slope', 1.0)) or 1.0
+                    preds = a + b * preds
+                preds = np.clip(preds, 3, 18)
+                log.info("  🎯 Calibration applied (bias=%+.3f slope=%s) mean %.2f → %.2f", calib.get('bias_shift',0.0), calib.get('slope'), base_mean, float(np.mean(preds)))
+            else:
+                log.info("  (No calibration adjustments applied)")
+        except Exception as ce:
+            log.warning(f"  Calibration application failed: {ce}")
+
+        # Optional runtime calibration: add constant offset (e.g., +0.3) to correct bias
+        try:
+            offset = float(os.getenv('WHITELIST_CALIBRATION_OFFSET', '0') or 0)
+        except Exception:
+            offset = 0.0
+        if offset != 0:
+            preds = np.clip(preds + offset, 3, 18)
+            log.info(f"  🎛️ Applied whitelist calibration offset: {offset:+.2f}")
+
+        # Optional market blend: p = a*model + (1-a)*market_total, with a in [0,1]
+        blend_env = os.getenv('WHITELIST_MARKET_BLEND')
+        if blend_env is not None:
+            try:
+                alpha = float(blend_env)
+                alpha = max(0.0, min(1.0, alpha))
+                if 'market_total' in df.columns and pd.to_numeric(df['market_total'], errors='coerce').notna().any():
+                    m = pd.to_numeric(df['market_total'], errors='coerce').fillna(method='ffill').fillna(method='bfill').to_numpy()
+                    preds = np.clip(alpha * preds + (1 - alpha) * m, 3, 18)
+                    log.info(f"  🔗 Applied market blend: alpha={alpha:.2f} (alpha=1 uses model only)")
+                else:
+                    log.warning("  ⚠️ Market blend requested but market_total missing; skipping blend")
+            except Exception as _e:
+                log.warning(f"  ⚠️ Market blend parse/apply failed ({_e}); skipping blend")
+        # Prepare upsert
+        _ensure_column(engine, 'enhanced_games', 'predicted_total_whitelist', 'DOUBLE PRECISION')
+        # Decide primary usage
+        # Decide primary usage. Default is now ON so whitelist predictions become primary unless explicitly disabled.
+        if use_as_primary is None:
+            use_as_primary = os.getenv('WHITELIST_PRIMARY', '1').lower() in ('1','true','yes')
+        with engine.begin() as conn:
+            upd = text("""
+                UPDATE enhanced_games SET
+                    predicted_total_whitelist = :p,
+                    prediction_timestamp = NOW()
+                 WHERE game_id = :gid AND "date" = :d
+            """)
+            upd_primary = text("""
+                UPDATE enhanced_games SET
+                    predicted_total = :p,
+                    prediction_timestamp = NOW()
+                 WHERE game_id = :gid AND "date" = :d
+            """)
+            for (gid, p) in zip(df['game_id'], preds):
+                # Cast numpy types to native python for postgres
+                val = float(p)
+                conn.execute(upd, {"p": val, "gid": gid, "d": target_date})
+                if use_as_primary:
+                    conn.execute(upd_primary, {"p": val, "gid": gid, "d": target_date})
+        if use_as_primary:
+            log.info(f"✅ Wrote whitelist predictions for {len(preds)} games → predicted_total_whitelist and promoted to predicted_total (primary)")
+        else:
+            log.info(f"✅ Wrote whitelist predictions for {len(preds)} games → column predicted_total_whitelist")
+        out = df[['game_id', 'date']].copy()
+        out['predicted_total_whitelist'] = preds
+        return out
+    except Exception as e:
+        log.error(f"Whitelist stage failed: {e}")
+        return None
+
 def validate_prediction_schema(df: pd.DataFrame, required_columns: List[str] = None) -> None:
     """
     Hard validation of prediction dataframe schema before database operations.
@@ -643,7 +940,12 @@ def run_ingestors(target_date: str):
     _run([sys.executable, os.path.join(ingestion_dir, "working_games_ingestor.py"), "--target-date", target_date], "working_games_ingestor")
     
     # 1. Odds / markets (your real odds script)
-    _run([sys.executable, os.path.join(ingestion_dir, "real_market_ingestor.py"), "--target-date", target_date], "real_market_ingestor")
+    # Allow including live odds via ENV flag (for mid-day refresh)
+    include_live = os.getenv("ODDS_INCLUDE_LIVE", "0").lower() in ("1","true","yes")
+    real_market_cmd = [sys.executable, os.path.join(ingestion_dir, "real_market_ingestor.py"), "--target-date", target_date]
+    if include_live:
+        real_market_cmd.append("--include-live")
+    _run(real_market_cmd, "real_market_ingestor")
     
     # 2. Starters / pitchers
     _run([sys.executable, os.path.join(ingestion_dir, "working_pitcher_ingestor.py"), "--target-date", target_date], "working_pitcher_ingestor")
@@ -694,7 +996,112 @@ def load_today_games(engine, target_date: str) -> pd.DataFrame:
             log.info(f"🔧 Early column mapping: {old_col} → {new_col}")
     
     log.info(f"Loaded {len(df)} rows from enhanced_games for {target_date}")
+
+    # ------------------------------------------------------------------
+    # Whitelist feature coverage / health check (lightweight – no failure)
+    # ------------------------------------------------------------------
+    try:
+        wl_path = Path(__file__).parent / 'learning_features_v1.json'
+        if wl_path.exists():
+            import json as _json
+            wl = _json.loads(wl_path.read_text()).get('features', [])
+            if wl and not df.empty:
+                coverage = {}
+                for f in wl:
+                    if f in df.columns:
+                        non_null = df[f].notna().sum()
+                        coverage[f] = round(non_null / len(df), 3)
+                if coverage:
+                    # Grouped coverage for critical signal families
+                    GROUPS = {
+                        'pitcher': [c for c in coverage if 'sp_' in c or c in (
+                            'home_sp_era','away_sp_era','home_sp_whip','away_sp_whip')],
+                        'bullpen': [c for c in coverage if 'bp_' in c or 'bullpen' in c],
+                        'team_run': [c for c in coverage if 'rpg' in c or 'offense_rpg' in c],
+                        'environment': [c for c in coverage if c in (
+                            'ballpark_run_factor','ballpark_hr_factor','temperature','wind_speed','expected_weather_run_impact')]
+                    }
+                    group_cov = {}
+                    for g, cols in GROUPS.items():
+                        cols = [c for c in cols if c in coverage]
+                        if cols:
+                            group_cov[g] = round(sum(coverage[c] for c in cols) / len(cols), 3)
+                    log.info("WHITELIST FEATURE COVERAGE (non-null ratios):")
+                    log.info("  Groups: " + ", ".join(f"{g}={v*100:.1f}%" for g,v in group_cov.items()))
+                    low = [g for g,v in group_cov.items() if v < float(os.getenv('MIN_GROUP_COVERAGE','0.75'))]
+                    if low:
+                        log.warning(f"  Low coverage groups (<{float(os.getenv('MIN_GROUP_COVERAGE','0.75'))*100:.0f}%): {low}")
+                    if os.getenv('FEATURE_COVERAGE_HARD_FAIL') in ('1','true','TRUE') and low:
+                        log.error(f"Hard fail due to low group coverage: {low}")
+                        sys.exit(7)
+    except Exception as e:
+        log.debug(f"Whitelist feature coverage audit skipped: {e}")
+
     return df
+
+# --- Calibration Helpers ----------------------------------------------------
+def _load_calibration(model_dir: str | Path | None) -> dict:
+    """Load calibration JSON (bias / linear) if present inside model directory or diagnostics.
+    Search order:
+      1. <model_dir>/calibration.json
+      2. outputs/diagnostics/calibration_*.json matching feature_sha in bundle
+    Returns dict or empty dict.
+    """
+    try:
+        from pathlib import Path as _P
+        import json as _json
+        if not model_dir:
+            return {}
+        mdir = _P(model_dir)
+        # Option 1: direct file
+        direct = mdir / 'calibration.json'
+        if direct.exists():
+            return _json.loads(direct.read_text())
+        # Option 2: diagnostics scan
+        bundle_path = mdir / 'bundle.json'
+        if not bundle_path.exists():
+            return {}
+        feature_sha = _json.loads(bundle_path.read_text()).get('feature_sha')
+        if not feature_sha:
+            return {}
+        diag_dir = _P(__file__).parent.parent / 'outputs' / 'diagnostics'
+        if diag_dir.exists():
+            for p in diag_dir.glob('calibration_*.json'):
+                try:
+                    data = _json.loads(p.read_text())
+                    if feature_sha in str(data.get('model_dir','')):
+                        return data
+                except Exception:
+                    continue
+        return {}
+    except Exception:
+        return {}
+
+def apply_calibration(pred_df, calibration: dict):
+    """Apply bias and optional linear recalibration to prediction dataframe in-place.
+    Expects columns: pred (or predicted). Adds columns: raw_pred, adj_pred.
+    """
+    if pred_df.empty or not calibration:
+        return pred_df
+    col = 'pred'
+    if col not in pred_df.columns and 'predicted' in pred_df.columns:
+        col = 'predicted'
+    if col not in pred_df.columns:
+        return pred_df
+    pred_df = pred_df.copy()
+    pred_df['raw_pred'] = pred_df[col]
+    bias_shift = calibration.get('bias_shift', 0.0)
+    if calibration.get('apply_bias'):
+        pred_df[col] = pred_df[col] - bias_shift
+    if calibration.get('apply_linear'):
+        # actual = a + b * pred  => calibrated_pred = (pred - a) / b (inverse mapping) or use forward form for target scaling.
+        # We prefer forward scaling to correct scale: pred_cal = a + b * pred
+        a = calibration.get('intercept', 0.0)
+        b = calibration.get('slope', 1.0)
+        if b and np.isfinite(b):
+            pred_df[col] = a + b * pred_df[col]
+    pred_df['adj_pred'] = pred_df[col]
+    return pred_df
 
 def fetch_markets_for_date(engine, target_date: str) -> pd.DataFrame:
     """
@@ -1637,28 +2044,87 @@ def upsert_predictions_df(engine, df: pd.DataFrame) -> int:
     """Upsert predicted_totals into enhanced_games for (game_id, date). Only updates predicted_total (Learning Adaptive), preserves predicted_total_learning (Ultra 80)."""
     if df is None or df.empty:
         return 0
+    # Attempt to load latest calibration coefficients from retrained model metadata
+    calib_a = None
+    calib_b = None
+    calib_model_ts = None
+    try:  # Lightweight, non-fatal
+        import glob, json, os
+        meta_files = sorted(glob.glob(os.path.join('models', 'retrained_totals_model_*_metadata.json')))
+        if meta_files:
+            latest = meta_files[-1]
+            with open(latest, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+            calib = meta.get('calibration') or {}
+            a = calib.get('a')
+            b = calib.get('b')
+            if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+                calib_a, calib_b = float(a), float(b)
+                calib_model_ts = meta.get('timestamp')
+    except Exception as _e:  # pragma: no cover
+        pass
+
     with engine.begin() as conn:
-        sql = text("""
-            UPDATE enhanced_games
-               SET predicted_total = :predicted_total,
-                   prediction_timestamp = NOW()
-             WHERE game_id = :game_id
-               AND "date"  = :date
-        """)
+        # Ensure column for raw storage exists if we're calibrating
+        if calib_a is not None and calib_b is not None:
+            try:
+                conn.execute(text("ALTER TABLE enhanced_games ADD COLUMN IF NOT EXISTS predicted_total_original DOUBLE PRECISION"))
+            except Exception:
+                pass
+            sql = text("""
+                UPDATE enhanced_games
+                   SET predicted_total = :calibrated_predicted_total,
+                       predicted_total_original = :raw_predicted_total,
+                       prediction_timestamp = NOW()
+                 WHERE game_id = :game_id
+                   AND "date"  = :date
+            """)
+        else:
+            sql = text("""
+                UPDATE enhanced_games
+                   SET predicted_total = :predicted_total,
+                       prediction_timestamp = NOW()
+                 WHERE game_id = :game_id
+                   AND "date"  = :date
+            """)
         n = 0
         for r in df.to_dict(orient="records"):
             # skip bad rows
             if r.get('game_id') is None or r.get('date') is None or r.get('predicted_total') is None:
                 continue
+            # Apply calibration if available
+            if calib_a is not None and calib_b is not None:
+                raw_val = float(r['predicted_total'])
+                calibrated = calib_a + calib_b * raw_val
+                # Optionally keep within a reasonable baseball total band
+                # (avoid pathological extrapolation)
+                if not (5.0 <= calibrated <= 15.0):
+                    # Soft clip
+                    calibrated = max(5.0, min(15.0, calibrated))
+                payload = {
+                    'calibrated_predicted_total': float(calibrated),
+                    'raw_predicted_total': raw_val,
+                    'game_id': r['game_id'],
+                    'date': r['date']
+                }
+            else:
+                payload = {
+                    'predicted_total': float(r['predicted_total']),
+                    'game_id': r['game_id'],
+                    'date': r['date']
+                }
             # Convert numpy types to Python types for PostgreSQL compatibility
-            converted_r = {}
-            for k, v in r.items():
-                if hasattr(v, 'item'):  # numpy scalar
-                    converted_r[k] = v.item()
+            converted_payload = {}
+            for k, v in payload.items():
+                if hasattr(v, 'item'):
+                    converted_payload[k] = v.item()
                 else:
-                    converted_r[k] = v
-            n += conn.execute(sql, converted_r).rowcount
-    log.info(f"✅ Upserted {n}/{len(df)} incremental predictions into enhanced_games")
+                    converted_payload[k] = v
+            n += conn.execute(sql, converted_payload).rowcount
+    if calib_a is not None and calib_b is not None:
+        log.info(f"✅ Upserted {n}/{len(df)} predictions with calibration (a={calib_a:.3f}, b={calib_b:.3f}, model_ts={calib_model_ts}) into enhanced_games")
+    else:
+        log.info(f"✅ Upserted {n}/{len(df)} incremental predictions into enhanced_games (no calibration applied)")
     return n
 
 def export_predictions_csv(preds: pd.DataFrame, target_date: str, export_dir: str = "./exports") -> Path:
@@ -2005,7 +2471,18 @@ def stage_features_and_predict(engine, target_date: str, reset_state: bool = Fal
     # Keep identity columns for later upsert
     ids = df[["game_id", "date"]].copy()
 
-    # Engineer + align
+    # --- New: Fast path retrained model prediction (independent of complex systems) ---
+    try:
+        retrained_preds = _predict_with_retrained_model(df)
+        if retrained_preds is not None and not retrained_preds.empty:
+            upsert_cnt = upsert_predictions_df(engine, retrained_preds)
+            log.info(f"🔁 Stored {upsert_cnt} retrained model predictions (pre complex systems)")
+        else:
+            log.info("Retrained model produced no predictions (skipping)")
+    except Exception as e:
+        log.warning(f"Retrained model pre-stage failed: {e}")
+
+    # Engineer + align (legacy / complex adaptive systems)
     feat, X, predictions = engineer_and_align(df, target_date, reset_state)
     # Validate variance / coverage before allowing prediction upsert
     try:
@@ -2453,6 +2930,7 @@ def refresh_api_view(engine):
         
         try:
             sql = """
+            DROP VIEW IF EXISTS api_games_today;
             CREATE TABLE IF NOT EXISTS model_config (key text PRIMARY KEY, value text);
             INSERT INTO model_config(key, value)
             VALUES ('edge_threshold', '0.3')
@@ -2469,13 +2947,34 @@ def refresh_api_view(engine):
                 eg."date"::date AS game_date,
                 eg.home_team, eg.away_team,
                 eg.market_total, 
-                COALESCE(eg.predicted_total_learning, eg.predicted_total)::numeric(4,2) AS predicted_total,
-                ROUND((COALESCE(eg.predicted_total_learning, eg.predicted_total) - eg.market_total)::numeric, 2) AS edge,
+                -- Primary served (learning / whitelist) & Ultra (incremental) side-by-side
+                eg.predicted_total::numeric(4,2)               AS predicted_primary,
+                eg.predicted_total_learning::numeric(4,2)      AS predicted_ultra,
+                -- Backward-compatible unified prediction (kept for existing UI) still prefers primary then ultra
+                COALESCE(eg.predicted_total, eg.predicted_total_learning)::numeric(4,2) AS predicted_total,
+                ROUND((eg.predicted_total - eg.market_total)::numeric, 2)               AS edge_primary,
+                ROUND((eg.predicted_total_learning - eg.market_total)::numeric, 2)      AS edge_ultra,
+             ROUND((COALESCE(eg.predicted_total, eg.predicted_total_learning) - eg.market_total)::numeric, 2) AS edge,
                 pp.p_over, pp.p_under,
                 pp.ev_over, pp.ev_under,
                 pp.kelly_over, pp.kelly_under,
                 GREATEST(pp.ev_over, pp.ev_under)           AS ev_best,
-                CASE WHEN pp.ev_over >= pp.ev_under THEN 'OVER' ELSE 'UNDER' END AS ev_side
+             CASE WHEN pp.ev_over >= pp.ev_under THEN 'OVER' ELSE 'UNDER' END AS ev_side,
+             eg.total_runs,
+             -- Absolute errors (null until game final)
+             CASE WHEN eg.total_runs IS NOT NULL AND eg.predicted_total IS NOT NULL
+                 THEN ROUND(ABS(eg.total_runs - eg.predicted_total)::numeric, 2) END AS primary_abs_error,
+             CASE WHEN eg.total_runs IS NOT NULL AND eg.predicted_total_learning IS NOT NULL
+                 THEN ROUND(ABS(eg.total_runs - eg.predicted_total_learning)::numeric, 2) END AS ultra_abs_error,
+             -- Directional correctness vs market line (did we pick correct side of total?)
+             CASE WHEN eg.total_runs IS NOT NULL AND eg.market_total IS NOT NULL AND eg.predicted_total IS NOT NULL THEN
+                ( (eg.total_runs > eg.market_total AND eg.predicted_total > eg.market_total)
+                  OR (eg.total_runs < eg.market_total AND eg.predicted_total < eg.market_total) )
+             END AS primary_correct_direction,
+             CASE WHEN eg.total_runs IS NOT NULL AND eg.market_total IS NOT NULL AND eg.predicted_total_learning IS NOT NULL THEN
+                ( (eg.total_runs > eg.market_total AND eg.predicted_total_learning > eg.market_total)
+                  OR (eg.total_runs < eg.market_total AND eg.predicted_total_learning < eg.market_total) )
+             END AS ultra_correct_direction
               FROM enhanced_games eg
               LEFT JOIN probability_predictions pp
                 ON pp.game_id = eg.game_id AND pp.game_date = eg."date"
@@ -2550,16 +3049,22 @@ def stage_health_gate(target_date: str):
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
 
+    bypass = env.get("BYPASS_HEALTH_GATE") in ("1","true","yes","Y","y")
     cmd = [
         _sys.executable, os.path.join(os.path.dirname(__file__), "..", "validation", "health_gate.py"),
         "--date", target_date
     ]
+    if bypass:
+        cmd.append("--warn-only")
+        log.warning("⚠️ BYPASS_HEALTH_GATE set - health gate failures will WARN only")
     log.info(f"Running health gate validation: {' '.join(cmd)}")
     res = subprocess.run(cmd, capture_output=True, text=True, env=env, encoding='utf-8', errors='replace')
     
-    if res.returncode != 0:
+    if res.returncode != 0 and not bypass:
         log.error("Health gate validation failed (%d): %s", res.returncode, res.stderr or "No stderr")
         raise RuntimeError("Health gate validation failed - trading halted for safety")
+    elif res.returncode != 0 and bypass:
+        log.warning("Health gate returned non-zero but bypass active; continuing")
     
     # Check if health gate passed
     if "🟢 HEALTH GATE: PASS" in res.stdout:
@@ -3077,13 +3582,17 @@ def validate_daily_workflow_output(engine, target_date: str):
 # -----------------------------
 
 def parse_args():
-    ap = argparse.ArgumentParser(description="Daily API Workflow: scores → bias → markets → features → predict → odds → health → prob → export → audit → eval → retrain")
+    ap = argparse.ArgumentParser(description="Daily API Workflow: scores → bias → markets → features → predict → whitelist → odds → health → prob → export → audit → eval → retrain")
     ap.add_argument("--date", default=datetime.now().strftime("%Y-%m-%d"), help="Target date (YYYY-MM-DD). For scores/bias stages, use date of games to collect.")
     ap.add_argument("--target-date", dest="date", help="Target date (YYYY-MM-DD) - alias for --date")
     ap.add_argument("--stages", default="markets,features,predict,odds,health,prob,export",
-                    help="Comma list: scores,bias,markets,features,predict,odds,health,prob,export,audit,eval,retrain. Use scores,bias for previous days to learn from results.")
+                    help="Comma list: scores,bias,markets,features,predict,whitelist,odds,health,prob,export,audit,eval,retrain. Use scores,bias for previous days to learn from results.")
     ap.add_argument("--quiet", action="store_true", help="Less logging")
+    ap.add_argument("--whitelist-primary", action="store_true", help="Use whitelist predictions as primary (write to predicted_total)")
     ap.add_argument("--reset-state", action="store_true", help="Reset incremental model state for clean re-learning")
+    # Win-rate report options
+    ap.add_argument("--winrate-days", type=int, default=int(os.getenv("WINRATE_DAYS", "10")), help="Days window for win% report")
+    ap.add_argument("--winrate-min-edge", type=float, default=float(os.getenv("WINRATE_MIN_EDGE", "0.5")), help="Minimum edge vs market to count as a bet")
     # Backfill arguments (when using backfill stage)
     ap.add_argument("--start-date", help="Start date for backfill (YYYY-MM-DD)")
     ap.add_argument("--end-date", help="End date for backfill (YYYY-MM-DD)")
@@ -3125,6 +3634,14 @@ def main():
         if "features" in stages or "predict" in stages:
             preds = stage_features_and_predict(engine, target_date, args.reset_state)
 
+        if "whitelist" in stages:
+            try:
+                wl_preds = stage_whitelist(engine, target_date, use_as_primary=args.whitelist_primary)
+                if wl_preds is not None:
+                    log.info(f"Whitelist predictions ready: {len(wl_preds)} games")
+            except Exception as e:
+                log.warning(f"Whitelist stage failed: {e}")
+
         if "ultra80" in stages:
             stage_ultra80(target_date)
 
@@ -3152,6 +3669,17 @@ def main():
             from datetime import datetime
             yday = (datetime.strptime(target_date, "%Y-%m-%d")).strftime("%Y-%m-%d")
             stage_retrain(yday, window_days=150, holdout_days=21, deploy=True, audit=True)
+
+        if "winrate" in stages:
+            if _compute_bet_outcomes is None:
+                log.warning("Win-rate helper not available. Skipping stage.")
+            else:
+                try:
+                    res = _compute_bet_outcomes(days=args.winrate_days, min_edge=args.winrate_min_edge, outdir=str(Path.cwd()/"outputs"))
+                    if res:
+                        log.info(f"WinRate {args.winrate_days}d @ edge {args.winrate_min_edge}: {res['wins']}/{res['n_bets']} wins ({res['win_rate']:.1%}), {res['losses']} losses, {res['pushes']} pushes")
+                except Exception as e:
+                    log.warning(f"Win-rate stage failed: {e}")
 
         # Post-run assertion (skip for eval/retrain/backfill-only runs)
         if any(stage in stages for stage in ["markets", "features", "predict"]):

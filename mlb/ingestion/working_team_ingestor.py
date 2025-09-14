@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WORKING Team Stats Ingestor
-==========================
+WORKING Team Stats Ingestor (enhanced for whitelist offensive features)
+======================================================================
 
-Collects recent team performance statistics for prediction purposes.
-Gets team averages, recent form, and offensive/defensive metrics
-that help predict future game outcomes.
+Collects real team offensive metrics for season, last 30 days, and last 7 days.
+Populates enhanced_games with whitelist features: season & L30/L7 runs per game, power, ISO, OPS, wRC+ approximations, combined metrics.
 """
 
 import requests
@@ -24,248 +23,279 @@ if sys.platform == "win32":
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
     sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
 
+WHITELIST_TEAM_COLUMNS = {
+    'home_team_rpg_season': 'DOUBLE PRECISION',
+    'away_team_rpg_season': 'DOUBLE PRECISION',
+    'home_team_rpg_l30': 'DOUBLE PRECISION',
+    'away_team_rpg_l30': 'DOUBLE PRECISION',
+    'home_team_rpg_l7': 'DOUBLE PRECISION',
+    'away_team_rpg_l7': 'DOUBLE PRECISION',
+    'home_recent_runs_per_game': 'DOUBLE PRECISION',
+    'away_recent_runs_per_game': 'DOUBLE PRECISION',  # last 7 days
+    'home_team_power_season': 'DOUBLE PRECISION',
+    'away_team_power_season': 'DOUBLE PRECISION',
+    'combined_power': 'DOUBLE PRECISION',
+    'combined_offense_rpg': 'DOUBLE PRECISION',
+    'home_team_iso_season': 'DOUBLE PRECISION',
+    'away_team_iso_season': 'DOUBLE PRECISION',
+    'home_team_wrc_plus_season': 'DOUBLE PRECISION',
+    'away_team_wrc_plus_season': 'DOUBLE PRECISION',
+    'home_team_wrc_plus_l30': 'DOUBLE PRECISION',
+    'away_team_wrc_plus_l30': 'DOUBLE PRECISION',
+    'combined_ops': 'DOUBLE PRECISION'
+}
+
+TEAM_ID_MAP = {
+    'Arizona Diamondbacks': 109, 'Atlanta Braves': 144, 'Baltimore Orioles': 110, 'Boston Red Sox': 111,
+    'Chicago White Sox': 145, 'Chicago Cubs': 112, 'Cincinnati Reds': 113, 'Cleveland Guardians': 114,
+    'Colorado Rockies': 115, 'Detroit Tigers': 116, 'Houston Astros': 117, 'Kansas City Royals': 118,
+    'Los Angeles Angels': 108, 'Los Angeles Dodgers': 119, 'Miami Marlins': 146, 'Milwaukee Brewers': 158,
+    'Minnesota Twins': 142, 'New York Yankees': 147, 'New York Mets': 121, 'Athletics': 133,
+    'Philadelphia Phillies': 143, 'Pittsburgh Pirates': 134, 'San Diego Padres': 135, 'San Francisco Giants': 137,
+    'Seattle Mariners': 136, 'St. Louis Cardinals': 138, 'Tampa Bay Rays': 139, 'Texas Rangers': 140,
+    'Toronto Blue Jays': 141, 'Washington Nationals': 120
+}
+
+# ---------------- Utility / API helpers ----------------
+
 def get_engine():
     """Get database engine"""
     url = os.environ.get('DATABASE_URL', 'postgresql://mlbuser:mlbpass@localhost:5432/mlb')
     return create_engine(url)
 
-def get_team_season_stats(team_id):
-    """Get team season statistics from MLB API"""
+def ensure_team_whitelist_columns(engine):
+    """Ensure all whitelist columns exist in enhanced_games table"""
     try:
-        # Get team stats for current season
-        url = f'https://statsapi.mlb.com/api/v1/teams/{team_id}/stats?stats=season&group=hitting&season=2025'
-        response = requests.get(url)
-        data = response.json()
-        
-        if 'stats' in data and len(data['stats']) > 0:
-            stats = data['stats'][0]['splits'][0]['stat']
-            return {
-                'avg': float(stats.get('avg', 0.250)),
-                'ops': float(stats.get('ops', 0.700)),
-                'runs': int(stats.get('runs', 0)),
-                'hits': int(stats.get('hits', 0)),
-                'rbi': int(stats.get('rbi', 0)),
-                'hr': int(stats.get('homeRuns', 0)),
-                'games': int(stats.get('gamesPlayed', 1))
-            }
+        with engine.begin() as conn:
+            existing = conn.execute(text("""SELECT column_name FROM information_schema.columns WHERE table_name='enhanced_games'""")).fetchall()
+            existing_cols = {r[0] for r in existing}
+            for col, ddl in WHITELIST_TEAM_COLUMNS.items():
+                if col not in existing_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE enhanced_games ADD COLUMN IF NOT EXISTS {col} {ddl}"))
+                        print(f"🆕 Added enhanced_games.{col}")
+                    except Exception as ce:
+                        print(f"⚠️ Could not add column {col}: {ce}")
     except Exception as e:
-        print(f"⚠️ Error getting stats for team {team_id}: {e}")
-    
-    # Return reasonable defaults if API fails
-    return {
-        'avg': 0.250,
-        'ops': 0.700, 
-        'runs': 400,
-        'hits': 1000,
-        'rbi': 400,
-        'hr': 150,
-        'games': 100
-    }
+        print(f"⚠️ Column enumeration failed: {e}")
 
-def get_team_id_from_name(team_name):
-    """Convert team name to MLB team ID"""
-    team_mapping = {
-        'Arizona Diamondbacks': 109,
-        'Atlanta Braves': 144,
-        'Baltimore Orioles': 110,
-        'Boston Red Sox': 111,
-        'Chicago White Sox': 145,
-        'Chicago Cubs': 112,
-        'Cincinnati Reds': 113,
-        'Cleveland Guardians': 114,
-        'Colorado Rockies': 115,
-        'Detroit Tigers': 116,
-        'Houston Astros': 117,
-        'Kansas City Royals': 118,
-        'Los Angeles Angels': 108,
-        'Los Angeles Dodgers': 119,
-        'Miami Marlins': 146,
-        'Milwaukee Brewers': 158,
-        'Minnesota Twins': 142,
-        'New York Yankees': 147,
-        'New York Mets': 121,
-        'Athletics': 133,
-        'Philadelphia Phillies': 143,
-        'Pittsburgh Pirates': 134,
-        'San Diego Padres': 135,
-        'San Francisco Giants': 137,
-        'Seattle Mariners': 136,
-        'St. Louis Cardinals': 138,
-        'Tampa Bay Rays': 139,
-        'Texas Rangers': 140,
-        'Toronto Blue Jays': 141,
-        'Washington Nationals': 120
-    }
-    return team_mapping.get(team_name, 0)
+def mlb_team_stats(team_id, season, stat_type='season'):
+    """Fetch stats for a team. stat_type: 'season', 'last30', 'last7'. Uses date ranges for rolling windows."""
+    if team_id == 0:
+        return {}
+    try:
+        if stat_type == 'season':
+            url = f'https://statsapi.mlb.com/api/v1/teams/{team_id}/stats?stats=season&group=hitting&season={season}'
+        else:
+            # derive date range
+            today = datetime.utcnow().date()
+            if stat_type == 'last30':
+                start = today - timedelta(days=30)
+            elif stat_type == 'last7':
+                start = today - timedelta(days=7)
+            else:
+                start = today - timedelta(days=30)
+            end = today
+            url = ("https://statsapi.mlb.com/api/v1/teams/" f"{team_id}/stats?stats=byDateRange&group=hitting&season={season}" f"&startDate={start}&endDate={end}")
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            return {}
+        data = r.json()
+        splits = (data.get('stats') or [{}])[0].get('splits') or []
+        if not splits:
+            return {}
+        # for range, aggregate over splits
+        if stat_type in ('last30','last7') and len(splits) > 1:
+            agg = {
+                'runs':0,'hits':0,'homeRuns':0,'gamesPlayed':0,'ops_sum':0.0,'slg_sum':0.0,'avg_sum':0.0
+            }
+            for sp in splits:
+                st = sp.get('stat', {})
+                agg['runs'] += int(st.get('runs',0))
+                agg['hits'] += int(st.get('hits',0))
+                agg['homeRuns'] += int(st.get('homeRuns',0))
+                gp = int(st.get('gamesPlayed',0))
+                agg['gamesPlayed'] += gp
+                try:
+                    agg['ops_sum'] += float(st.get('ops',0.0))*gp
+                    agg['slg_sum'] += float(st.get('slg',0.0))*gp
+                    agg['avg_sum'] += float(st.get('avg',0.0))*gp
+                except:
+                    pass
+            gp = max(agg['gamesPlayed'],1)
+            return {
+                'runs': agg['runs'], 'hits': agg['hits'], 'homeRuns': agg['homeRuns'], 'games': gp,
+                'ops': agg['ops_sum']/gp if gp else None,
+                'slg': agg['slg_sum']/gp if gp else None,
+                'avg': agg['avg_sum']/gp if gp else None
+            }
+        # single split (season)
+        st = splits[0].get('stat', {})
+        return {
+            'runs': int(st.get('runs',0)),
+            'hits': int(st.get('hits',0)),
+            'homeRuns': int(st.get('homeRuns',0)),
+            'games': int(st.get('gamesPlayed',1) or 1),
+            'ops': float(st.get('ops',0.0) or 0.0),
+            'slg': float(st.get('slg',0.0) or 0.0),
+            'avg': float(st.get('avg',0.0) or 0.0)
+        }
+    except Exception as e:
+        print(f"⚠️ MLB API error team {team_id} {stat_type}: {e}")
+        return {}
+
+def safe_pg(total, games):
+    """Safe per-game calculation"""
+    if total is None or games in (None,0):
+        return None
+    try:
+        return float(total)/float(games) if games>0 else None
+    except:
+        return None
+
+def compute_wrc_plus(ops, league_ops=0.705):
+    """Compute wRC+ from OPS"""
+    if ops is None:
+        return None
+    # approximate scaling: center 100 at league_ops, 1 OPS point ~150 scaling
+    return max(60, min(160, (ops - league_ops) * 150 + 100))
 
 def collect_team_performance_stats(target_date=None):
     """Collect team performance stats for target date's games"""
-    print("Collecting Team Performance Statistics")
-    print("=" * 40)
-    
-    # Use target date if provided, otherwise use current date
+    print("Collecting Team Performance Statistics (Whitelist)")
+    print("="*44)
     if target_date:
-        date_filter = f"date = '{target_date}'"
-        print(f"📅 Collecting for target date: {target_date}")
+        if len(target_date.split('-')[0]) == 2:  # MM-DD-YYYY
+            m,d,y = target_date.split('-')
+            game_date = f"{y}-{m}-{d}"
+        else:
+            game_date = target_date
+        date_filter_clause = "date = :gdate"
     else:
-        date_filter = "date = CURRENT_DATE"
-        print("📅 Collecting for current date")
-    
+        game_date = datetime.now().strftime('%Y-%m-%d')
+        date_filter_clause = "date = :gdate"
     engine = get_engine()
-    updated_count = 0
-    
+    ensure_team_whitelist_columns(engine)
+    updated = 0
+    season_year = datetime.utcnow().year
     try:
         with engine.begin() as conn:
-            # Get target date's games that need team stats
-            todays_games = pd.read_sql(f"""
-                SELECT game_id, home_team, away_team
-                FROM enhanced_games 
-                WHERE {date_filter}
-                AND game_id IS NOT NULL
+            games = pd.read_sql(text(f"""
+                SELECT game_id, home_team, away_team FROM enhanced_games
+                WHERE {date_filter_clause} AND game_id IS NOT NULL
                 ORDER BY game_id
-            """, conn)
-            
-            print(f"🔍 Collecting team stats for {len(todays_games)} games...")
-            
-            for _, game in todays_games.iterrows():
-                game_id = game['game_id']
-                home_team = game['home_team']
-                away_team = game['away_team']
-                
-                # Get team IDs
-                home_team_id = get_team_id_from_name(home_team)
-                away_team_id = get_team_id_from_name(away_team)
-                
-                # Get team stats
-                home_stats = get_team_season_stats(home_team_id)
-                away_stats = get_team_season_stats(away_team_id)
-                
-                # Calculate averages per game
-                home_rpg = home_stats['runs'] / max(home_stats['games'], 1)  # Runs per game
-                away_rpg = away_stats['runs'] / max(away_stats['games'], 1)
-                
-                home_hpg = home_stats['hits'] / max(home_stats['games'], 1)  # Hits per game
-                away_hpg = away_stats['hits'] / max(away_stats['games'], 1)
-                
-                home_rbi_pg = home_stats['rbi'] / max(home_stats['games'], 1)  # RBI per game
-                away_rbi_pg = away_stats['rbi'] / max(away_stats['games'], 1)
-                
-                # Get batting averages
-                home_avg = home_stats['avg']
-                away_avg = away_stats['avg']
-                
-                # For today's games, use season averages as predictive stats
-                # These represent the team's expected performance level
-                # Build WHERE clause based on target_date parameter
-                if target_date:
-                    date_condition = "AND date = :target_date"
-                else:
-                    date_condition = "AND date = CURRENT_DATE"
-                
-                update_sql = text(f"""
-                    UPDATE enhanced_games 
-                    SET 
-                        home_team_hits = :home_hits,
-                        home_team_runs = :home_runs,
-                        home_team_rbi = :home_rbi,
-                        home_team_lob = 6,  -- Average LOB per game
-                        home_team_avg = :home_avg,
-                        away_team_hits = :away_hits,
-                        away_team_runs = :away_runs,
-                        away_team_rbi = :away_rbi,
-                        away_team_lob = 6,   -- Average LOB per game
-                        away_team_avg = :away_avg
-                    WHERE game_id = :game_id
-                      {date_condition}
+            """), conn, params={'gdate': game_date})
+            print(f"📅 Game date {game_date} - {len(games)} games")
+            for _, row in games.iterrows():
+                gid = row.game_id
+                home = row.home_team
+                away = row.away_team
+                hid = TEAM_ID_MAP.get(home,0)
+                aid = TEAM_ID_MAP.get(away,0)
+                if hid==0 or aid==0:
+                    print(f"⚠️ Missing team ID mapping for {home}/{away}")
+                # Fetch stats
+                h_season = mlb_team_stats(hid, season_year,'season')
+                a_season = mlb_team_stats(aid, season_year,'season')
+                h_l30 = mlb_team_stats(hid, season_year,'last30')
+                a_l30 = mlb_team_stats(aid, season_year,'last30')
+                h_l7 = mlb_team_stats(hid, season_year,'last7')
+                a_l7 = mlb_team_stats(aid, season_year,'last7')
+                # Derive metrics
+                h_rpg_season = safe_pg(h_season.get('runs'), h_season.get('games'))
+                a_rpg_season = safe_pg(a_season.get('runs'), a_season.get('games'))
+                h_rpg_l30 = safe_pg(h_l30.get('runs'), h_l30.get('games')) or h_rpg_season
+                a_rpg_l30 = safe_pg(a_l30.get('runs'), a_l30.get('games')) or a_rpg_season
+                h_rpg_l7 = safe_pg(h_l7.get('runs'), h_l7.get('games'))
+                a_rpg_l7 = safe_pg(a_l7.get('runs'), a_l7.get('games'))
+                h_ops = h_season.get('ops')
+                a_ops = a_season.get('ops')
+                h_ops_l30 = h_l30.get('ops') or h_ops
+                a_ops_l30 = a_l30.get('ops') or a_ops
+                h_iso = None
+                if h_season.get('slg') is not None and h_season.get('avg') is not None:
+                    h_iso = h_season['slg'] - h_season['avg']
+                a_iso = None
+                if a_season.get('slg') is not None and a_season.get('avg') is not None:
+                    a_iso = a_season['slg'] - a_season['avg']
+                h_power = safe_pg(h_season.get('homeRuns'), h_season.get('games'))
+                a_power = safe_pg(a_season.get('homeRuns'), a_season.get('games'))
+                combined_power = None
+                if h_power is not None and a_power is not None:
+                    combined_power = (h_power + a_power)/2.0
+                combined_offense_rpg = None
+                if h_rpg_l30 and a_rpg_l30:
+                    combined_offense_rpg = h_rpg_l30 + a_rpg_l30
+                combined_ops = None
+                if h_ops is not None and a_ops is not None:
+                    combined_ops = (h_ops + a_ops)/2.0
+                # wRC+ approximations
+                league_ops_est = 0.705
+                h_wrc_plus_season = compute_wrc_plus(h_ops, league_ops_est)
+                a_wrc_plus_season = compute_wrc_plus(a_ops, league_ops_est)
+                h_wrc_plus_l30 = compute_wrc_plus(h_ops_l30, league_ops_est)
+                a_wrc_plus_l30 = compute_wrc_plus(a_ops_l30, league_ops_est)
+                sql = text("""
+                    UPDATE enhanced_games SET
+                        home_team_rpg_season = :h_rpg_season,
+                        away_team_rpg_season = :a_rpg_season,
+                        home_team_rpg_l30 = :h_rpg_l30,
+                        away_team_rpg_l30 = :a_rpg_l30,
+                        home_team_rpg_l7 = :h_rpg_l7,
+                        away_team_rpg_l7 = :a_rpg_l7,
+                        home_recent_runs_per_game = :h_rpg_l7,
+                        away_recent_runs_per_game = :a_rpg_l7,
+                        home_team_power_season = :h_power,
+                        away_team_power_season = :a_power,
+                        combined_power = :combined_power,
+                        combined_offense_rpg = :combined_offense_rpg,
+                        home_team_iso_season = :h_iso,
+                        away_team_iso_season = :a_iso,
+                        home_team_wrc_plus_season = :h_wrc_plus_season,
+                        away_team_wrc_plus_season = :a_wrc_plus_season,
+                        home_team_wrc_plus_l30 = :h_wrc_plus_l30,
+                        away_team_wrc_plus_l30 = :a_wrc_plus_l30,
+                        combined_ops = :combined_ops
+                    WHERE game_id = :gid AND date = :gdate
                 """)
-                
-                # Also update legitimate_game_features with runs per game data
-                lgf_update_sql = text(f"""
-                    UPDATE legitimate_game_features
-                    SET 
-                        home_team_runs_pg = :home_rpg,
-                        away_team_runs_pg = :away_rpg,
-                        combined_team_offense = :combined_offense,
-                        home_team_woba = :home_woba,
-                        away_team_woba = :away_woba,
-                        combined_team_woba = :combined_woba,
-                        home_team_power = :home_power,
-                        away_team_power = :away_power,
-                        combined_team_power = :combined_power,
-                        home_team_wrcplus = :home_wrcplus,
-                        away_team_wrcplus = :away_wrcplus,
-                        combined_team_wrcplus = :combined_wrcplus
-                    WHERE game_id = :game_id
-                      {date_condition}
-                """)
-                
-                # Prepare parameters for SQL execution
-                sql_params = {
-                    'game_id': game_id,
-                    'home_hits': round(home_hpg),
-                    'home_runs': round(home_rpg), 
-                    'home_rbi': round(home_rbi_pg),
-                    'home_avg': home_avg,
-                    'away_hits': round(away_hpg),
-                    'away_runs': round(away_rpg),
-                    'away_rbi': round(away_rbi_pg),
-                    'away_avg': away_avg,
-                    'home_rpg': home_rpg,
-                    'away_rpg': away_rpg,
-                    'combined_offense': (home_rpg + away_rpg) / 2,
-                    # 🔧 FIXED: Better OPS to wOBA conversion - OPS*0.4 gives realistic range 0.26-0.36
-                    'home_woba': max(0.250, min(0.370, home_stats.get('ops', 0.700) * 0.4)),
-                    'away_woba': max(0.250, min(0.370, away_stats.get('ops', 0.700) * 0.4)),
-                    'combined_woba': max(0.250, min(0.370, (home_stats.get('ops', 0.700) + away_stats.get('ops', 0.700)) * 0.2)),
-                    'home_power': home_stats.get('hr', 20) / home_stats.get('games', 162),  # HR per game
-                    'away_power': away_stats.get('hr', 20) / away_stats.get('games', 162),
-                    'combined_power': ((home_stats.get('hr', 20) + away_stats.get('hr', 20)) / 
-                                     (home_stats.get('games', 162) + away_stats.get('games', 162))),
-                    # wRC+ approximation: (OPS-0.65)*150 + 100 gives realistic 70-140 range
-                    'home_wrcplus': max(70, min(140, (home_stats.get('ops', 0.700) - 0.65) * 150 + 100)),
-                    'away_wrcplus': max(70, min(140, (away_stats.get('ops', 0.700) - 0.65) * 150 + 100)),
-                    'combined_wrcplus': max(70, min(140, ((home_stats.get('ops', 0.700) + away_stats.get('ops', 0.700)) / 2 - 0.65) * 150 + 100))
+                params = {
+                    'gid': gid, 'gdate': game_date,
+                    'h_rpg_season': h_rpg_season, 'a_rpg_season': a_rpg_season,
+                    'h_rpg_l30': h_rpg_l30, 'a_rpg_l30': a_rpg_l30,
+                    'h_rpg_l7': h_rpg_l7, 'a_rpg_l7': a_rpg_l7,
+                    'h_rpg_l7': h_rpg_l7, 'a_rpg_l7': a_rpg_l7,
+                    'h_power': h_power, 'a_power': a_power,
+                    'combined_power': combined_power, 'combined_offense_rpg': combined_offense_rpg,
+                    'h_iso': h_iso, 'a_iso': a_iso,
+                    'h_wrc_plus_season': h_wrc_plus_season, 'a_wrc_plus_season': a_wrc_plus_season,
+                    'h_wrc_plus_l30': h_wrc_plus_l30, 'a_wrc_plus_l30': a_wrc_plus_l30,
+                    'combined_ops': combined_ops
                 }
-                
-                # Add target_date to params if specified
-                if target_date:
-                    sql_params['target_date'] = target_date
-                
-                # Update both tables
-                result = conn.execute(update_sql, sql_params)
-                lgf_result = conn.execute(lgf_update_sql, sql_params)
-                
-                if result.rowcount > 0 or lgf_result.rowcount > 0:
-                    updated_count += 1
-                    print(f"📊 {away_team} @ {home_team}")
-                    print(f"   Home: {home_rpg:.1f} R/G, {home_hpg:.1f} H/G, {home_stats['avg']:.3f} AVG")
-                    print(f"   Away: {away_rpg:.1f} R/G, {away_hpg:.1f} H/G, {away_stats['avg']:.3f} AVG")
-        
-        return updated_count
-        
+                res = conn.execute(sql, params)
+                if res.rowcount>0:
+                    updated += 1
+                    def fmt(x):
+                        return f"{x:.2f}" if x is not None else 'NA'
+                    print(f"🏟️ {away} @ {home} | RPG Szn {fmt(a_rpg_season)} @ {fmt(h_rpg_season)} | L30 {fmt(a_rpg_l30)} @ {fmt(h_rpg_l30)}")
+                else:
+                    print(f"⚠️ No row updated for game {gid}")
+        return updated
     except Exception as e:
         print(f"❌ Error collecting team stats: {e}")
         return 0
 
 def main():
     """Main function"""
-    parser = argparse.ArgumentParser(description='Collect team performance statistics for MLB games')
+    parser = argparse.ArgumentParser(description='Collect team whitelist offensive statistics')
     parser.add_argument('--target-date', type=str, help='Target date (YYYY-MM-DD)')
-    
     args = parser.parse_args()
-    
-    print("Team Performance Data Collection")
-    print("=" * 40)
-    print("Collecting team season averages for prediction purposes")
-    print()
-    
+    print("Team Performance Data Collection (Whitelist)")
+    print("="*42)
     updated = collect_team_performance_stats(args.target_date)
-    
-    if updated > 0:
-        print(f"\n✅ Successfully collected team stats for {updated} games")
-        print("🎯 Team performance data ready for ML model")
+    if updated>0:
+        print(f"\n✅ Updated offensive whitelist metrics for {updated} games")
     else:
-        print("❌ No team stats collected")
+        print("❌ No team metrics updated")
 
 if __name__ == "__main__":
     main()

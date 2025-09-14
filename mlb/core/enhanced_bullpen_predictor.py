@@ -1531,6 +1531,31 @@ class EnhancedBullpenPredictor:
             featured_df = _inject_basic_ballpark_factors(featured_df)
         except Exception as e:
             logger.warning(f"Ballpark factor injection failed: {e}")
+        else:
+            try:
+                if 'ballpark_run_factor' in featured_df.columns:
+                    run_std = float(pd.to_numeric(featured_df['ballpark_run_factor'], errors='coerce').std())
+                    hr_std = float(pd.to_numeric(featured_df.get('ballpark_hr_factor'), errors='coerce').std()) if 'ballpark_hr_factor' in featured_df.columns else float('nan')
+                    logger.info(f"🏟️ Park factors variance check: run_std={run_std:.3f}, hr_std={hr_std if not np.isnan(hr_std) else float('nan'):.3f}")
+            except Exception as log_e:
+                logger.debug(f"Park factor variance log failed: {log_e}")
+
+        # Derive team OPS if missing (pre-game safe) using OBP + SLG or wOBA proxies
+        try:
+            # Home team
+            if 'home_team_ops' not in featured_df.columns:
+                if {'home_team_obp','home_team_slg'}.issubset(featured_df.columns):
+                    featured_df['home_team_ops'] = (featured_df['home_team_obp'] + featured_df['home_team_slg']).clip(0.550, 0.950)
+                elif 'home_team_woba' in featured_df.columns:
+                    featured_df['home_team_ops'] = (featured_df['home_team_woba'] / 0.40).clip(0.550, 0.950)
+            # Away team
+            if 'away_team_ops' not in featured_df.columns:
+                if {'away_team_obp','away_team_slg'}.issubset(featured_df.columns):
+                    featured_df['away_team_ops'] = (featured_df['away_team_obp'] + featured_df['away_team_slg']).clip(0.550, 0.950)
+                elif 'away_team_woba' in featured_df.columns:
+                    featured_df['away_team_ops'] = (featured_df['away_team_woba'] / 0.40).clip(0.550, 0.950)
+        except Exception as e:
+            logger.warning(f"OPS derivation failed: {e}")
         
         # Then add enhanced pipeline features if available
         # Temporarily disable enhanced pipeline due to feature bloat (228 features -> fallback to 44)
@@ -3426,7 +3451,18 @@ class EnhancedBullpenPredictor:
                 predictions = apply_serving_calibration(predictions, exp_total)
                 logger.info("✅ Serving calibration applied")
             except Exception as e:
-                logger.warning(f"Serving calibration failed: {e}")
+                logger.warning(f"Serving calibration failed: {e} – applying gentle shrink fallback")
+                try:
+                    # Gentle shrink toward expected_total distribution to avoid drift
+                    if 'exp_total' not in locals():  # build if previous block failed early
+                        exp_series = pd.to_numeric(featured_df.get("expected_total"), errors="coerce")
+                        exp_fallback = float(np.nanmedian(exp_series)) if exp_series.notna().any() else 9.0
+                        exp_total = exp_series.fillna(exp_fallback).values
+                    alpha = 0.12  # light pull
+                    predictions = predictions * (1 - alpha) + exp_total * alpha
+                    logger.info("🔄 Applied fallback shrink calibration (alpha=0.12)")
+                except Exception as ie:
+                    logger.warning(f"Fallback shrink calibration also failed: {ie}")
             
             spread = float(np.ptp(predictions)) if len(predictions) else 0.0
             p = predictions.round(1)

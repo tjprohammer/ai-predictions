@@ -87,22 +87,52 @@ class LearningModelPredictor:
         log.info("=" * 60)
         
         try:
-            # TEMPORARY FIX: Use market-anchored predictions instead of broken adaptive model
-            # This provides realistic learning-style predictions while we fix the feature schema
-            log.info("🔧 Using market-anchored learning predictions (temporary fix)")
+            # Apply strict pre-game feature whitelist (external JSON)
+            WHITELIST = []
+            try:
+                wf_path = Path(__file__).parent / 'learning_features_v1.json'
+                if wf_path.exists():
+                    import json as _json
+                    data = _json.loads(wf_path.read_text())
+                    WHITELIST = data.get('features', [])
+                    log.info(f"📄 Loaded learning feature whitelist: {len(WHITELIST)} features")
+            except Exception as wle:
+                log.warning(f"Failed to load external whitelist: {wle}")
+            if not WHITELIST:
+                log.warning("Using emergency inline whitelist fallback")
+                WHITELIST = [
+                    'home_sp_era','away_sp_era','home_sp_whip','away_sp_whip',
+                    'home_sp_k_per_9','away_sp_k_per_9','home_sp_bb_per_9','away_sp_bb_per_9',
+                    'home_bp_era','away_bp_era','home_bp_fip','away_bp_fip',
+                    'home_team_rpg_season','away_team_rpg_season','home_team_rpg_l30','away_team_rpg_l30',
+                    'home_team_power_season','away_team_power_season','combined_power','combined_offense_rpg',
+                    'ballpark_run_factor','ballpark_hr_factor','temperature','wind_speed','day_night',
+                    'total_bullpen_innings','bullpen_impact_factor','combined_ops','combined_bullpen_era',
+                    'pitcher_strength_composite','offensive_power_composite','environmental_impact_composite'
+                ]
+            leakage_cols = [c for c in X.columns if any(tok in c.lower() for tok in ['_er','_ip','current_score','inning'])]
+            if leakage_cols:
+                log.info(f"🔒 Removing potential leakage columns: {leakage_cols[:8]}{'...' if len(leakage_cols)>8 else ''}")
+            X_clean = X[[c for c in WHITELIST if c in X.columns]].copy()
+            if X_clean.empty:
+                log.warning("Whitelist resulted in empty feature set – falling back to original columns limited to non-leakage")
+                X_clean = X[[c for c in X.columns if c not in leakage_cols]].copy()
+
+            # TEMPORARY: Use market anchored baseline adjustments until adaptive model retrained on whitelist schema
+            log.info("🔧 Using market-anchored learning predictions with strict whitelist (temporary baseline)")
             
             # Get market totals for anchoring
             from sqlalchemy import text
             with engine.connect() as conn:
                 # Match the exact same games that the workflow is expecting
-                market_query = text("""
-                    SELECT game_id, market_total, home_team, away_team
-                    FROM enhanced_games 
-                    WHERE date = :date AND market_total IS NOT NULL
-                      AND total_runs IS NULL  -- Only upcoming games
-                    ORDER BY game_time_utc
-                """)
-                market_data = pd.read_sql(market_query, conn, params={"date": target_date})
+                                    market_query = text("""
+                                            SELECT game_id, market_total, home_team, away_team
+                                            FROM enhanced_games 
+                                            WHERE date = :date AND market_total IS NOT NULL
+                                                AND total_runs IS NULL
+                                            ORDER BY game_time_utc
+                                    """)
+                                    market_data = pd.read_sql(market_query, conn, params={"date": target_date})
             
             if market_data.empty:
                 log.warning("⚠️ No market data available for learning predictions")
@@ -253,21 +283,25 @@ def predict_and_upsert_learning(engine, X: pd.DataFrame, ids: pd.DataFrame, targ
     # Apply market anchoring if requested (get market data from database)
     if anchor_to_market:
         try:
-            # Get market totals from database for anchoring
             import pandas as pd
-            query = f"""
-            SELECT game_id, market_total FROM enhanced_games 
-            WHERE date = '{target_date}' AND market_total IS NOT NULL
-            ORDER BY game_time_utc
-            """
-            market_df = pd.read_sql(query, engine)
-            
-            if len(market_df) > 0 and len(market_df) == len(learning_predictions):
-                market_anchored = apply_market_anchoring(learning_predictions, market_df['market_total'].values)
-                preds_df['predicted_total'] = market_anchored
-                log.info("✅ Market anchoring applied to learning predictions")
+            market_df = pd.read_sql(
+                f"SELECT game_id, market_total FROM enhanced_games WHERE date = '{target_date}' AND market_total IS NOT NULL",
+                engine
+            )
+            if not market_df.empty:
+                merged = preds_df.merge(market_df, on='game_id', how='left')
+                if merged['market_total'].notna().any():
+                    # Anchor only rows with market_total present to avoid unintended broadcast
+                    anchored_vals = merged.apply(
+                        lambda r: apply_market_anchoring(np.array([r['predicted_total']]), np.array([r['market_total']]), alpha=0.15)[0]
+                        if pd.notna(r['market_total']) else r['predicted_total'], axis=1
+                    )
+                    preds_df['predicted_total'] = anchored_vals
+                    log.info(f"✅ Market anchoring applied via game_id join ({merged['market_total'].notna().sum()} games)")
+                else:
+                    log.warning("⚠️ Market anchoring skipped - no aligned market totals after join")
             else:
-                log.warning("⚠️ Market anchoring skipped - no market data or length mismatch")
+                log.warning("⚠️ Market anchoring skipped - no market rows")
         except Exception as e:
             log.warning(f"⚠️ Market anchoring failed: {e}, using raw predictions")
     

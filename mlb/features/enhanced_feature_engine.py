@@ -71,11 +71,12 @@ class EnhancedFeatureEngine:
             LIMIT :num_games
             """)
             
-            result = self.engine.execute(query, {
-                'pitcher_id': pitcher_id,
-                'game_date': game_date,
-                'num_games': num_games
-            }).fetchone()
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {
+                    'pitcher_id': pitcher_id,
+                    'game_date': game_date,
+                    'num_games': num_games
+                }).fetchone()
             
             if result and result.games_found >= 2:  # Need at least 2 recent games
                 return {
@@ -138,11 +139,12 @@ class EnhancedFeatureEngine:
             LIMIT :num_games
             """)
             
-            result = self.engine.execute(query, {
-                'team': team,
-                'game_date': game_date,
-                'num_games': num_games
-            }).fetchone()
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {
+                    'team': team,
+                    'game_date': game_date,
+                    'num_games': num_games
+                }).fetchone()
             
             if result and result.games_found >= 5:  # Need at least 5 recent games
                 return {
@@ -202,11 +204,12 @@ class EnhancedFeatureEngine:
                 AND pgl.innings_pitched > 0
             """)
             
-            result = self.engine.execute(query, {
-                'pitcher_id': pitcher_id,
-                'opposing_team': opposing_team,
-                'game_date': game_date
-            }).fetchone()
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {
+                    'pitcher_id': pitcher_id,
+                    'opposing_team': opposing_team,
+                    'game_date': game_date
+                }).fetchone()
             
             if result and result.starts > 0:
                 return {
@@ -263,11 +266,12 @@ class EnhancedFeatureEngine:
                 AND pgl.innings_pitched > 0
             """)
             
-            result = self.engine.execute(query, {
-                'team': team,
-                'start_date': start_date,
-                'game_date': game_date
-            }).fetchone()
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {
+                    'team': team,
+                    'start_date': start_date,
+                    'game_date': game_date
+                }).fetchone()
             
             if result and result.total_innings:
                 return {
@@ -334,7 +338,8 @@ class EnhancedFeatureEngine:
                 AND total_runs IS NOT NULL
             """)
             
-            result = self.engine.execute(query, {'umpire_name': umpire_name}).fetchone()
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {'umpire_name': umpire_name}).fetchone()
             
             if result and result.run_factor:
                 return {
@@ -381,7 +386,8 @@ def main():
     LIMIT 5
     """)
     
-    df = pd.read_sql(test_query, engine.engine)
+    with engine.engine.connect() as conn:
+        df = pd.read_sql(test_query, conn)
     print(f"Testing with {len(df)} games...")
     
     enhanced_df = engine.process_enhanced_features(df)

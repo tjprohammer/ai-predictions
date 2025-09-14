@@ -261,7 +261,7 @@ class DailyPerformanceTracker:
         
         # Save report
         report_path = self.tracking_dir / f"weekly_report_{end_date.strftime('%Y%m%d')}.txt"
-        with open(report_path, 'w') as f:
+        with open(report_path, 'w', encoding='utf-8') as f:
             f.write(report)
             
         logger.info(f"📊 Weekly report saved to {report_path}")

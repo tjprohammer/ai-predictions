@@ -14,20 +14,24 @@ from pathlib import Path
 import numpy as np
 import json
 import decimal
-
-# Custom JSON encoder to handle NaN values
-class SafeJSONEncoder(json.JSONEncoder):
-    def encode(self, o):
-        def safe_convert(obj):
-            if isinstance(obj, dict):
-                return {k: safe_convert(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [safe_convert(item) for item in obj]
-            elif isinstance(obj, float):
-                if np.isnan(obj) or np.isinf(obj):
-                    return None
-                return obj
-            elif pd.isna(obj):
+try:
+    from enhanced_prediction_tracker import EnhancedPredictionTracker
+    enhanced_prediction_tracker = EnhancedPredictionTracker()
+    prediction_tracker = None
+    TRACKING_AVAILABLE = True
+    ENHANCED_TRACKING = True
+except ImportError as e1:
+    print(f"⚠️ Enhanced prediction tracker not available: {e1}")
+    enhanced_prediction_tracker = None
+    try:
+        from prediction_performance_tracker import PredictionTracker as LegacyPredictionTracker
+        enhanced_prediction_tracker = LegacyPredictionTracker()
+        TRACKING_AVAILABLE = True
+        ENHANCED_TRACKING = False
+    except ImportError as e2:
+        print(f"⚠️ Prediction tracking not available: {e2}")
+        enhanced_prediction_tracker = None
+        TRACKING_AVAILABLE = False
                 return None
             return obj
         return super().encode(safe_convert(o))
@@ -76,19 +80,40 @@ except ImportError as e:
     DUAL_PREDICTIONS_AVAILABLE = False
 
 def clean_for_json(obj):
-    """Clean data for JSON serialization by replacing NaN and inf values"""
+    """Recursively make an object JSON serializable.
+
+    Handles:
+      - dict / list recursion
+      - NaN / Inf floats (returned as None)
+      - pandas NA / None
+      - datetime / date -> ISO string
+      - decimal.Decimal -> float (or None if NaN/Inf)
+    """
+    from datetime import date, datetime as _dt
     if isinstance(obj, dict):
         return {k: clean_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
+    if isinstance(obj, list):
         return [clean_for_json(item) for item in obj]
-    elif isinstance(obj, float):
+    if isinstance(obj, (float, np.floating)):
         if np.isnan(obj) or np.isinf(obj):
             return None
-        return obj
-    elif pd.isna(obj):
-        return None
-    else:
-        return obj
+        return float(obj)
+    if isinstance(obj, (decimal.Decimal,)):
+        try:
+            if obj.is_nan() or obj.is_infinite():
+                return None
+        except Exception:
+            pass
+        return float(obj)
+    if isinstance(obj, (_dt, date)):
+        return obj.isoformat()
+    # pandas NA / None
+    try:
+        if pd.isna(obj):
+            return None
+    except Exception:
+        pass
+    return obj
 
 app = FastAPI()
 
@@ -156,6 +181,48 @@ def get_engine():
     """Get database engine"""
     url = os.environ.get('DATABASE_URL', 'postgresql://mlbuser:mlbpass@localhost:5432/mlb')
     return create_engine(url)
+
+@app.get('/games/today-dual')
+def get_today_dual_predictions():
+    """Return today's games with both primary (learning/whitelist) and ultra (incremental) predictions,
+    edges, and (when available) absolute error + directional correctness.
+    Mirrors the `api_games_today` view so UI can adopt side-by-side display without
+    breaking existing endpoints.
+    """
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            df = pd.read_sql(text('SELECT * FROM api_games_today ORDER BY game_id'), conn)
+        if df.empty:
+            return {"date": str(datetime.utcnow().date()), "games": []}
+        # Convert boolean-ish correctness to explicit True/False/None
+        for col in ['primary_correct_direction','ultra_correct_direction']:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda v: bool(v) if v in (True, False, 0, 1) else None)
+        numeric_cols = [c for c in df.columns if c.endswith('_abs_error') or c.startswith('edge_')]
+        for c in numeric_cols:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors='coerce')
+        games = df.to_dict(orient='records')
+        return JSONResponse(content=clean_for_json({
+            "date": str(df['game_date'].iloc[0]),
+            "games": games,
+            "summary": {
+                "n_games": len(df),
+                "primary_mean": safe_float_convert(df['predicted_primary'].mean()) if 'predicted_primary' in df else None,
+                "ultra_mean": safe_float_convert(df['predicted_ultra'].mean()) if 'predicted_ultra' in df else None,
+                "primary_edge_mean": safe_float_convert(df['edge_primary'].mean()) if 'edge_primary' in df else None,
+                "ultra_edge_mean": safe_float_convert(df['edge_ultra'].mean()) if 'edge_ultra' in df else None,
+                "completed_with_errors": int(df['primary_abs_error'].notna().sum()) if 'primary_abs_error' in df else 0
+            }
+        }), media_type='application/json')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"dual prediction fetch failed: {e}")
+
+# Alias with /api prefix for frontend consistency
+@app.get('/api/games/today-dual')
+def api_get_today_dual_predictions():
+    return get_today_dual_predictions()
 
 def get_real_team_stats(home_team: str, away_team: str) -> dict:
     """Get real comprehensive team statistics from the database"""
@@ -3226,30 +3293,90 @@ except ImportError as e:
 @app.get("/api/prediction-performance/{start_date}")
 async def get_prediction_performance(start_date: str, end_date: str = None):
     """Get prediction performance metrics for date range"""
-    if not TRACKING_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Prediction tracking not available")
-    
     try:
         if not end_date:
             end_date = start_date
-        
-        performance = prediction_tracker.get_performance_comparison(start_date, end_date)
-        
-        return {
-            'date_range': {
-                'start': start_date,
-                'end': end_date
-            },
-            'performance': performance,
-            'comparison': {
-                'winner': None,
-                'current_better_at': [],
-                'learning_better_at': []
-            } if len(performance) < 2 else {
-                'winner': 'learning' if performance.get('learning', {}).get('accuracy_rate', 0) > performance.get('current', {}).get('accuracy_rate', 0) else 'current',
-                'current_better_at': [],
-                'learning_better_at': []
+
+        # Compute directly from enhanced_games
+        engine = get_engine()
+        with engine.connect() as conn:
+            q = text(
+                """
+                SELECT date, game_id, home_team, away_team,
+                       COALESCE(venue, venue_name) AS venue,
+                       market_total, predicted_total, predicted_total_learning,
+                       recommendation, total_runs
+                  FROM enhanced_games
+                 WHERE date >= :start_date AND date <= :end_date
+                ORDER BY date DESC, game_id
+                """
+            )
+            df = pd.read_sql(q, conn, params={"start_date": start_date, "end_date": end_date})
+
+        def compute_metrics(sub: pd.DataFrame, pred_col: str, rec_col: str | None) -> dict:
+            sub = sub.copy()
+            sub = sub[pd.notna(sub[pred_col])]
+            total_preds = len(sub)
+            if total_preds == 0:
+                return {
+                    'total_predictions': 0, 'correct_predictions': 0,
+                    'accuracy_rate': 0.0, 'mean_absolute_error': None,
+                    'win_rate': 0.0, 'total_bets': 0, 'winning_bets': 0,
+                    'total_edge': None
+                }
+            completed = sub[pd.notna(sub['total_runs'])]
+            mae = float(abs(completed[pred_col] - completed['total_runs']).mean()) if not completed.empty else None
+            # Directional correctness
+            corr = None
+            win_rate = 0.0
+            correct = 0
+            eligible = 0
+            if rec_col:
+                for _, r in completed.iterrows():
+                    rec = r.get(rec_col)
+                    mkt = r.get('market_total')
+                    if pd.isna(mkt) or rec is None:
+                        continue
+                    if rec == 'HOLD':
+                        continue
+                    eligible += 1
+                    if (rec == 'OVER' and r['total_runs'] > mkt) or (rec == 'UNDER' and r['total_runs'] < mkt):
+                        correct += 1
+                win_rate = round((correct / eligible) * 100, 1) if eligible > 0 else 0.0
+            return {
+                'total_predictions': total_preds,
+                'correct_predictions': correct,
+                'accuracy_rate': win_rate,  # treat as directional accuracy for UI
+                'mean_absolute_error': mae,
+                'win_rate': win_rate,
+                'total_bets': eligible,
+                'winning_bets': correct,
+                'total_edge': None,
             }
+
+        perf_current = compute_metrics(df, 'predicted_total', 'recommendation')
+        # For learning, derive recommendation from learning prediction vs market
+        df_learn = df.copy()
+        df_learn['learning_rec'] = None
+        has_learning = pd.notna(df_learn['predicted_total_learning']) & pd.notna(df_learn['market_total'])
+        df_learn.loc[has_learning & (df_learn['predicted_total_learning'] > df_learn['market_total']), 'learning_rec'] = 'OVER'
+        df_learn.loc[has_learning & (df_learn['predicted_total_learning'] < df_learn['market_total']), 'learning_rec'] = 'UNDER'
+        df_learn.loc[has_learning & (df_learn['predicted_total_learning'] == df_learn['market_total']), 'learning_rec'] = 'HOLD'
+        perf_learning = compute_metrics(df_learn, 'predicted_total_learning', 'learning_rec')
+
+        performance = {
+            'current': perf_current,
+            'learning': perf_learning,
+        }
+
+        winner = None
+        if perf_current['accuracy_rate'] or perf_learning['accuracy_rate']:
+            winner = 'learning' if (perf_learning['accuracy_rate'] or 0) > (perf_current['accuracy_rate'] or 0) else 'current'
+
+        return {
+            'date_range': {'start': start_date, 'end': end_date},
+            'performance': performance,
+            'comparison': {'winner': winner, 'current_better_at': [], 'learning_better_at': []}
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching performance data: {str(e)}")
@@ -3257,11 +3384,73 @@ async def get_prediction_performance(start_date: str, end_date: str = None):
 @app.get("/api/prediction-tracking/recent")
 async def get_recent_predictions_with_results(days: int = 7):
     """Get recent predictions with actual results"""
-    if not TRACKING_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Prediction tracking not available")
-    
     try:
-        results = prediction_tracker.get_recent_predictions_with_results(days)
+        # Build directly from enhanced_games for the last N days
+        end_date = datetime.utcnow().date()
+        start_date = end_date - timedelta(days=days)
+        engine = get_engine()
+        with engine.connect() as conn:
+            q = text(
+                """
+                SELECT date, game_id, home_team, away_team,
+                       COALESCE(venue, venue_name) AS venue,
+                       market_total, over_odds, under_odds,
+                       predicted_total, predicted_total_learning,
+                       recommendation,
+                       total_runs
+                  FROM enhanced_games
+                 WHERE date >= :start_date AND date <= :end_date
+                ORDER BY date DESC, game_id
+                """
+            )
+            df = pd.read_sql(q, conn, params={"start_date": start_date, "end_date": end_date})
+
+        def mk_rec(pred, mkt):
+            if pd.isna(pred) or pd.isna(mkt):
+                return None
+            if pred > mkt:
+                return 'OVER'
+            if pred < mkt:
+                return 'UNDER'
+            return 'HOLD'
+
+        results = []
+        for _, r in df.iterrows():
+            current_pred = r.get('predicted_total')
+            learning_pred = r.get('predicted_total_learning')
+            market = r.get('market_total')
+            actual = r.get('total_runs')
+            curr_rec = r.get('recommendation')
+            learn_rec = mk_rec(learning_pred, market)
+            current_error = float(abs(current_pred - actual)) if pd.notna(current_pred) and pd.notna(actual) else None
+            learning_error = float(abs(learning_pred - actual)) if pd.notna(learning_pred) and pd.notna(actual) else None
+
+            def is_correct(rec, mkt, act):
+                if rec is None or pd.isna(mkt) or pd.isna(act) or rec == 'HOLD':
+                    return None
+                if rec == 'OVER':
+                    return bool(act > mkt)
+                if rec == 'UNDER':
+                    return bool(act < mkt)
+                return None
+
+            results.append({
+                'date': str(r['date']),
+                'game': f"{r['away_team']} @ {r['home_team']}",
+                'venue': r.get('venue') or r.get('venue_name') or '',
+                'current_predicted': float(current_pred) if pd.notna(current_pred) else None,
+                'learning_predicted': float(learning_pred) if pd.notna(learning_pred) else None,
+                'market_total': float(market) if pd.notna(market) else None,
+                'actual_total': float(actual) if pd.notna(actual) else None,
+                'current_rec': curr_rec,
+                'learning_rec': learn_rec,
+                'actual_result': None,
+                'current_error': current_error,
+                'learning_error': learning_error,
+                'current_correct': is_correct(curr_rec, market, actual),
+                'learning_correct': is_correct(learn_rec, market, actual),
+                'completed': pd.notna(actual)
+            })
         
         # Group by completion status
         completed = [r for r in results if r['completed']]
@@ -3289,7 +3478,7 @@ async def get_recent_predictions_with_results(days: int = 7):
 @app.post("/api/prediction-tracking/record/{date}")
 async def record_predictions_for_date(date: str):
     """Record predictions for tracking (called after generating predictions)"""
-    if not TRACKING_AVAILABLE:
+    if not TRACKING_AVAILABLE or enhanced_prediction_tracker is None:
         raise HTTPException(status_code=503, detail="Prediction tracking not available")
     
     try:
@@ -3344,7 +3533,15 @@ async def record_predictions_for_date(date: str):
             })
         
         # Record predictions
-        prediction_tracker.record_predictions(date, games_to_track)
+        # Enhanced tracker may offer a different API. Try enhanced first.
+        if hasattr(enhanced_prediction_tracker, 'record_predictions'):
+            try:
+                enhanced_prediction_tracker.record_predictions(date)  # enhanced version typically pulls directly
+            except TypeError:
+                # Fallback if signature expects a list
+                enhanced_prediction_tracker.record_predictions(date, games_to_track)  # type: ignore
+        else:
+            raise HTTPException(status_code=500, detail="record_predictions not available in tracker")
         
         return {
             "message": f"Recorded predictions for {date}",
@@ -3358,12 +3555,23 @@ async def record_predictions_for_date(date: str):
 @app.post("/api/prediction-tracking/update-results/{date}")
 async def update_prediction_results(date: str):
     """Update actual results for completed games"""
-    if not TRACKING_AVAILABLE:
+    if not TRACKING_AVAILABLE or enhanced_prediction_tracker is None:
         raise HTTPException(status_code=503, detail="Prediction tracking not available")
     
     try:
-        prediction_tracker.update_actual_results(date)
-        prediction_tracker.calculate_performance_metrics(date)
+        if hasattr(enhanced_prediction_tracker, 'update_actual_results'):
+            enhanced_prediction_tracker.update_actual_results(date)
+        elif hasattr(enhanced_prediction_tracker, 'calculate_performance_metrics'):
+            # Some enhanced versions may only recalc metrics based on DB state
+            enhanced_prediction_tracker.calculate_performance_metrics(date)
+        else:
+            raise HTTPException(status_code=500, detail="update_actual_results not available in tracker")
+
+        if hasattr(enhanced_prediction_tracker, 'calculate_performance_metrics'):
+            try:
+                enhanced_prediction_tracker.calculate_performance_metrics(date)
+            except Exception:
+                pass
         
         return {
             "message": f"Updated results and calculated metrics for {date}",
@@ -3736,6 +3944,112 @@ async def get_dual_predictions_today_legacy():
 async def get_dual_predictions_tomorrow_legacy():
     """Legacy route - redirects to model-predictions"""
     return await get_model_predictions_tomorrow()
+
+
+# ============================================================================
+# TRIPLE PREDICTIONS ENDPOINTS (Backward compatibility for UI expectations)
+# ----------------------------------------------------------------------------
+# The frontend requests /api/triple-predictions/<date> expecting a structure:
+# {
+#   games: [
+#     {
+#       game_id, matchup, predictions: { original, learning, ultra, ensemble },
+#       confidence: { ultra: <confidence_score> }
+#     }
+#   ]
+# }
+# where:
+#   original -> original_model_prediction (future or legacy baseline)
+#   learning -> learning_model_prediction (adaptive learning model)
+#   ultra   -> ultra_sharp_v15_prediction (serves as the ULTRA model in UI)
+#   ensemble -> simple average of available (learning + ultra) as interim
+# The endpoint repackages data from enhanced_games (and joins) similar to
+# /api/model-predictions to avoid UI fetch failures.
+# ============================================================================
+
+@app.get("/api/triple-predictions/{target_date}")
+async def get_triple_predictions_api(target_date: str):
+    """Provide triple model predictions (original, learning, ultra + ensemble)."""
+    try:
+        engine = create_engine("postgresql://mlbuser:mlbpass@localhost/mlb")
+        query = text("""
+            SELECT 
+                eg.game_id,
+                eg.home_team,
+                eg.away_team,
+                eg.venue_name as venue,
+                eg.market_total,
+                eg.predicted_total as learning_model_prediction,
+                eg.predicted_total_learning as ultra_80_prediction,
+                eg.predicted_total_original as original_model_prediction,
+                eg.predicted_total_ultra as ultra_sharp_v15_prediction,
+                eg.ultra_confidence as ultra_sharp_v15_confidence,
+                eg.total_runs,
+                eg.prediction_timestamp
+            FROM enhanced_games eg
+            WHERE eg.date = :target_date
+            ORDER BY eg.prediction_timestamp DESC, eg.game_id
+        """)
+        with engine.connect() as conn:
+            df = pd.read_sql(query, conn, params={'target_date': target_date})
+
+        games = []
+        for _, row in df.iterrows():
+            learning_pred = safe_float_convert(row['learning_model_prediction'])
+            original_pred = safe_float_convert(row['original_model_prediction'])
+            ultra_pred = safe_float_convert(row['ultra_sharp_v15_prediction'])  # Treat Ultra Sharp V15 as "ultra"
+            # Fallback: if ultra_sharp missing, try ultra_80
+            if ultra_pred is None:
+                ultra_pred = safe_float_convert(row['ultra_80_prediction'])
+
+            available = [p for p in [learning_pred, ultra_pred] if p is not None]
+            ensemble_pred = round(sum(available) / len(available), 2) if available else None
+
+            games.append({
+                'game_id': row['game_id'],
+                'matchup': f"{row['away_team']} @ {row['home_team']}",
+                'venue': row['venue'],
+                'predictions': {
+                    'original': original_pred,
+                    'learning': learning_pred,
+                    'ultra': ultra_pred,
+                    'ensemble': ensemble_pred
+                },
+                'confidence': {
+                    'ultra': safe_float_convert(row['ultra_sharp_v15_confidence'])
+                },
+                'result': {
+                    'actual_total': safe_float_convert(row['total_runs']) if pd.notna(row['total_runs']) else None
+                },
+                'timestamp': row['prediction_timestamp'].isoformat() if pd.notna(row['prediction_timestamp']) else None
+            })
+
+        result = {
+            'date': target_date,
+            'games': games,
+            'summary': {
+                'total_games': len(games),
+                'with_ultra': len([g for g in games if g['predictions']['ultra'] is not None]),
+                'with_learning': len([g for g in games if g['predictions']['learning'] is not None]),
+                'with_original': len([g for g in games if g['predictions']['original'] is not None])
+            },
+            'generated_at': datetime.now().isoformat()
+        }
+        return JSONResponse(content=clean_for_json(result))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching triple predictions: {str(e)}")
+
+
+@app.get("/api/triple-predictions/today")
+async def get_triple_predictions_today():
+    today = datetime.now().strftime("%Y-%m-%d")
+    return await get_triple_predictions_api(today)
+
+
+@app.get("/api/triple-predictions/tomorrow")
+async def get_triple_predictions_tomorrow():
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    return await get_triple_predictions_api(tomorrow)
 
 
 @app.get("/api/ultra80-predictions/{target_date}")
