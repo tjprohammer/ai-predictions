@@ -1,0 +1,5360 @@
+﻿<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MLB Predictor</title>
+  <style>
+    :root {
+      --bg: #f6f0e8;
+      --panel: rgba(255, 251, 246, 0.88);
+      --panel-strong: rgba(255, 251, 246, 0.96);
+      --ink: #142119;
+      --muted: #5f6e65;
+      --line: rgba(20, 33, 25, 0.12);
+      --accent: #0b6a58;
+      --accent-deep: #0a4a3f;
+      --accent-soft: rgba(11, 106, 88, 0.12);
+      --gold: #b7791f;
+      --gold-soft: rgba(183, 121, 31, 0.12);
+      --good: #166534;
+      --warn: #92400e;
+      --shadow: 0 22px 64px rgba(20, 33, 25, 0.09);
+      --radius-xl: 28px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(11, 106, 88, 0.15), transparent 32%),
+        radial-gradient(circle at 85% 14%, rgba(183, 121, 31, 0.12), transparent 20%),
+        linear-gradient(180deg, #fcf9f4 0%, var(--bg) 100%);
+      font-family: "Bahnschrift", "Aptos", "Segoe UI Variable", sans-serif;
+      position: relative;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.24) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.2) 1px, transparent 1px);
+      background-size: 26px 26px;
+      opacity: 0.28;
+    }
+
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 28px 20px 44px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .panel,
+    .stat-card,
+    .hero-card,
+    .control-card,
+    .game-card,
+    .starter-card,
+    .player-card,
+    .context-card {
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .hero-card,
+    .control-card,
+    .panel {
+      border-radius: var(--radius-xl);
+    }
+
+    .hero-card {
+      padding: 28px;
+      overflow: hidden;
+      position: relative;
+      background:
+        linear-gradient(135deg, rgba(11, 106, 88, 0.16), rgba(255, 251, 245, 0.72) 35%, rgba(183, 121, 31, 0.1) 100%),
+        var(--panel-strong);
+    }
+
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      right: -64px;
+      top: -72px;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,0.64) 0%, rgba(255,255,255,0) 72%);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(22, 36, 29, 0.08);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent-deep);
+    }
+
+    h1 {
+      margin: 14px 0 10px;
+      font-family: "Iowan Old Style", "Book Antiqua", Georgia, serif;
+      font-size: clamp(2.1rem, 3vw, 3.5rem);
+      letter-spacing: -0.04em;
+      line-height: 0.95;
+      max-width: 11ch;
+    }
+
+    .hero-copy {
+      max-width: 62ch;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.65;
+      margin: 0;
+    }
+
+    .hero-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .mini-stat {
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(22, 36, 29, 0.08);
+    }
+
+    .mini-stat .label,
+    .stat-label,
+    .section-tag,
+    .metric-label,
+    .table-meta,
+    .chip,
+    .tiny-label,
+    .team-tag,
+    .data-label {
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .mini-stat .value,
+    .stat-value {
+      display: block;
+      margin-top: 6px;
+      font-size: 1.55rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .control-card {
+      padding: 24px;
+      display: grid;
+      gap: 18px;
+      align-content: start;
+    }
+
+    .control-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .control-head h2,
+    .panel-title,
+    .game-title {
+      margin: 0;
+      font-size: 1.08rem;
+      letter-spacing: -0.02em;
+    }
+
+    .hint,
+    .panel-subtitle,
+    .muted-copy,
+    .empty {
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
+    .control-stack,
+    .filter-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .control-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      flex: 1 1 180px;
+    }
+
+    label {
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    input,
+    select,
+    button {
+      font: inherit;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+    }
+
+    input,
+    select {
+      min-height: 46px;
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.86);
+      color: var(--ink);
+    }
+
+    input[type="checkbox"] {
+      min-height: 0;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border-radius: 6px;
+      accent-color: var(--accent);
+    }
+
+    button {
+      min-height: 46px;
+      padding: 12px 16px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: progress;
+      transform: none;
+    }
+
+    .primary {
+      background: var(--accent);
+      color: white;
+      border-color: transparent;
+    }
+
+    .secondary {
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--ink);
+    }
+
+    .checkbox-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.74);
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .status-strip,
+    .games-board,
+    .game-grid,
+    .player-grid,
+    .context-grid,
+    .summary-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .status-strip {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 18px;
+    }
+
+    .stat-card {
+      border-radius: var(--radius-lg);
+      padding: 18px;
+    }
+
+    .stat-foot {
+      margin-top: 8px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .panel {
+      padding: 18px;
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .section-tag {
+      color: var(--accent-deep);
+    }
+
+    .games-board {
+      margin-top: 18px;
+    }
+
+    .game-card,
+    .starter-card,
+    .player-card,
+    .context-card {
+      border-radius: 20px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(22, 36, 29, 0.08);
+    }
+
+    .game-card {
+      padding: 22px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.6)),
+        var(--panel);
+    }
+
+    .game-header,
+    .starter-card header,
+    .player-card header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .matchup,
+    .player-name,
+    .game-title {
+      font-size: 1rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin: 0;
+    }
+
+    .game-title {
+      font-size: clamp(1.45rem, 2vw, 2rem);
+      margin-top: 6px;
+    }
+
+    .game-time,
+    .player-meta,
+    .game-subtitle,
+    .starter-meta,
+    .summary-copy {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-top: 5px;
+    }
+
+    .big-metric {
+      text-align: right;
+    }
+
+    .big-metric .value {
+      display: block;
+      font-size: 1.45rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric-box {
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(12, 107, 88, 0.07);
+      border: 1px solid rgba(12, 107, 88, 0.08);
+    }
+
+    .metric-box.gold {
+      background: rgba(183, 121, 31, 0.08);
+      border-color: rgba(183, 121, 31, 0.1);
+    }
+
+    .metric-value {
+      display: block;
+      margin-top: 6px;
+      font-size: 1.04rem;
+      font-weight: 800;
+    }
+
+    .log-box {
+      border-radius: 20px;
+      background: #12231c;
+      color: #d7efe1;
+      padding: 14px;
+      min-height: 180px;
+      max-height: 420px;
+      overflow: auto;
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 0.84rem;
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+
+    .game-grid {
+      grid-template-columns: 0.9fr 1fr 1fr;
+      align-items: start;
+    }
+
+    .summary-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .summary-card {
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px solid rgba(20, 33, 25, 0.08);
+    }
+
+    .summary-value {
+      margin-top: 8px;
+      font-size: 1.25rem;
+      font-weight: 800;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-deep);
+      border: 1px solid rgba(12, 107, 88, 0.12);
+    }
+
+    .chip.warn {
+      background: var(--gold-soft);
+      color: var(--warn);
+      border-color: rgba(183, 121, 31, 0.14);
+    }
+
+    .chip.good {
+      background: rgba(22, 101, 52, 0.12);
+      color: var(--good);
+      border-color: rgba(22, 101, 52, 0.12);
+    }
+
+    .edge-positive,
+    .strong {
+      color: var(--good);
+      font-weight: 800;
+    }
+
+    .edge-flat {
+      color: var(--muted);
+    }
+
+    .team-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .team-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .team-title {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .team-tag {
+      color: var(--accent-deep);
+    }
+
+    .context-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .starter-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+      padding-top: 8px;
+      margin-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+
+    .data-row:first-of-type {
+      border-top: 0;
+      margin-top: 0;
+      padding-top: 0;
+    }
+
+    .data-value {
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .probability-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: rgba(11, 106, 88, 0.1);
+      color: var(--accent-deep);
+      font-weight: 800;
+      font-size: 0.82rem;
+    }
+
+    .small-note {
+      font-size: 0.84rem;
+      color: var(--muted);
+      margin-top: 10px;
+    }
+
+    .empty-state {
+      padding: 18px;
+      border-radius: 20px;
+      border: 1px dashed var(--line);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.52);
+    }
+
+    @media (max-width: 1220px) {
+      .hero-grid,
+      .status-strip,
+      .summary-grid,
+      .game-grid,
+      .context-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 820px) {
+      main {
+        padding: 18px 14px 28px;
+      }
+
+      .hero-card,
+      .control-card,
+      .panel,
+      .stat-card,
+      .game-card,
+      .starter-card,
+      .player-card,
+      .context-card {
+        border-radius: 22px;
+      }
+
+      .hero-metrics,
+      .metric-row,
+      .status-strip,
+      .summary-grid,
+      .game-grid,
+      .context-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .control-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      button,
+      input,
+      select {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero-grid">
+      <article class="hero-card">
+        <div class="eyebrow">Daily Game Board</div>
+        <h1>One matchup section for every game on the slate.</h1>
+        <p class="hero-copy">
+          Each game now gets its own section with expected team runs, probable starters, park and weather
+          context, and the hitters the model likes most. The point is to read one matchup at a time instead
+          of bouncing between disconnected totals and hits tables.
+        </p>
+        <div class="hero-metrics" id="heroMetrics">
+        <div class="mini-stat">
+          <span class="label">Games On Board</span>
+          <span class="value">10</span>
+        </div>
+      
+        <div class="mini-stat">
+          <span class="label">Market-Backed Totals</span>
+          <span class="value">10/10</span>
+        </div>
+      
+        <div class="mini-stat">
+          <span class="label">Confirmed Hit Targets</span>
+          <span class="value">60</span>
+        </div>
+      </div>
+      </article>
+
+      <aside class="control-card">
+        <div class="control-head">
+          <h2>Board Controls</h2>
+          <span class="panel-subtitle">Load a slate or rerun the scoring pass</span>
+        </div>
+
+        <div class="control-stack">
+          <div class="control-row">
+            <div class="field">
+              <label for="targetDate">Target Date</label>
+              <input id="targetDate" type="date">
+            </div>
+          </div>
+
+          <div class="control-row">
+            <button class="secondary" id="refreshButton">Refresh board</button>
+            <button class="primary" id="runButton">Run scoring pipeline</button>
+          </div>
+
+          <div class="filter-grid">
+            <div class="field">
+              <label for="hitMinProbability">Minimum hit probability</label>
+              <select id="hitMinProbability">
+                <option value="0">Show all</option>
+                <option value="0.45">45%+</option>
+                <option value="0.50" selected="">50%+</option>
+                <option value="0.55">55%+</option>
+                <option value="0.60">60%+</option>
+                <option value="0.65">65%+</option>
+                <option value="0.70">70%+</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="hitLimit">Hitters per team</label>
+              <select id="hitLimit">
+                <option value="2">2 per team</option>
+                <option value="3" selected="">3 per team</option>
+                <option value="4">4 per team</option>
+                <option value="5">5 per team</option>
+              </select>
+            </div>
+
+            <label class="checkbox-row" for="confirmedOnly">
+              <input id="confirmedOnly" type="checkbox">
+              Confirmed lineups only
+            </label>
+          </div>
+        </div>
+
+        <div class="hint">
+          This view groups data by game. The hit filters are sent to the game-board endpoint so each matchup
+          only shows the hitters you actually want to review.
+        </div>
+      </aside>
+    </section>
+
+    <section class="status-strip">
+      <article class="stat-card">
+        <div class="stat-label">Database</div>
+        <div class="stat-value" id="dbStatus">Online</div>
+        <div class="stat-foot" id="statusDate">2026-03-30</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">Games</div>
+        <div class="stat-value" id="gamesCount">10</div>
+        <div class="stat-foot" id="gamesFoot">Best edge: CWS @ MIA +0.159</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">Market Coverage</div>
+        <div class="stat-value" id="marketCoverageCount">10/10</div>
+        <div class="stat-foot" id="marketCoverageFoot">100% of games have totals lines</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">Artifacts</div>
+        <div class="stat-value" id="artifactStatus">Totals + Hits</div>
+        <div class="stat-foot" id="artifactFoot">Ready for rescore</div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="section-tag">Pipeline</div>
+          <h2 class="panel-title">Run log</h2>
+        </div>
+        <span class="panel-subtitle">Exact output from the scoring call</span>
+      </div>
+      <div class="log-box" id="logBox">Board refreshed for 2026-03-30.</div>
+    </section>
+
+    <section class="games-board" id="gamesBoard">
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">Mar 30, 1:10 PM ┬╖ Kauffman Stadium</div>
+              <h2 class="game-title">MIN at KC</h2>
+              <div class="game-subtitle">Kansas City, MO ┬╖ Open</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value edge-positive">+0.090</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">12.49</div>
+              <div class="summary-copy">Market 10.0 ┬╖ Delta +2.49</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">MIN 5.13 / KC 5.03</div>
+              <div class="summary-copy">Over lean 59.0%</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park 1.02</div>
+              <div class="summary-copy">HR factor 0.85 ┬╖ Line move +0.00</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">77 F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">15 mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">49%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">MIN Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">KC Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">MIN</div>
+              <div class="matchup">Simeon Woods Richardson</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">KC</div>
+              <div class="matchup">Kris Bubic</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">MIN Hit Targets</div>
+                  <h3 class="team-title">Expected runs 5.13</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Carlos Correa</div>
+              <div class="player-meta">vs Kris Bubic</div>
+            </div>
+            <span class="probability-pill">84.3%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-536</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">70.5%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Matt Wallner</div>
+              <div class="player-meta">vs Kris Bubic</div>
+            </div>
+            <span class="probability-pill">74.9%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-299</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">56.0%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Byron Buxton</div>
+              <div class="player-meta">vs Kris Bubic</div>
+            </div>
+            <span class="probability-pill">70.7%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-241</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">64.2%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">KC Hit Targets</div>
+                  <h3 class="team-title">Expected runs 5.03</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Bobby Witt Jr.</div>
+              <div class="player-meta">vs Simeon Woods Richardson</div>
+            </div>
+            <span class="probability-pill">83.4%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-504</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">80.5%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Vinnie Pasquantino</div>
+              <div class="player-meta">vs Simeon Woods Richardson</div>
+            </div>
+            <span class="probability-pill">80.3%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-408</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">69.2%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Jonathan India</div>
+              <div class="player-meta">vs Simeon Woods Richardson</div>
+            </div>
+            <span class="probability-pill">79.7%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-393</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">58.3%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+          </div>
+        </article>
+      
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">Mar 30, 3:35 PM ┬╖ Oriole Park at Camden Yards</div>
+              <h2 class="game-title">TEX at BAL</h2>
+              <div class="game-subtitle">Baltimore, MD ┬╖ Open</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value edge-positive">+0.125</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">12.49</div>
+              <div class="summary-copy">Market 9.0 ┬╖ Delta +3.49</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">TEX 5.70 / BAL 3.57</div>
+              <div class="summary-copy">Over lean 62.5%</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park 1.00</div>
+              <div class="summary-copy">HR factor 1.05 ┬╖ Line move +0.00</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">62 F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">7 mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">61%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">TEX Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">BAL Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">TEX</div>
+              <div class="matchup">Jack Leiter</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">BAL</div>
+              <div class="matchup">Chris Bassitt</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">TEX Hit Targets</div>
+                  <h3 class="team-title">Expected runs 5.70</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Corey Seager</div>
+              <div class="player-meta">vs Chris Bassitt</div>
+            </div>
+            <span class="probability-pill">67.5%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-208</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">66.3%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Marcus Semien</div>
+              <div class="player-meta">vs Chris Bassitt</div>
+            </div>
+            <span class="probability-pill">62.1%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-164</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">62.3%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Ezequiel Duran</div>
+              <div class="player-meta">vs Chris Bassitt</div>
+            </div>
+            <span class="probability-pill">62.0%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-163</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">46.6%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">BAL Hit Targets</div>
+                  <h3 class="team-title">Expected runs 3.57</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Gunnar Henderson</div>
+              <div class="player-meta">vs Jack Leiter</div>
+            </div>
+            <span class="probability-pill">76.3%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-322</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">68.2%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Adley Rutschman</div>
+              <div class="player-meta">vs Jack Leiter</div>
+            </div>
+            <span class="probability-pill">65.5%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-190</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">56.5%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Jordan Westburg</div>
+              <div class="player-meta">vs Jack Leiter</div>
+            </div>
+            <span class="probability-pill">64.9%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-185</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">60.5%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+          </div>
+        </article>
+      
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">Mar 30, 3:40 PM ┬╖ loanDepot park</div>
+              <h2 class="game-title">CWS at MIA</h2>
+              <div class="game-subtitle">Miami, FL ┬╖ Retractable</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value edge-positive">+0.159</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">12.49</div>
+              <div class="summary-copy">Market 8.0 ┬╖ Delta +4.49</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">CWS 4.03 / MIA 4.83</div>
+              <div class="summary-copy">Over lean 65.9%</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park 1.02</div>
+              <div class="summary-copy">HR factor 0.90 ┬╖ Line move +0.00</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">73 F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">12 mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">80%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">CWS Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">MIA Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">CWS</div>
+              <div class="matchup">Davis Martin</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">MIA</div>
+              <div class="matchup">Chris Paddack</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">CWS Hit Targets</div>
+                  <h3 class="team-title">Expected runs 4.03</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Andrew Vaughn</div>
+              <div class="player-meta">vs Chris Paddack</div>
+            </div>
+            <span class="probability-pill">90.5%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-950</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">69.4%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Luis Robert Jr.</div>
+              <div class="player-meta">vs Chris Paddack</div>
+            </div>
+            <span class="probability-pill">62.3%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-165</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">60.2%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Andrew Benintendi</div>
+              <div class="player-meta">vs Chris Paddack</div>
+            </div>
+            <span class="probability-pill">61.4%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-159</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">59.8%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">MIA Hit Targets</div>
+                  <h3 class="team-title">Expected runs 4.83</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Xavier Edwards</div>
+              <div class="player-meta">vs Davis Martin</div>
+            </div>
+            <span class="probability-pill">84.9%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-561</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">73.7%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Jakob Marsee</div>
+              <div class="player-meta">vs Davis Martin</div>
+            </div>
+            <span class="probability-pill">76.9%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">8</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-333</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">3.9</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">69.1%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Kyle Stowers</div>
+              <div class="player-meta">vs Davis Martin</div>
+            </div>
+            <span class="probability-pill">67.4%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-206</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">67.3%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+          </div>
+        </article>
+      
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">Mar 30, 3:40 PM ┬╖ Great American Ball Park</div>
+              <h2 class="game-title">PIT at CIN</h2>
+              <div class="game-subtitle">Cincinnati, OH ┬╖ Open</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value edge-positive">+0.043</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">7.33</div>
+              <div class="summary-copy">Market 8.5 ┬╖ Delta -1.17</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">PIT 3.63 / CIN 4.30</div>
+              <div class="summary-copy">Under lean 54.3%</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park 1.06</div>
+              <div class="summary-copy">HR factor 1.23 ┬╖ Line move +0.00</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">69 F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">13 mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">62%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">PIT Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">CIN Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">PIT</div>
+              <div class="matchup">Braxton Ashcraft</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">CIN</div>
+              <div class="matchup">Chase Burns</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">PIT Hit Targets</div>
+                  <h3 class="team-title">Expected runs 3.63</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Jared Triolo</div>
+              <div class="player-meta">vs Chase Burns</div>
+            </div>
+            <span class="probability-pill">72.3%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-261</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">54.1%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Bryan Reynolds</div>
+              <div class="player-meta">vs Chase Burns</div>
+            </div>
+            <span class="probability-pill">60.0%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-150</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">59.7%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Andrew McCutchen</div>
+              <div class="player-meta">vs Chase Burns</div>
+            </div>
+            <span class="probability-pill">59.0%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">6</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-144</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.1</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">64.1%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">CIN Hit Targets</div>
+                  <h3 class="team-title">Expected runs 4.30</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Elly De La Cruz</div>
+              <div class="player-meta">vs Braxton Ashcraft</div>
+            </div>
+            <span class="probability-pill">84.2%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-531</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">71.1%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">TJ Friedl</div>
+              <div class="player-meta">vs Braxton Ashcraft</div>
+            </div>
+            <span class="probability-pill">76.2%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-321</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">67.6%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Gavin Lux</div>
+              <div class="player-meta">vs Braxton Ashcraft</div>
+            </div>
+            <span class="probability-pill">52.4%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">6</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-110</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.1</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">55.9%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+          </div>
+        </article>
+      
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">Mar 30, 3:40 PM ┬╖ Citizens Bank Park</div>
+              <h2 class="game-title">WSH at PHI</h2>
+              <div class="game-subtitle">Philadelphia, PA ┬╖ Open</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value edge-positive">+0.025</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">9.70</div>
+              <div class="summary-copy">Market 9.0 ┬╖ Delta +0.70</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">WSH 4.13 / PHI 5.17</div>
+              <div class="summary-copy">Over lean 52.5%</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park 1.02</div>
+              <div class="summary-copy">HR factor 1.14 ┬╖ Line move +0.00</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">62 F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">11 mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">62%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">WSH Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">PHI Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">WSH</div>
+              <div class="matchup">Foster Griffin</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">PHI</div>
+              <div class="matchup">Taijuan Walker</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">WSH Hit Targets</div>
+                  <h3 class="team-title">Expected runs 4.13</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">CJ Abrams</div>
+              <div class="player-meta">vs Taijuan Walker</div>
+            </div>
+            <span class="probability-pill">76.6%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-327</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">67.1%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Luis Garc├¡a Jr.</div>
+              <div class="player-meta">vs Taijuan Walker</div>
+            </div>
+            <span class="probability-pill">63.1%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-171</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">58.5%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">James Wood</div>
+              <div class="player-meta">vs Taijuan Walker</div>
+            </div>
+            <span class="probability-pill">60.9%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-155</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">62.3%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">PHI Hit Targets</div>
+                  <h3 class="team-title">Expected runs 5.17</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Trea Turner</div>
+              <div class="player-meta">vs Foster Griffin</div>
+            </div>
+            <span class="probability-pill">85.0%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-567</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">73.4%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Edmundo Sosa</div>
+              <div class="player-meta">vs Foster Griffin</div>
+            </div>
+            <span class="probability-pill">70.1%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-234</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">51.9%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Alec Bohm</div>
+              <div class="player-meta">vs Foster Griffin</div>
+            </div>
+            <span class="probability-pill">67.7%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">7</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-210</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.0</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">75.0%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+          </div>
+        </article>
+      
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">Mar 30, 4:07 PM ┬╖ Rogers Centre</div>
+              <h2 class="game-title">COL at TOR</h2>
+              <div class="game-subtitle">Toronto, ON ┬╖ Retractable</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value edge-positive">+0.093</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">10.56</div>
+              <div class="summary-copy">Market 8.0 ┬╖ Delta +2.56</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">COL 4.27 / TOR 4.83</div>
+              <div class="summary-copy">Over lean 59.3%</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park 1.00</div>
+              <div class="summary-copy">HR factor 1.04 ┬╖ Line move -0.50</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">50 F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">3 mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">83%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">COL Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">TOR Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">COL</div>
+              <div class="matchup">Tomoyuki Sugano</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">TOR</div>
+              <div class="matchup">Cody Ponce</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">COL Hit Targets</div>
+                  <h3 class="team-title">Expected runs 4.27</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Brenton Doyle</div>
+              <div class="player-meta">vs Cody Ponce</div>
+            </div>
+            <span class="probability-pill">75.8%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-314</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">58.2%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Ezequiel Tovar</div>
+              <div class="player-meta">vs Cody Ponce</div>
+            </div>
+            <span class="probability-pill">71.4%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-250</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">59.3%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Hunter Goodman</div>
+              <div class="player-meta">vs Cody Ponce</div>
+            </div>
+            <span class="probability-pill">57.5%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">6</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-135</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.1</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">67.9%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">TOR Hit Targets</div>
+                  <h3 class="team-title">Expected runs 4.83</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Bo Bichette</div>
+              <div class="player-meta">vs Tomoyuki Sugano</div>
+            </div>
+            <span class="probability-pill">85.5%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-590</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">77.6%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Vladimir Guerrero Jr.</div>
+              <div class="player-meta">vs Tomoyuki Sugano</div>
+            </div>
+            <span class="probability-pill">67.6%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-209</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">67.8%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Anthony Santander</div>
+              <div class="player-meta">vs Tomoyuki Sugano</div>
+            </div>
+            <span class="probability-pill">58.7%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-142</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">51.0%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+          </div>
+        </article>
+      
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">Mar 30, 4:15 PM ┬╖ Truist Park</div>
+              <h2 class="game-title">ATH at ATL</h2>
+              <div class="game-subtitle">Atlanta, GA ┬╖ Open</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value edge-positive">+0.025</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">9.70</div>
+              <div class="summary-copy">Market 9.0 ┬╖ Delta +0.70</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">ATH 5.90 / ATL 5.10</div>
+              <div class="summary-copy">Over lean 52.5%</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park 1.02</div>
+              <div class="summary-copy">HR factor 1.04 ┬╖ Line move +0.00</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">61 F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">4 mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">64%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">ATH Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">ATL Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">ATH</div>
+              <div class="matchup">Jacob Lopez</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">ATL</div>
+              <div class="matchup">Bryce Elder</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">ATH Hit Targets</div>
+                  <h3 class="team-title">Expected runs 5.90</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Miguel Andujar</div>
+              <div class="player-meta">vs Bryce Elder</div>
+            </div>
+            <span class="probability-pill">78.7%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">7</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-369</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.0</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">71.9%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Brent Rooker</div>
+              <div class="player-meta">vs Bryce Elder</div>
+            </div>
+            <span class="probability-pill">69.4%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-227</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">65.2%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Tyler Soderstrom</div>
+              <div class="player-meta">vs Bryce Elder</div>
+            </div>
+            <span class="probability-pill">68.6%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-218</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">67.1%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">ATL Hit Targets</div>
+                  <h3 class="team-title">Expected runs 5.10</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Jurickson Profar</div>
+              <div class="player-meta">vs Jacob Lopez</div>
+            </div>
+            <span class="probability-pill">89.6%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-861</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">68.4%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Matt Olson</div>
+              <div class="player-meta">vs Jacob Lopez</div>
+            </div>
+            <span class="probability-pill">78.2%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">6</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-360</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.1</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">72.2%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Austin Riley</div>
+              <div class="player-meta">vs Jacob Lopez</div>
+            </div>
+            <span class="probability-pill">71.1%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">5</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-246</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.3</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">72.2%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+          </div>
+        </article>
+      
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">Mar 30, 4:40 PM ┬╖ Wrigley Field</div>
+              <h2 class="game-title">LAA at CHC</h2>
+              <div class="game-subtitle">Chicago, IL ┬╖ Open</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value edge-positive">+0.011</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">9.70</div>
+              <div class="summary-copy">Market 10.0 ┬╖ Delta -0.30</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">LAA 4.03 / CHC 5.47</div>
+              <div class="summary-copy">Under lean 51.1%</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park 0.94</div>
+              <div class="summary-copy">HR factor 0.99 ┬╖ Line move +0.50</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">72 F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">15 mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">66%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">LAA Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">CHC Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">LAA</div>
+              <div class="matchup">Ryan Johnson</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">CHC</div>
+              <div class="matchup">Edward Cabrera</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">LAA Hit Targets</div>
+                  <h3 class="team-title">Expected runs 4.03</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Taylor Ward</div>
+              <div class="player-meta">vs Edward Cabrera</div>
+            </div>
+            <span class="probability-pill">73.4%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-275</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">59.5%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Mike Trout</div>
+              <div class="player-meta">vs Edward Cabrera</div>
+            </div>
+            <span class="probability-pill">67.5%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-208</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">65.9%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Luis Rengifo</div>
+              <div class="player-meta">vs Edward Cabrera</div>
+            </div>
+            <span class="probability-pill">62.3%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-165</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">60.6%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">CHC Hit Targets</div>
+                  <h3 class="team-title">Expected runs 5.47</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Nico Hoerner</div>
+              <div class="player-meta">vs Ryan Johnson</div>
+            </div>
+            <span class="probability-pill">76.8%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">7</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-331</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.0</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">73.2%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Seiya Suzuki</div>
+              <div class="player-meta">vs Ryan Johnson</div>
+            </div>
+            <span class="probability-pill">69.4%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-227</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">64.1%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Ian Happ</div>
+              <div class="player-meta">vs Ryan Johnson</div>
+            </div>
+            <span class="probability-pill">69.3%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-225</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">64.6%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+          </div>
+        </article>
+      
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">Mar 30, 4:40 PM ┬╖ American Family Field</div>
+              <h2 class="game-title">TB at MIL</h2>
+              <div class="game-subtitle">Milwaukee, WI ┬╖ Retractable</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value edge-positive">+0.093</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">10.56</div>
+              <div class="summary-copy">Market 8.0 ┬╖ Delta +2.56</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">TB 4.03 / MIL 5.17</div>
+              <div class="summary-copy">Over lean 59.3%</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park 0.94</div>
+              <div class="summary-copy">HR factor 1.06 ┬╖ Line move +0.00</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">61 F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">3 mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">44%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">TB Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">MIL Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">TB</div>
+              <div class="matchup">Nick Martinez</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">MIL</div>
+              <div class="matchup">Kyle Harrison</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">TB Hit Targets</div>
+                  <h3 class="team-title">Expected runs 4.03</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Yandy D├¡az</div>
+              <div class="player-meta">vs Kyle Harrison</div>
+            </div>
+            <span class="probability-pill">85.2%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-574</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">70.5%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Brandon Lowe</div>
+              <div class="player-meta">vs Kyle Harrison</div>
+            </div>
+            <span class="probability-pill">85.0%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-567</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">72.3%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Jonathan Aranda</div>
+              <div class="player-meta">vs Kyle Harrison</div>
+            </div>
+            <span class="probability-pill">62.7%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">5</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-168</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.3</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">68.9%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">MIL Hit Targets</div>
+                  <h3 class="team-title">Expected runs 5.17</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Jackson Chourio</div>
+              <div class="player-meta">vs Nick Martinez</div>
+            </div>
+            <span class="probability-pill">83.6%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-510</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">71.7%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Isaac Collins</div>
+              <div class="player-meta">vs Nick Martinez</div>
+            </div>
+            <span class="probability-pill">80.1%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-403</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">56.1%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Sal Frelick</div>
+              <div class="player-meta">vs Nick Martinez</div>
+            </div>
+            <span class="probability-pill">78.2%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">6</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-360</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.1</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">71.5%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+          </div>
+        </article>
+      
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">Mar 30, 4:45 PM ┬╖ Busch Stadium</div>
+              <h2 class="game-title">NYM at STL</h2>
+              <div class="game-subtitle">St. Louis, MO ┬╖ Open</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value edge-positive">+0.057</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">10.56</div>
+              <div class="summary-copy">Market 9.0 ┬╖ Delta +1.56</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">NYM 5.27 / STL 4.00</div>
+              <div class="summary-copy">Over lean 55.7%</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park 1.00</div>
+              <div class="summary-copy">HR factor 0.87 ┬╖ Line move +0.00</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">71 F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">13 mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">53%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">NYM Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">STL Top 5 xwOBA</span>
+                    <span class="data-value">-</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">NYM</div>
+              <div class="matchup">Clay Holmes</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+                
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">STL</div>
+              <div class="matchup">Kyle Leahy</div>
+              <div class="starter-meta">-HP ┬╖ Probable</div>
+            </div>
+            <span class="chip good">0d rest</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">-</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">NYM Hit Targets</div>
+                  <h3 class="team-title">Expected runs 5.27</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Pete Alonso</div>
+              <div class="player-meta">vs Kyle Leahy</div>
+            </div>
+            <span class="probability-pill">80.7%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">3</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-419</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.6</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">68.6%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Francisco Lindor</div>
+              <div class="player-meta">vs Kyle Leahy</div>
+            </div>
+            <span class="probability-pill">75.7%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-311</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">67.7%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Juan Soto</div>
+              <div class="player-meta">vs Kyle Leahy</div>
+            </div>
+            <span class="probability-pill">70.7%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-241</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">64.7%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">STL Hit Targets</div>
+                  <h3 class="team-title">Expected runs 4.00</h3>
+                </div>
+                <span class="chip warn">0/3 confirmed</span>
+              </div>
+              <div class="player-grid">
+                
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Iv├ín Herrera</div>
+              <div class="player-meta">vs Clay Holmes</div>
+            </div>
+            <span class="probability-pill">85.0%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">2</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-567</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.7</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">72.1%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Lars Nootbaar</div>
+              <div class="player-meta">vs Clay Holmes</div>
+            </div>
+            <span class="probability-pill">77.6%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">1</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-346</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.8</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">60.2%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">Brendan Donovan</div>
+              <div class="player-meta">vs Clay Holmes</div>
+            </div>
+            <span class="probability-pill">68.7%</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">4</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">-220</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">4.5</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">69.6%</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">Projected</span>
+          </div>
+        </article>
+      
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+  </main>
+
+  <script>
+    function localDateValue() {
+      const now = new Date();
+      const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+      return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+    }
+
+    const today = localDateValue();
+    const targetDateInput = document.getElementById("targetDate");
+    const refreshButton = document.getElementById("refreshButton");
+    const runButton = document.getElementById("runButton");
+    const hitMinProbabilityInput = document.getElementById("hitMinProbability");
+    const hitLimitInput = document.getElementById("hitLimit");
+    const confirmedOnlyInput = document.getElementById("confirmedOnly");
+    const logBox = document.getElementById("logBox");
+
+    const state = {
+      status: null,
+      games: [],
+    };
+
+    targetDateInput.value = today;
+
+    function setLog(message) {
+      logBox.textContent = message;
+    }
+
+    function describeError(error) {
+      if (!error) return "Unknown error";
+      if (error instanceof Error) {
+        return error.stack || error.message;
+      }
+      return String(error);
+    }
+
+    function formatPercent(value, digits = 1) {
+      return value == null ? "-" : `${(value * 100).toFixed(digits)}%`;
+    }
+
+    function formatNumber(value, digits = 2) {
+      return value == null ? "-" : Number(value).toFixed(digits);
+    }
+
+    function formatSigned(value, digits = 3) {
+      if (value == null) return "-";
+      const number = Number(value);
+      return `${number >= 0 ? "+" : ""}${number.toFixed(digits)}`;
+    }
+
+    function formatPrice(value) {
+      if (value == null) return "-";
+      const number = Number(value);
+      return `${number > 0 ? "+" : ""}${number}`;
+    }
+
+    function formatTrend(value) {
+      if (value == null) return "-";
+      const number = Number(value);
+      return `${number >= 0 ? "+" : ""}${number.toFixed(2)}`;
+    }
+
+    function formatDateTime(value) {
+      if (!value) return "TBD";
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return "TBD";
+      return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(parsed);
+    }
+
+    function getHitFilters() {
+      return {
+        limit: Number(hitLimitInput.value || 3),
+        minProbability: Number(hitMinProbabilityInput.value || 0.5),
+        confirmedOnly: confirmedOnlyInput.checked,
+      };
+    }
+
+    function countHitTargets(games) {
+      return games.reduce((sum, game) => {
+        const away = game.hit_targets?.[game.away_team] || [];
+        const home = game.hit_targets?.[game.home_team] || [];
+        return sum + away.length + home.length;
+      }, 0);
+    }
+
+    function bestGame(games) {
+      return [...games]
+        .filter((game) => game.totals?.edge != null)
+        .sort((left, right) => Number(right.totals.edge) - Number(left.totals.edge))[0];
+    }
+
+    function bestHitTarget(games) {
+      const targets = [];
+      for (const game of games) {
+        targets.push(...(game.hit_targets?.[game.away_team] || []));
+        targets.push(...(game.hit_targets?.[game.home_team] || []));
+      }
+      return targets.sort((left, right) => Number(right.predicted_hit_probability) - Number(left.predicted_hit_probability))[0];
+    }
+
+    function updateHeroMetrics() {
+      const games = state.games || [];
+      const marketBacked = games.filter((game) => game.totals?.market_total != null).length;
+      const hitTargets = countHitTargets(games);
+      const metrics = [
+        {
+          label: "Games On Board",
+          value: games.length ? String(games.length) : "-",
+        },
+        {
+          label: "Market-Backed Totals",
+          value: games.length ? `${marketBacked}/${games.length}` : "-",
+        },
+        {
+          label: "Confirmed Hit Targets",
+          value: hitTargets ? String(hitTargets) : "-",
+        },
+      ];
+      document.getElementById("heroMetrics").innerHTML = metrics.map((metric) => `
+        <div class="mini-stat">
+          <span class="label">${metric.label}</span>
+          <span class="value">${metric.value}</span>
+        </div>
+      `).join("");
+    }
+
+    function updateStatusStrip() {
+      const status = state.status;
+      const games = state.games || [];
+      if (!status) {
+        return;
+      }
+      document.getElementById("dbStatus").textContent = status.db_connected ? "Online" : "Offline";
+      document.getElementById("statusDate").textContent = status.target_date || "No date";
+      document.getElementById("gamesCount").textContent = games.length;
+      const best = bestGame(games);
+      document.getElementById("gamesFoot").textContent = best
+        ? `Best edge: ${best.away_team} @ ${best.home_team} ${formatSigned(best.totals.edge)}`
+        : "Current slate sections";
+
+      const marketBacked = games.filter((game) => game.totals?.market_total != null).length;
+      document.getElementById("marketCoverageCount").textContent = games.length ? `${marketBacked}/${games.length}` : 0;
+      document.getElementById("marketCoverageFoot").textContent = games.length
+        ? `${formatPercent(marketBacked / games.length, 0)} of games have totals lines`
+        : "Games with totals lines";
+
+      const artifacts = [];
+      if (status.totals_artifact_ready) artifacts.push("Totals");
+      if (status.hits_artifact_ready) artifacts.push("Hits");
+      document.getElementById("artifactStatus").textContent = artifacts.length ? artifacts.join(" + ") : "Missing";
+      document.getElementById("artifactFoot").textContent = status.db_connected ? "Ready for rescore" : "Check database connection";
+    }
+
+    function leanLabel(totals) {
+      if (!totals || totals.over_probability == null || totals.under_probability == null) {
+        return "No totals lean";
+      }
+      return Number(totals.over_probability) >= Number(totals.under_probability) ? "Over lean" : "Under lean";
+    }
+
+    function totalsLeanValue(totals) {
+      if (!totals || totals.over_probability == null || totals.under_probability == null) {
+        return "-";
+      }
+      return Number(totals.over_probability) >= Number(totals.under_probability)
+        ? formatPercent(totals.over_probability)
+        : formatPercent(totals.under_probability);
+    }
+
+    function renderStarterCard(starter, fallbackLabel) {
+      if (!starter) {
+        return `
+          <article class="starter-card">
+            <div class="team-tag">${fallbackLabel}</div>
+            <div class="matchup">Starter not available</div>
+            <div class="starter-meta">No probable starter data loaded for this side.</div>
+          </article>
+        `;
+      }
+      return `
+        <article class="starter-card">
+          <header>
+            <div>
+              <div class="team-tag">${starter.team}</div>
+              <div class="matchup">${starter.pitcher_name}</div>
+              <div class="starter-meta">${starter.throws || "-"}HP ┬╖ ${starter.is_probable ? "Probable" : "Listed"}</div>
+            </div>
+            <span class="chip ${starter.is_probable ? "good" : "warn"}">${starter.days_rest == null ? "Rest -" : `${starter.days_rest}d rest`}</span>
+          </header>
+          <div class="data-row">
+            <span class="data-label">xwOBA Against</span>
+            <span class="data-value">${formatNumber(starter.xwoba_against, 3)}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CSW%</span>
+            <span class="data-value">${formatPercent(starter.csw_pct)}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Whiff%</span>
+            <span class="data-value">${formatPercent(starter.whiff_pct)}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Avg FB Velo</span>
+            <span class="data-value">${formatNumber(starter.avg_fb_velo, 1)}</span>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderPlayerCards(players) {
+      if (!players.length) {
+        return `<div class="empty-state">No hitters match the current filters for this team.</div>`;
+      }
+      return players.map((player) => `
+        <article class="player-card">
+          <header>
+            <div>
+              <div class="player-name">${player.player_name}</div>
+              <div class="player-meta">vs ${player.opposing_pitcher_name || player.opponent}${player.opposing_pitcher_throws ? ` ┬╖ ${player.opposing_pitcher_throws}HP` : ""}</div>
+            </div>
+            <span class="probability-pill">${formatPercent(player.predicted_hit_probability)}</span>
+          </header>
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="metric-label">Lineup</span>
+              <span class="metric-value">${player.lineup_slot ?? "-"}</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Fair</span>
+              <span class="metric-value">${formatPrice(player.fair_price)}</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Proj PA</span>
+              <span class="metric-value">${formatNumber(player.projected_plate_appearances, 1)}</span>
+            </div>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Recent Hit Rate</span>
+            <span class="data-value">${formatPercent(player.hit_rate_blended)}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">xwOBA 14</span>
+            <span class="data-value">${formatNumber(player.xwoba_14, 3)}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher xwOBA Against</span>
+            <span class="data-value">${formatNumber(player.opposing_starter_xwoba, 3)}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Pitcher CSW</span>
+            <span class="data-value">${formatPercent(player.opposing_starter_csw)}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Lineup Status</span>
+            <span class="data-value">${player.is_confirmed_lineup ? "Confirmed" : "Projected"}</span>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderGameSection(game) {
+      const totals = game.totals || {};
+      const awayPlayers = game.hit_targets?.[game.away_team] || [];
+      const homePlayers = game.hit_targets?.[game.home_team] || [];
+      const venue = game.venue || {};
+      const weather = game.weather || {};
+      const starters = game.starters || {};
+      const predictedDelta = totals.market_total == null || totals.predicted_total_runs == null
+        ? null
+        : Number(totals.predicted_total_runs) - Number(totals.market_total);
+      return `
+        <article class="game-card">
+          <header class="game-header">
+            <div>
+              <div class="eyebrow">${formatDateTime(game.game_start_ts)} ┬╖ ${venue.name || "Venue TBD"}</div>
+              <h2 class="game-title">${game.away_team} at ${game.home_team}</h2>
+              <div class="game-subtitle">${venue.city || ""}${venue.city && venue.state ? ", " : ""}${venue.state || ""}${venue.roof_type ? ` ┬╖ ${venue.roof_type}` : ""}</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value ${totals.edge == null ? "edge-flat" : "edge-positive"}">${formatSigned(totals.edge)}</span>
+            </div>
+          </header>
+
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="data-label">Model Total</div>
+              <div class="summary-value">${formatNumber(totals.predicted_total_runs, 2)}</div>
+              <div class="summary-copy">Market ${formatNumber(totals.market_total, 1)} ┬╖ Delta ${predictedDelta == null ? "-" : formatTrend(predictedDelta)}</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">${game.away_team} ${formatNumber(totals.away_expected_runs, 2)} / ${game.home_team} ${formatNumber(totals.home_expected_runs, 2)}</div>
+              <div class="summary-copy">${leanLabel(totals)} ${totalsLeanValue(totals)}</div>
+            </div>
+            <div class="summary-card">
+              <div class="data-label">Run Environment</div>
+              <div class="summary-value">Park ${formatNumber(totals.venue_run_factor, 2)}</div>
+              <div class="summary-copy">HR factor ${formatNumber(totals.venue_hr_factor, 2)} ┬╖ Line move ${formatTrend(totals.line_movement)}</div>
+            </div>
+          </div>
+
+          <div class="game-grid">
+            <div class="team-panel">
+              <div class="context-grid">
+                <article class="context-card">
+                  <div class="section-tag">Weather</div>
+                  <div class="data-row">
+                    <span class="data-label">Temperature</span>
+                    <span class="data-value">${formatNumber(weather.temperature_f, 0)} F</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Wind</span>
+                    <span class="data-value">${formatNumber(weather.wind_speed_mph, 0)} mph</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">Humidity</span>
+                    <span class="data-value">${formatNumber(weather.humidity_pct, 0)}%</span>
+                  </div>
+                </article>
+                <article class="context-card">
+                  <div class="section-tag">Lineup Quality</div>
+                  <div class="data-row">
+                    <span class="data-label">${game.away_team} Top 5 xwOBA</span>
+                    <span class="data-value">${formatNumber(totals.away_lineup_top5_xwoba, 3)}</span>
+                  </div>
+                  <div class="data-row">
+                    <span class="data-label">${game.home_team} Top 5 xwOBA</span>
+                    <span class="data-value">${formatNumber(totals.home_lineup_top5_xwoba, 3)}</span>
+                  </div>
+                </article>
+              </div>
+
+              <div class="starter-grid">
+                ${renderStarterCard(starters.away, game.away_team)}
+                ${renderStarterCard(starters.home, game.home_team)}
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">${game.away_team} Hit Targets</div>
+                  <h3 class="team-title">Expected runs ${formatNumber(totals.away_expected_runs, 2)}</h3>
+                </div>
+                <span class="chip ${awayPlayers.some((player) => player.is_confirmed_lineup) ? "good" : "warn"}">${awayPlayers.filter((player) => player.is_confirmed_lineup).length}/${awayPlayers.length} confirmed</span>
+              </div>
+              <div class="player-grid">
+                ${renderPlayerCards(awayPlayers)}
+              </div>
+            </div>
+
+            <div class="team-panel">
+              <div class="team-header">
+                <div>
+                  <div class="team-tag">${game.home_team} Hit Targets</div>
+                  <h3 class="team-title">Expected runs ${formatNumber(totals.home_expected_runs, 2)}</h3>
+                </div>
+                <span class="chip ${homePlayers.some((player) => player.is_confirmed_lineup) ? "good" : "warn"}">${homePlayers.filter((player) => player.is_confirmed_lineup).length}/${homePlayers.length} confirmed</span>
+              </div>
+              <div class="player-grid">
+                ${renderPlayerCards(homePlayers)}
+              </div>
+            </div>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderGames() {
+      const wrap = document.getElementById("gamesBoard");
+      const games = state.games || [];
+      if (!games.length) {
+        wrap.innerHTML = `<div class="empty-state">No game sections are available for this date.</div>`;
+        return;
+      }
+      wrap.innerHTML = games.map(renderGameSection).join("");
+    }
+
+    function renderBoard() {
+      updateHeroMetrics();
+      updateStatusStrip();
+      renderGames();
+    }
+
+    async function loadStatus() {
+      const date = targetDateInput.value;
+      const response = await fetch(`/api/status?target_date=${date}`);
+      if (!response.ok) {
+        throw new Error(`Status request failed: ${response.status}`);
+      }
+      state.status = await response.json();
+    }
+
+    async function loadBoard() {
+      const date = targetDateInput.value;
+      const filters = getHitFilters();
+      const response = await fetch(`/api/games/board?target_date=${date}&hit_limit_per_team=${filters.limit}&min_probability=${filters.minProbability}&confirmed_only=${filters.confirmedOnly}`);
+      if (!response.ok) {
+        throw new Error(`Board request failed: ${response.status}`);
+      }
+      const payload = await response.json();
+      state.games = payload.games || [];
+    }
+
+    async function refreshBoard() {
+      const filters = getHitFilters();
+      setLog(
+        `Refreshing board for ${targetDateInput.value}\n` +
+        `Game sections: ${filters.limit} hitters per team, min hit probability ${filters.minProbability || 0}, confirmed only ${filters.confirmedOnly}.`
+      );
+      try {
+        await Promise.all([loadStatus(), loadBoard()]);
+        renderBoard();
+        setLog(`Board refreshed for ${targetDateInput.value}.`);
+      } catch (error) {
+        setLog(`Board refresh failed for ${targetDateInput.value}.\n${describeError(error)}`);
+        throw error;
+      }
+    }
+
+    async function runPipeline() {
+      const date = targetDateInput.value;
+      runButton.disabled = true;
+      setLog(`Running scoring pipeline for ${date}...`);
+      try {
+        const response = await fetch("/api/pipeline/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target_date: date, refresh_aggregates: true, rebuild_features: true }),
+        });
+        const payload = await response.json();
+        const lines = (payload.steps || []).map((step) => {
+          const stdout = step.stdout ? `stdout:\n${step.stdout}` : "stdout: (empty)";
+          const stderr = step.stderr ? `stderr:\n${step.stderr}` : "stderr: (empty)";
+          return `${step.module} -> ${step.returncode}\n${stdout}\n${stderr}`;
+        });
+        setLog(lines.join("\n\n") || "Pipeline returned no output.");
+      } catch (error) {
+        setLog(`Pipeline call failed: ${error}`);
+      } finally {
+        runButton.disabled = false;
+        await refreshBoard();
+      }
+    }
+
+    refreshButton.addEventListener("click", refreshBoard);
+    runButton.addEventListener("click", runPipeline);
+    hitMinProbabilityInput.addEventListener("change", refreshBoard);
+    hitLimitInput.addEventListener("change", refreshBoard);
+    confirmedOnlyInput.addEventListener("change", refreshBoard);
+    targetDateInput.addEventListener("change", refreshBoard);
+
+    refreshBoard();
+  </script>
+
+</body></html>

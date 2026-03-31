@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MLB Predictor Hot Hitters</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      --bg: #f6f0e8;
+      --panel: rgba(255, 251, 246, 0.88);
+      --panel-strong: rgba(255, 251, 246, 0.96);
+      --ink: #142119;
+      --muted: #5f6e65;
+      --line: rgba(20, 33, 25, 0.12);
+      --accent: #0b6a58;
+      --accent-deep: #0a4a3f;
+      --accent-soft: rgba(11, 106, 88, 0.12);
+      --gold: #b7791f;
+      --gold-soft: rgba(183, 121, 31, 0.12);
+      --good: #166534;
+      --warn: #92400e;
+      --shadow: 0 22px 64px rgba(20, 33, 25, 0.09);
+      --radius-xl: 28px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(11, 106, 88, 0.15), transparent 32%),
+        radial-gradient(circle at 85% 14%, rgba(183, 121, 31, 0.12), transparent 20%),
+        linear-gradient(180deg, #fcf9f4 0%, var(--bg) 100%);
+      font-family: "Bahnschrift", "Aptos", "Segoe UI Variable", sans-serif;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.24) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.2) 1px, transparent 1px);
+      background-size: 26px 26px;
+      opacity: 0.28;
+    }
+
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 28px 20px 44px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+      padding: 12px 14px;
+      border-radius: 999px;
+      background: rgba(255, 251, 246, 0.82);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      position: sticky;
+      top: 16px;
+      z-index: 4;
+    }
+
+    .brand-link,
+    .nav-link {
+      text-decoration: none;
+      transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+
+    .brand-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+      font-size: 0.82rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+      color: white;
+      font-size: 0.78rem;
+      letter-spacing: 0.16em;
+      box-shadow: 0 10px 24px rgba(11, 106, 88, 0.22);
+    }
+
+    .nav-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .nav-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(20, 33, 25, 0.08);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .nav-icon {
+      width: 15px;
+      height: 15px;
+      flex: 0 0 auto;
+    }
+
+    .nav-icon svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      fill: currentColor;
+    }
+
+    .nav-link:hover {
+      transform: translateY(-1px);
+      border-color: rgba(11, 106, 88, 0.22);
+      color: var(--accent-deep);
+      background: rgba(11, 106, 88, 0.08);
+    }
+
+    .nav-link.active {
+      background: var(--accent);
+      color: white;
+      border-color: transparent;
+      box-shadow: 0 12px 24px rgba(11, 106, 88, 0.2);
+    }
+
+    .nav-link.active:hover {
+      background: var(--accent-deep);
+      color: white;
+    }
+
+    .hero-grid,
+    .stat-grid,
+    .control-grid,
+    .cards-grid,
+    .reason-list,
+    .metric-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .hero-grid {
+      grid-template-columns: 1.2fr 0.9fr;
+      margin-bottom: 18px;
+    }
+
+    .hero-card,
+    .control-card,
+    .panel,
+    .stat-card,
+    .player-card {
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      border-radius: var(--radius-xl);
+    }
+
+    .hero-card {
+      padding: 28px;
+      background:
+        linear-gradient(135deg, rgba(11, 106, 88, 0.16), rgba(255, 251, 245, 0.72) 35%, rgba(183, 121, 31, 0.1) 100%),
+        var(--panel-strong);
+    }
+
+    .control-card,
+    .panel {
+      padding: 24px;
+    }
+
+    .eyebrow,
+    .chip,
+    .reason-chip,
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      border: 1px solid rgba(22, 36, 29, 0.08);
+    }
+
+    .eyebrow,
+    .chip {
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--accent-deep);
+    }
+
+    .chip.good,
+    .status-chip.good,
+    .reason-chip.good {
+      background: rgba(22, 101, 52, 0.12);
+      color: var(--good);
+      border-color: rgba(22, 101, 52, 0.14);
+    }
+
+    .chip.warn,
+    .status-chip.warn,
+    .reason-chip.warn {
+      background: rgba(183, 121, 31, 0.12);
+      color: var(--warn);
+      border-color: rgba(183, 121, 31, 0.16);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      margin-top: 14px;
+      font-family: "Iowan Old Style", "Book Antiqua", Georgia, serif;
+      font-size: clamp(2.1rem, 3vw, 3.4rem);
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+      max-width: 10ch;
+    }
+
+    .hero-copy,
+    .panel-subtitle,
+    .muted,
+    .small-copy,
+    .empty-state,
+    .data-copy {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .hero-copy {
+      margin-top: 12px;
+      max-width: 60ch;
+      font-size: 1rem;
+    }
+
+    .hero-actions,
+    .control-row,
+    .player-topline,
+    .player-head,
+    .player-meta-row,
+    .panel-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .hero-actions {
+      margin-top: 22px;
+    }
+
+    .button-link,
+    button,
+    input,
+    select {
+      font: inherit;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      min-height: 46px;
+      padding: 12px 16px;
+      transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+    }
+
+    button,
+    .button-link {
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+    }
+
+    button:hover,
+    .button-link:hover {
+      transform: translateY(-1px);
+    }
+
+    .primary {
+      background: var(--accent);
+      color: white;
+      border-color: transparent;
+    }
+
+    .secondary {
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--ink);
+    }
+
+    .control-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 18px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    label {
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    input,
+    select {
+      background: rgba(255, 255, 255, 0.86);
+      color: var(--ink);
+    }
+
+    .checkbox-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.84);
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+
+    input[type="checkbox"] {
+      min-height: 0;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      accent-color: var(--accent);
+    }
+
+    .stat-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 18px;
+    }
+
+    .stat-card,
+    .player-card {
+      padding: 18px;
+      border-radius: var(--radius-lg);
+    }
+
+    .stat-value {
+      margin-top: 8px;
+      font-size: 1.55rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .cards-grid {
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      margin-top: 18px;
+    }
+
+    .player-card {
+      display: grid;
+      gap: 14px;
+      background: rgba(255, 255, 255, 0.75);
+    }
+
+    .player-name {
+      font-size: 1.2rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .player-subtitle,
+    .player-context,
+    .metric-label,
+    .data-label,
+    .section-tag {
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .player-context,
+    .data-row {
+      font-size: 0.9rem;
+    }
+
+    .reason-list {
+      grid-template-columns: 1fr;
+    }
+
+    .reason-chip {
+      justify-content: flex-start;
+      text-transform: none;
+      letter-spacing: 0;
+      font-size: 0.88rem;
+      line-height: 1.4;
+      border-radius: 16px;
+      padding: 10px 12px;
+    }
+
+    .metric-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .metric-box {
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(12, 107, 88, 0.07);
+      border: 1px solid rgba(12, 107, 88, 0.08);
+    }
+
+    .metric-box.gold {
+      background: rgba(183, 121, 31, 0.08);
+      border-color: rgba(183, 121, 31, 0.12);
+    }
+
+    .metric-value {
+      display: block;
+      margin-top: 6px;
+      font-size: 1.02rem;
+      font-weight: 800;
+    }
+
+    .data-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+
+    .data-row:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .data-value {
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .empty-state {
+      padding: 22px;
+      border-radius: 20px;
+      border: 1px dashed var(--line);
+      background: rgba(255, 255, 255, 0.6);
+    }
+
+    @media (max-width: 1080px) {
+      .hero-grid,
+      .stat-grid,
+      .control-grid,
+      .metric-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .topbar {
+        border-radius: 28px;
+      }
+
+      .topbar,
+      .nav-links {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .brand-link {
+        justify-content: center;
+      }
+
+      .nav-link {
+        width: 100%;
+      }
+
+      main {
+        padding: 18px 14px 28px;
+      }
+
+      .hero-card,
+      .control-card,
+      .panel,
+      .stat-card,
+      .player-card {
+        border-radius: 22px;
+      }
+
+      .hero-actions,
+      .control-row,
+      .panel-head,
+      .player-topline,
+      .player-head,
+      .player-meta-row {
+        align-items: stretch;
+      }
+
+      button,
+      input,
+      select,
+      .button-link {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <nav class="topbar" aria-label="Primary">
+      <a class="brand-link" data-app-link="" href=".">
+        <span class="brand-mark">MP</span>
+        <span>MLB Predictor</span>
+      </a>
+      <div class="nav-links">
+        <a class="nav-link" data-app-link="" href="."><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 5h8v6H3zm10 0h8v6h-8zM3 13h8v6H3zm10 0h8v6h-8z"/></svg></span><span>Game Board</span></a>
+        <a class="nav-link active" data-app-link="hot-hitters" href="hot-hitters" aria-current="page"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13.5 2.5c.3 2.7-1 4.6-2.6 6.2-1.1 1.1-1.7 2.3-1.7 3.7 0 1.9 1.3 3.4 3.2 3.4 2.3 0 3.8-2 3.8-4.5 0-.8-.1-1.6-.5-2.5 2.3 1.3 4.3 4 4.3 7.1 0 4.1-3.3 7.1-8 7.1-4.6 0-8-2.9-8-7.4 0-3.3 1.7-5.5 4.1-7.5 2.4-1.9 4.8-3.8 5.4-5.6z"/></svg></span><span>Hot Hitters</span></a>
+      </div>
+    </nav>
+
+    <section class="hero-grid">
+      <article class="hero-card">
+        <div class="eyebrow">Hot Hitters</div>
+        <h1>Only the hottest bats on the slate, with receipts.</h1>
+        <p class="hero-copy">
+          This page strips away the full game board and shows only hitters whose recent form is materially heating up.
+          Every card spells out why the hitter qualified, then shows the matchup and model context next to it.
+        </p>
+        <div class="hero-actions">
+          <a class="button-link secondary" data-app-link="" href="."><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10.2 5.3 3.5 12l6.7 6.7 1.4-1.4-4.3-4.3H20v-2H7.3l4.3-4.3z"/></svg></span><span>Back to main board</span></a>
+          <span class="small-copy" id="pageStatus">Waiting for slate load</span>
+        </div>
+      </article>
+
+      <aside class="control-card">
+        <div class="panel-head">
+          <div>
+            <div class="section-tag">Filters</div>
+            <h2>Slate controls</h2>
+          </div>
+          <span class="panel-subtitle">Tighten or widen the heat screen</span>
+        </div>
+
+        <div class="control-grid">
+          <div class="field">
+            <label for="targetDate">Target Date</label>
+            <input id="targetDate" type="date" />
+          </div>
+          <div class="field">
+            <label for="minProbability">Minimum hit probability</label>
+            <select id="minProbability">
+              <option value="0.25">25%+</option>
+              <option value="0.30">30%+</option>
+              <option value="0.35" selected>35%+</option>
+              <option value="0.40">40%+</option>
+              <option value="0.45">45%+</option>
+              <option value="0.50">50%+</option>
+              <option value="0.55">55%+</option>
+              <option value="0.60">60%+</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sortMode">Sort By</label>
+            <select id="sortMode">
+              <option value="heat" selected>Heat score</option>
+              <option value="probability">Model probability</option>
+              <option value="edge">Betting edge</option>
+              <option value="lineup">Lineup slot</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="resultLimit">Card Limit</label>
+            <select id="resultLimit">
+              <option value="24">24</option>
+              <option value="36" selected>36</option>
+              <option value="50">50</option>
+              <option value="75">75</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-row" style="margin-top: 16px;">
+          <label class="checkbox-row" for="confirmedOnly">
+            <input id="confirmedOnly" type="checkbox" />
+            Confirmed lineups only
+          </label>
+          <button class="primary" id="refreshButton">Refresh hot hitters</button>
+        </div>
+      </aside>
+    </section>
+
+    <section class="stat-grid">
+      <article class="stat-card">
+        <div class="section-tag">Qualified</div>
+        <div class="stat-value" id="hotCount">0</div>
+        <div class="small-copy" id="hotCountCopy">Hot hitters matching this filter</div>
+      </article>
+      <article class="stat-card">
+        <div class="section-tag">Confirmed</div>
+        <div class="stat-value" id="confirmedCount">0</div>
+        <div class="small-copy">Cards with confirmed lineup status</div>
+      </article>
+      <article class="stat-card">
+        <div class="section-tag">Games</div>
+        <div class="stat-value" id="gamesCount">0</div>
+        <div class="small-copy">Matchups represented in the list</div>
+      </article>
+      <article class="stat-card">
+        <div class="section-tag">Avg Model Hit%</div>
+        <div class="stat-value" id="avgProbability">-</div>
+        <div class="small-copy" id="latestSnapshot">Latest prediction snapshot pending</div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="section-tag">Why Hot</div>
+          <h2>Slate-wide heat board</h2>
+        </div>
+        <span class="panel-subtitle" id="resultsSubtitle">Loading hot hitters</span>
+      </div>
+      <div class="cards-grid" id="cardsGrid">
+        <div class="empty-state">Loading hot hitters...</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    function localDateValue() {
+      const now = new Date();
+      const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+      return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+    }
+
+    function detectAppBase() {
+      const { pathname } = window.location;
+      if (pathname.endsWith("/hot-hitters")) {
+        const base = pathname.slice(0, -"/hot-hitters".length);
+        return base || "/";
+      }
+      return pathname.endsWith("/") ? pathname : `${pathname}/`;
+    }
+
+    const appBase = detectAppBase();
+
+    function appUrl(path = "") {
+      const normalizedBase = appBase.endsWith("/") ? appBase : `${appBase}/`;
+      return new URL(path, `${window.location.origin}${normalizedBase}`).toString();
+    }
+
+    function applyAppLinks() {
+      document.querySelectorAll("[data-app-link]").forEach((link) => {
+        link.href = appUrl(link.dataset.appLink || "");
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function numberOr(value, fallback = null) {
+      if (value == null || value === "") return fallback;
+      const number = Number(value);
+      return Number.isFinite(number) ? number : fallback;
+    }
+
+    function formatPercent(value, digits = 0) {
+      const number = numberOr(value);
+      return number == null ? "-" : `${(number * 100).toFixed(digits)}%`;
+    }
+
+    function formatNumber(value, digits = 2) {
+      const number = numberOr(value);
+      return number == null ? "-" : number.toFixed(digits);
+    }
+
+    function formatSigned(value, digits = 3) {
+      const number = numberOr(value);
+      return number == null ? "-" : `${number >= 0 ? "+" : ""}${number.toFixed(digits)}`;
+    }
+
+    function formatPrice(value) {
+      const number = numberOr(value);
+      return number == null ? "-" : `${number > 0 ? "+" : ""}${number}`;
+    }
+
+    function formatBattingAverage(value) {
+      const number = numberOr(value);
+      if (number == null) return "-";
+      return number.toFixed(3).replace(/^0/, "");
+    }
+
+    function formatDateTime(value) {
+      if (!value) return "-";
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return String(value);
+      return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    }
+
+    function matchupLabel(row) {
+      if (!row.team || !row.opponent) return "Matchup pending";
+      return row.team === row.away_team ? `${row.team} at ${row.opponent}` : `${row.team} vs ${row.opponent}`;
+    }
+
+    function actualOutcomeCopy(row) {
+      if (row.actual_status === "pending") return "Outcome pending";
+      if (row.actual_status === "dnp") return row.actual_status_label || "No box score row yet";
+      return `${row.actual_hits ?? 0} H in ${row.actual_at_bats ?? 0} AB, ${row.actual_plate_appearances ?? 0} PA`;
+    }
+
+    const state = {
+      rows: [],
+      summary: null,
+    };
+
+    applyAppLinks();
+
+    const targetDateInput = document.getElementById("targetDate");
+    const minProbabilityInput = document.getElementById("minProbability");
+    const sortModeInput = document.getElementById("sortMode");
+    const resultLimitInput = document.getElementById("resultLimit");
+    const confirmedOnlyInput = document.getElementById("confirmedOnly");
+    const refreshButton = document.getElementById("refreshButton");
+    const cardsGrid = document.getElementById("cardsGrid");
+    const resultsSubtitle = document.getElementById("resultsSubtitle");
+    const pageStatus = document.getElementById("pageStatus");
+    const hotCountCopy = document.getElementById("hotCountCopy");
+
+    targetDateInput.value = localDateValue();
+
+    function sortRows(rows) {
+      const sortMode = sortModeInput.value;
+      const sorted = [...rows];
+      if (sortMode === "probability") {
+        return sorted.sort((left, right) => (numberOr(right.predicted_hit_probability, -1) - numberOr(left.predicted_hit_probability, -1)) || (numberOr(right.form?.heat_score, -1) - numberOr(left.form?.heat_score, -1)));
+      }
+      if (sortMode === "edge") {
+        return sorted.sort((left, right) => (numberOr(right.edge, -999) - numberOr(left.edge, -999)) || (numberOr(right.form?.heat_score, -1) - numberOr(left.form?.heat_score, -1)));
+      }
+      if (sortMode === "lineup") {
+        return sorted.sort((left, right) => (numberOr(left.lineup_slot, 99) - numberOr(right.lineup_slot, 99)) || (numberOr(right.form?.heat_score, -1) - numberOr(left.form?.heat_score, -1)));
+      }
+      return sorted.sort((left, right) => (numberOr(right.form?.heat_score, -1) - numberOr(left.form?.heat_score, -1)) || (numberOr(right.predicted_hit_probability, -1) - numberOr(left.predicted_hit_probability, -1)));
+    }
+
+    function updateSummary() {
+      const summary = state.summary || {};
+      const filteredCount = Number(summary.count || 0);
+      const totalHotCount = Number(summary.total_hot_count || 0);
+      document.getElementById("hotCount").textContent = String(summary.count || 0);
+      document.getElementById("confirmedCount").textContent = String(summary.confirmed_count || 0);
+      document.getElementById("gamesCount").textContent = String(summary.games_count || 0);
+      document.getElementById("avgProbability").textContent = formatPercent(summary.average_hit_probability, 0);
+      document.getElementById("latestSnapshot").textContent = summary.latest_prediction_ts
+        ? `Latest prediction snapshot ${formatDateTime(summary.latest_prediction_ts)}`
+        : "Latest prediction snapshot pending";
+      hotCountCopy.textContent = totalHotCount > filteredCount
+        ? `${filteredCount} shown of ${totalHotCount} hot hitters on this slate`
+        : "Hot hitters matching this filter";
+      pageStatus.textContent = totalHotCount > filteredCount
+        ? `${filteredCount} of ${totalHotCount} hot hitters shown for ${targetDateInput.value}`
+        : `${filteredCount} hot hitters for ${targetDateInput.value}`;
+    }
+
+    function renderCard(row) {
+      const form = row.form || {};
+      const reasons = (form.reasons || []).map((reason) => `<div class="reason-chip ${escapeHtml(form.tone || "good")}">${escapeHtml(reason)}</div>`).join("");
+      const evidence = (form.evidence || []).join(" · ");
+      const statusTone = row.is_confirmed_lineup ? "good" : "warn";
+      const splitCopy = row.opposing_pitcher_throws
+        ? `${row.opposing_pitcher_throws}HP split ${formatBattingAverage(row.vs_pitcher_hand_batting_avg)} in ${row.vs_pitcher_hand_at_bats ?? 0} AB`
+        : "Pitcher-hand split pending";
+      return `
+        <article class="player-card">
+          <div class="player-head">
+            <div>
+              <div class="section-tag">${escapeHtml(matchupLabel(row))}</div>
+              <div class="player-name">${escapeHtml(row.player_name)}</div>
+              <div class="player-context">${escapeHtml([
+                `${row.lineup_slot ?? "-"} spot`,
+                row.position || "-",
+                row.bats ? `${row.bats}HB` : "Bats -",
+                row.opposing_pitcher_name ? `vs ${row.opposing_pitcher_name}` : "Starter pending",
+              ].join(" · "))}</div>
+            </div>
+            <div class="player-topline">
+              <span class="chip good">Hot</span>
+              <span class="status-chip ${statusTone}">${row.is_confirmed_lineup ? "Confirmed" : "Projected"}</span>
+            </div>
+          </div>
+
+          <div class="reason-list">
+            ${reasons || `<div class="reason-chip good">${escapeHtml(form.summary || "Recent form is materially above baseline")}</div>`}
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric-box">
+              <span class="metric-label">Hit Probability</span>
+              <span class="metric-value">${formatPercent(row.predicted_hit_probability, 0)}</span>
+            </div>
+            <div class="metric-box gold">
+              <span class="metric-label">Edge</span>
+              <span class="metric-value">${formatSigned(row.edge, 3)}</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Heat Score</span>
+              <span class="metric-value">${formatNumber(form.heat_score, 2)}</span>
+            </div>
+          </div>
+
+          <div class="data-stack">
+            <div class="data-row">
+              <span class="data-label">Why Hot</span>
+              <span class="data-value">${escapeHtml(form.summary || "Recent form pending")}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">Support</span>
+              <span class="data-value">${escapeHtml(form.detail || evidence || "Additional support pending")}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">7G / 30G Hit Rate</span>
+              <span class="data-value">${formatPercent(row.hit_rate_7)} / ${formatPercent(row.hit_rate_30)}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">xwOBA14 / HH14</span>
+              <span class="data-value">${formatNumber(row.xwoba_14, 3)} / ${formatPercent(row.hard_hit_pct_14)}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">Streak / Last 7</span>
+              <span class="data-value">${row.streak_len_capped ?? 0} / ${row.hit_games_last7 ?? 0} hit games</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">Fair / Market</span>
+              <span class="data-value">${formatPrice(row.fair_price)} / ${formatPrice(row.market_price)}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">Season BA / Last 7 BA</span>
+              <span class="data-value">${formatBattingAverage(row.batting_avg_season)} / ${formatBattingAverage(row.batting_avg_last7)}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">Pitcher-Hand Split</span>
+              <span class="data-value">${escapeHtml(splitCopy)}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">Outcome</span>
+              <span class="data-value">${escapeHtml(actualOutcomeCopy(row))}</span>
+            </div>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderRows() {
+      const rows = sortRows(state.rows || []);
+      const totalHotCount = Number((state.summary || {}).total_hot_count || 0);
+      if (!rows.length) {
+        cardsGrid.innerHTML = `
+          <div class="empty-state">
+            No hot hitters matched this date and filter. Lower the probability threshold or wait for confirmed lineups and fresh features.
+          </div>
+        `;
+        resultsSubtitle.textContent = totalHotCount
+          ? `No hitters cleared the current probability filter. ${totalHotCount} were still tagged hot.`
+          : "No hot hitters qualified";
+        return;
+      }
+      resultsSubtitle.textContent = totalHotCount > rows.length
+        ? `${rows.length} of ${totalHotCount} hot hitters qualified at ${Number(minProbabilityInput.value) * 100}%+ for ${targetDateInput.value}.`
+        : `${rows.length} hot hitters qualified for ${targetDateInput.value}.`;
+      cardsGrid.innerHTML = rows.map(renderCard).join("");
+    }
+
+    async function loadHotHitters() {
+      const params = new URLSearchParams({
+        target_date: targetDateInput.value,
+        min_probability: minProbabilityInput.value,
+        confirmed_only: confirmedOnlyInput.checked ? "true" : "false",
+        limit: resultLimitInput.value,
+      });
+      const response = await fetch(appUrl(`api/hot-hitters?${params.toString()}`));
+      if (!response.ok) {
+        throw new Error(`Hot hitters request failed: ${response.status}`);
+      }
+      const payload = await response.json();
+      state.rows = payload.rows || [];
+      state.summary = payload.summary || null;
+    }
+
+    async function refreshPage() {
+      refreshButton.disabled = true;
+      cardsGrid.innerHTML = `<div class="empty-state">Refreshing hot hitters...</div>`;
+      resultsSubtitle.textContent = "Refreshing";
+      pageStatus.textContent = `Loading ${targetDateInput.value}`;
+      try {
+        await loadHotHitters();
+        updateSummary();
+        renderRows();
+      } catch (error) {
+        cardsGrid.innerHTML = `<div class="empty-state">${escapeHtml(String(error))}</div>`;
+        resultsSubtitle.textContent = "Hot hitters request failed";
+        pageStatus.textContent = "Load failed";
+      } finally {
+        refreshButton.disabled = false;
+      }
+    }
+
+    refreshButton.addEventListener("click", refreshPage);
+    minProbabilityInput.addEventListener("change", refreshPage);
+    sortModeInput.addEventListener("change", renderRows);
+    resultLimitInput.addEventListener("change", refreshPage);
+    confirmedOnlyInput.addEventListener("change", refreshPage);
+    targetDateInput.addEventListener("change", refreshPage);
+
+    refreshPage();
+  </script>
+</body>
+</html>
