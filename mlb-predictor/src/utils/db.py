@@ -83,10 +83,11 @@ def upsert_rows(
     metadata = MetaData()
     table = Table(table_name, metadata, autoload_with=active_engine)
     insert_stmt = pg_insert(table).values(row_list)
+    provided_columns = {column_name for row in row_list for column_name in row.keys()}
     update_columns = {
         column.name: insert_stmt.excluded[column.name]
         for column in table.columns
-        if column.name not in set(conflict_columns) and column.name != "created_at"
+        if column.name in provided_columns and column.name not in set(conflict_columns) and column.name != "created_at"
     }
     statement = insert_stmt.on_conflict_do_update(index_elements=conflict_columns, set_=update_columns)
     with active_engine.begin() as connection:

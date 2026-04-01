@@ -169,6 +169,7 @@ def main() -> int:
                             "walks": pitching_row["walks"],
                             "strikeouts": pitching_row["strikeouts"],
                             "home_runs_allowed": pitching_row["home_runs_allowed"],
+                            "batters_faced": pitching_row["batters_faced"],
                             "pitch_count": pitching_row["pitches_thrown"],
                         }
                     )

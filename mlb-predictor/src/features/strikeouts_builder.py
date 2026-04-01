@@ -180,15 +180,15 @@ def _recent_pitcher_form(history: pd.DataFrame) -> dict[str, float | None]:
     recent_5 = history.tail(5)
     outs_3 = recent_3["ip"].apply(pd.to_numeric, errors="coerce")
     outs_5 = recent_5["ip"].apply(pd.to_numeric, errors="coerce")
-    batters_3 = pd.to_numeric(recent_3["pitch_count"], errors="coerce")
-    batters_5 = pd.to_numeric(recent_5["pitch_count"], errors="coerce")
+    batters_3 = _usage_opportunity_series(recent_3)
+    batters_5 = _usage_opportunity_series(recent_5)
     return {
         "recent_avg_ip_3": float(outs_3.mean()) if not outs_3.dropna().empty else None,
         "recent_avg_ip_5": float(outs_5.mean()) if not outs_5.dropna().empty else None,
         "recent_avg_strikeouts_3": float(pd.to_numeric(recent_3["strikeouts"], errors="coerce").mean()) if not recent_3.empty else None,
         "recent_avg_strikeouts_5": float(pd.to_numeric(recent_5["strikeouts"], errors="coerce").mean()) if not recent_5.empty else None,
-        "recent_k_per_batter_3": _safe_rate_sum(recent_3, "strikeouts", "pitch_count"),
-        "recent_k_per_batter_5": _safe_rate_sum(recent_5, "strikeouts", "pitch_count"),
+        "recent_k_per_batter_3": _safe_rate_sum(recent_3, "strikeouts", "batters_faced"),
+        "recent_k_per_batter_5": _safe_rate_sum(recent_5, "strikeouts", "batters_faced"),
         "recent_avg_pitch_count_3": float(batters_3.mean()) if not batters_3.dropna().empty else None,
         "recent_whiff_pct_5": float(pd.to_numeric(recent_5["whiff_pct"], errors="coerce").mean()) if not recent_5.empty else None,
         "recent_csw_pct_5": float(pd.to_numeric(recent_5["csw_pct"], errors="coerce").mean()) if not recent_5.empty else None,
@@ -196,11 +196,22 @@ def _recent_pitcher_form(history: pd.DataFrame) -> dict[str, float | None]:
     }
 
 
+def _usage_opportunity_series(frame: pd.DataFrame) -> pd.Series:
+    batters_faced = pd.to_numeric(frame.get("batters_faced"), errors="coerce")
+    if batters_faced.dropna().empty:
+        return pd.to_numeric(frame["pitch_count"], errors="coerce")
+    return batters_faced
+
+
 def _safe_rate_sum(frame: pd.DataFrame, numerator: str, denominator: str) -> float | None:
     if frame.empty:
         return None
     numerator_sum = pd.to_numeric(frame[numerator], errors="coerce").fillna(0).sum()
-    denominator_sum = pd.to_numeric(frame[denominator], errors="coerce").fillna(0).sum()
+    if denominator == "batters_faced":
+        denominator_series = _usage_opportunity_series(frame)
+    else:
+        denominator_series = pd.to_numeric(frame[denominator], errors="coerce")
+    denominator_sum = denominator_series.fillna(0).sum()
     if denominator_sum <= 0:
         return None
     return float(numerator_sum) / float(denominator_sum)
@@ -401,7 +412,8 @@ def main() -> int:
             how="left",
             suffixes=("", "_computed"),
         )
-        feature_frame["opponent_lineup_k_pct"] = feature_frame["opponent_lineup_k_pct_computed"].combine_first(feature_frame["opponent_lineup_k_pct"])
+        computed_k_pct = feature_frame["opponent_lineup_k_pct_computed"]
+        feature_frame["opponent_lineup_k_pct"] = computed_k_pct.where(computed_k_pct.notna(), feature_frame["opponent_lineup_k_pct"])
         feature_frame = feature_frame.drop(columns=["opponent_lineup_k_pct_computed"])
 
     validate_columns(

@@ -16,8 +16,20 @@ def load_feature_snapshots(lane: str) -> pd.DataFrame:
     files = sorted(lane_dir.glob("*.parquet"))
     if not files:
         return pd.DataFrame()
-    frames = [pd.read_parquet(file_path) for file_path in files]
-    return pd.concat(frames, ignore_index=True)
+    column_order: list[str] = []
+    frames = []
+    for file_path in files:
+        frame = pd.read_parquet(file_path)
+        if frame.empty:
+            continue
+        for column in frame.columns:
+            if column not in column_order:
+                column_order.append(column)
+        frames.append(frame.dropna(axis=1, how="all"))
+    if not frames:
+        return pd.DataFrame()
+    combined = pd.concat(frames, ignore_index=True)
+    return combined.reindex(columns=column_order)
 
 
 def encode_frame(frame: pd.DataFrame, category_columns: list[str], training_columns: list[str] | None = None) -> pd.DataFrame:

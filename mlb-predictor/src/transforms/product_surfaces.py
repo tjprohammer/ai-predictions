@@ -124,6 +124,7 @@ def _build_pitcher_trends(start_date, end_date) -> int:
             ps.ip,
             ps.strikeouts,
             ps.walks,
+            ps.batters_faced,
             ps.pitch_count,
             ps.whiff_pct,
             ps.csw_pct,
@@ -153,8 +154,12 @@ def _build_pitcher_trends(start_date, end_date) -> int:
         group["rolling_whiff_pct_3"] = pd.to_numeric(group["whiff_pct"], errors="coerce").rolling(3, min_periods=1).mean()
         group["rolling_csw_pct_3"] = pd.to_numeric(group["csw_pct"], errors="coerce").rolling(3, min_periods=1).mean()
         strikeout_sum = pd.to_numeric(group["strikeouts"], errors="coerce").rolling(5, min_periods=1).sum()
-        pitch_count_sum = pd.to_numeric(group["pitch_count"], errors="coerce").rolling(5, min_periods=1).sum().replace(0, np.nan)
-        group["rolling_k_per_batter_5"] = strikeout_sum / pitch_count_sum
+        batters_faced = pd.to_numeric(group["batters_faced"], errors="coerce")
+        if batters_faced.dropna().empty:
+            usage_sum = pd.to_numeric(group["pitch_count"], errors="coerce").rolling(5, min_periods=1).sum().replace(0, np.nan)
+        else:
+            usage_sum = batters_faced.rolling(5, min_periods=1).sum().replace(0, np.nan)
+        group["rolling_k_per_batter_5"] = strikeout_sum / usage_sum
         return group
 
     trend_frame = _concat_group_results(frame, "pitcher_id", _decorate)
