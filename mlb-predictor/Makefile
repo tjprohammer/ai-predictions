@@ -14,7 +14,7 @@ TARGET_DATE ?= $(END_DATE)
 
 .PHONY: help venv install db-up db-down db-migrate db-reset \
 	load-reference-data prepare-slate-inputs ingest-today refresh-aggregates features-today predict-today pipeline \
-	train-totals train-first5-totals train-hits train-strikeouts backtest compare-prior-modes start-app run-desktop install-desktop build-desktop build-installer test lint clean pipeline-range product-surfaces \
+	train-totals train-first5-totals train-hits train-strikeouts backtest compare-prior-modes start-app run-desktop install-desktop build-desktop build-installer build-release test lint clean pipeline-range product-surfaces \
 	rollout-strikeouts
 
 help: ## Show this help
@@ -129,6 +129,9 @@ build-desktop: ## Build the Windows desktop shell with PyInstaller
 
 build-installer: ## Build a Windows installer or portable installer bundle from dist/MLBPredictor
 	"$(PYTHON_BIN)" scripts\build_windows_installer.py
+
+build-release: ## Build the Windows desktop app and installer bundle in one command
+	"$(PYTHON_BIN)" scripts\build_windows_release.py
 
 # ── Quality ──────────────────────────────────────────────
 test: ## Run tests

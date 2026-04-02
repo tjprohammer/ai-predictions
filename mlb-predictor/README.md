@@ -179,6 +179,13 @@ cd S:\Projects\AI_Predictions\mlb-predictor
 make build-installer
 ```
 
+Run the full Windows release flow in one step:
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+make build-release
+```
+
 If Inno Setup is installed, this produces a standard Windows installer. If not, the build falls back to a portable installer bundle with `install_mlb_predictor.ps1` and `uninstall_mlb_predictor.ps1` plus the packaged app folder.
 
 Current limitation: this is only the app shell and bundled file snapshot. The underlying database story is still the existing one, so this does not yet remove the need for a reachable `DATABASE_URL`. The next packaging milestone is replacing that dependency with an embedded database for end users.
@@ -189,6 +196,7 @@ The first migration step away from the external Postgres requirement is now in p
 
 - the shared DB utility layer supports SQLite-safe engine creation and SQLite upserts
 - table existence checks now go through SQLAlchemy inspection instead of the Postgres-only `information_schema` path
+- the API layer now uses dialect-aware SQL helpers for list binds, seasonal year filters, ratio math, JSON text extraction, and SQLite-safe boolean parsing in the main hit/totals surfaces
 
 This is not the full embedded-database cutover yet. The remaining blockers are the larger set of Postgres-specific raw SQL queries and migrations, but the utility layer no longer hard-locks the app to Postgres-only upsert behavior.
 

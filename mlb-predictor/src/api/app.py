@@ -17,13 +17,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from src.utils.db import query_df, table_exists
+from src.utils.db import get_dialect_name, query_df, table_exists
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
 
 log = get_logger(__name__)
 settings = get_settings()
+DB_DIALECT = get_dialect_name()
 STATIC_DIR = Path(__file__).with_name("static")
 INDEX_FILE = STATIC_DIR / "index.html"
 HOT_HITTERS_FILE = STATIC_DIR / "hot-hitters.html"
@@ -91,6 +92,68 @@ def _table_exists(table_name: str) -> bool:
     except Exception as exc:
         log.warning("Table lookup failed for %s: %s", table_name, exc)
         return False
+
+
+def _sql_json_text(column: str, key: str, dialect: str | None = None) -> str:
+    active_dialect = (dialect or DB_DIALECT).lower()
+    if active_dialect == "sqlite":
+        return f"json_extract({column}, '$.{key}')"
+    return f"{column} ->> '{key}'"
+
+
+def _sql_real(expression: str, dialect: str | None = None) -> str:
+    active_dialect = (dialect or DB_DIALECT).lower()
+    target_type = "REAL" if active_dialect == "sqlite" else "DOUBLE PRECISION"
+    return f"CAST({expression} AS {target_type})"
+
+
+def _sql_integer(expression: str, dialect: str | None = None) -> str:
+    active_dialect = (dialect or DB_DIALECT).lower()
+    target_type = "INTEGER" if active_dialect == "sqlite" else "SMALLINT"
+    return f"CAST({expression} AS {target_type})"
+
+
+def _sql_boolean(expression: str, dialect: str | None = None) -> str:
+    active_dialect = (dialect or DB_DIALECT).lower()
+    if active_dialect != "sqlite":
+        return f"CAST({expression} AS BOOLEAN)"
+    normalized = f"LOWER(TRIM(COALESCE({expression}, '')))"
+    return (
+        "CASE "
+        f"WHEN {normalized} IN ('true', '1', 't', 'yes', 'y') THEN 1 "
+        f"WHEN {normalized} IN ('false', '0', 'f', 'no', 'n') THEN 0 "
+        "ELSE NULL END"
+    )
+
+
+def _sql_ratio(numerator_expression: str, denominator_expression: str) -> str:
+    return (
+        f"CASE WHEN SUM({denominator_expression}) = 0 THEN NULL "
+        f"ELSE (1.0 * SUM({numerator_expression}) / SUM({denominator_expression})) END"
+    )
+
+
+def _sql_year(expression: str, dialect: str | None = None) -> str:
+    active_dialect = (dialect or DB_DIALECT).lower()
+    if active_dialect == "sqlite":
+        return f"CAST(strftime('%Y', {expression}) AS INTEGER)"
+    return f"EXTRACT(YEAR FROM {expression})"
+
+
+def _sql_order_nulls_last(expression: str, direction: str = "ASC") -> str:
+    normalized_direction = direction.upper()
+    return f"CASE WHEN {expression} IS NULL THEN 1 ELSE 0 END, {expression} {normalized_direction}"
+
+
+def _sql_bind_list(prefix: str, values: list[Any], params: dict[str, Any]) -> str:
+    placeholders: list[str] = []
+    for index, value in enumerate(values):
+        key = f"{prefix}_{index}"
+        params[key] = value
+        placeholders.append(f":{key}")
+    if not placeholders:
+        return "NULL"
+    return ", ".join(placeholders)
 
 
 def _artifact_ready(lane: str) -> bool:
@@ -299,8 +362,9 @@ def _fetch_lineup_handedness_by_game(target_date: date) -> dict[int, dict[str, d
     if not _table_exists("lineups"):
         return {}
 
+    lineup_slot_order = _sql_order_nulls_last("lineup_slot")
     frame = _safe_frame(
-        """
+        f"""
         WITH ranked_lineups AS (
             SELECT
                 l.game_id,
@@ -326,7 +390,7 @@ def _fetch_lineup_handedness_by_game(target_date: date) -> dict[int, dict[str, d
             bats
         FROM ranked_lineups
         WHERE snapshot_rank = 1
-        ORDER BY game_id, team, lineup_slot ASC NULLS LAST, player_id
+        ORDER BY game_id, team, {lineup_slot_order}, player_id
         """,
         {"target_date": target_date},
     )
@@ -353,8 +417,11 @@ def _fetch_hitter_pitch_hand_splits(
     if not player_ids or not _table_exists("player_game_batting") or not _table_exists("pitcher_starts"):
         return {}
 
+    params: dict[str, Any] = {"target_date": target_date}
+    player_id_placeholders = _sql_bind_list("player_id", sorted(int(player_id) for player_id in player_ids), params)
+    split_batting_avg = _sql_ratio("b.hits", "b.at_bats")
     frame = _safe_frame(
-        """
+        f"""
         WITH ranked_starters AS (
             SELECT
                 ps.game_id,
@@ -382,10 +449,7 @@ def _fetch_hitter_pitch_hand_splits(
             COUNT(*) AS split_games,
             SUM(b.hits) AS split_hits,
             SUM(b.at_bats) AS split_at_bats,
-            CASE
-                WHEN SUM(b.at_bats) = 0 THEN NULL
-                ELSE SUM(b.hits)::DOUBLE PRECISION / SUM(b.at_bats)
-            END AS split_batting_avg,
+            {split_batting_avg} AS split_batting_avg,
             AVG(b.xwoba) AS split_xwoba,
             AVG(b.hard_hit_pct) AS split_hard_hit_pct
         FROM player_game_batting b
@@ -394,11 +458,11 @@ def _fetch_hitter_pitch_hand_splits(
            AND rs.team = b.opponent
            AND rs.row_rank = 1
         WHERE b.game_date < :target_date
-          AND b.player_id = ANY(:player_ids)
+                    AND b.player_id IN ({player_id_placeholders})
           AND rs.throws IN ('R', 'L')
         GROUP BY b.player_id, rs.throws
         """,
-        {"target_date": target_date, "player_ids": list(player_ids)},
+                params,
     )
     if frame.empty:
         return {}
@@ -898,8 +962,9 @@ def _fetch_model_scorecards(target_date: date, window_days: int = 14) -> dict[st
 def _fetch_totals_predictions(target_date: date) -> list[dict[str, Any]]:
     if not _table_exists("predictions_totals"):
         return []
+    game_start_order = _sql_order_nulls_last("g.game_start_ts")
     frame = _safe_frame(
-        """
+        f"""
         WITH ranked AS (
             SELECT
                 p.*,
@@ -924,7 +989,7 @@ def _fetch_totals_predictions(target_date: date) -> list[dict[str, Any]]:
         FROM ranked r
         LEFT JOIN games g ON g.game_id = r.game_id
         WHERE r.row_rank = 1
-        ORDER BY g.game_start_ts NULLS LAST, away_team, home_team
+        ORDER BY {game_start_order}, away_team, home_team
         """,
         {"target_date": target_date},
     )
@@ -940,8 +1005,17 @@ def _fetch_hit_predictions(
 ) -> list[dict[str, Any]]:
     if not _table_exists("predictions_player_hits"):
         return []
+
+    player_name_expr = _sql_json_text("f.feature_payload", "player_name")
+    lineup_slot_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'lineup_slot')}, '')")
+    confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
+    projected_pa_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'projected_plate_appearances')}, '')")
+    streak_len_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len_capped')}, '')")
+    confirmed_order = _sql_order_nulls_last(confirmed_lineup_expr, "DESC")
+    projected_pa_order = _sql_order_nulls_last(projected_pa_expr, "DESC")
+    streak_order = _sql_order_nulls_last(streak_len_expr, "DESC")
     frame = _safe_frame(
-        """
+        f"""
         WITH ranked_predictions AS (
             SELECT
                 p.*,
@@ -966,7 +1040,7 @@ def _fetch_hit_predictions(
             p.game_id,
             p.game_date,
             p.player_id,
-            COALESCE(f.feature_payload ->> 'player_name', dp.full_name, CAST(p.player_id AS TEXT)) AS player_name,
+            COALESCE({player_name_expr}, dp.full_name, CAST(p.player_id AS TEXT)) AS player_name,
             COALESCE(f.team, p.team) AS team,
             COALESCE(
                 f.opponent,
@@ -977,10 +1051,10 @@ def _fetch_hit_predictions(
                 END,
                 'TBD'
             ) AS opponent,
-            CAST(NULLIF(f.feature_payload ->> 'lineup_slot', '') AS SMALLINT) AS lineup_slot,
-            CAST(NULLIF(f.feature_payload ->> 'is_confirmed_lineup', '') AS BOOLEAN) AS is_confirmed_lineup,
-            CAST(NULLIF(f.feature_payload ->> 'projected_plate_appearances', '') AS DOUBLE PRECISION) AS projected_plate_appearances,
-            CAST(NULLIF(f.feature_payload ->> 'streak_len_capped', '') AS SMALLINT) AS streak_len_capped,
+            {lineup_slot_expr} AS lineup_slot,
+            {confirmed_lineup_expr} AS is_confirmed_lineup,
+            {projected_pa_expr} AS projected_plate_appearances,
+            {streak_len_expr} AS streak_len_capped,
             p.prediction_ts,
             p.predicted_hit_probability,
             p.fair_price,
@@ -996,9 +1070,9 @@ def _fetch_hit_predictions(
         WHERE p.row_rank = 1
           AND p.predicted_hit_probability >= :min_probability
                 ORDER BY p.predicted_hit_probability DESC,
-                                 CAST(NULLIF(f.feature_payload ->> 'is_confirmed_lineup', '') AS BOOLEAN) DESC NULLS LAST,
-                                 CAST(NULLIF(f.feature_payload ->> 'projected_plate_appearances', '') AS DOUBLE PRECISION) DESC NULLS LAST,
-                                 CAST(NULLIF(f.feature_payload ->> 'streak_len_capped', '') AS SMALLINT) DESC NULLS LAST,
+                                 {confirmed_order},
+                                 {projected_pa_order},
+                                 {streak_order},
                                  player_name
         LIMIT :limit
         """,
@@ -1027,8 +1101,28 @@ def _fetch_game_board(
     if not _table_exists("games"):
         return []
 
+    game_start_order = _sql_order_nulls_last("g.game_start_ts")
+    recent_batting_avg_expr = _sql_ratio("recent.hits", "recent.at_bats")
+    season_batting_avg_expr = _sql_ratio("b.hits", "b.at_bats")
+    game_year_expr = _sql_year("b.game_date")
+    target_year_expr = _sql_year("CAST(:target_date AS DATE)")
+    hit_player_name_expr = _sql_json_text("f.feature_payload", "player_name")
+    hit_lineup_slot_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'lineup_slot')}, '')")
+    hit_confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
+    hit_projected_pa_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'projected_plate_appearances')}, '')")
+    hit_streak_len_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len_capped')}, '')")
+    hit_rate_blended_expr = _sql_real(_sql_json_text("f.feature_payload", "hit_rate_blended"))
+    xwoba_14_expr = _sql_real(_sql_json_text("f.feature_payload", "xwoba_14"))
+    opp_starter_xwoba_expr = _sql_real(_sql_json_text("f.feature_payload", "opposing_starter_xwoba"))
+    opp_starter_csw_expr = _sql_real(_sql_json_text("f.feature_payload", "opposing_starter_csw"))
+    team_run_environment_expr = _sql_real(_sql_json_text("f.feature_payload", "team_run_environment"))
+    park_hr_factor_expr = _sql_real(_sql_json_text("f.feature_payload", "park_hr_factor"))
+    projected_pa_order = _sql_order_nulls_last("j.projected_plate_appearances", "DESC")
+    lineup_slot_order = _sql_order_nulls_last("j.lineup_slot")
+    final_lineup_slot_order = _sql_order_nulls_last("lineup_slot")
+
     games_frame = _safe_frame(
-        """
+        f"""
         WITH ranked_predictions AS (
             SELECT
                 p.*,
@@ -1092,7 +1186,7 @@ def _fetch_game_board(
         LEFT JOIN ranked_predictions p ON p.game_id = g.game_id AND p.row_rank = 1
         LEFT JOIN ranked_features f ON f.game_id = g.game_id AND f.row_rank = 1
         WHERE g.game_date = :target_date
-        ORDER BY g.game_start_ts NULLS LAST, g.away_team, g.home_team
+        ORDER BY {game_start_order}, g.away_team, g.home_team
         """,
         {"target_date": target_date},
     )
@@ -1143,7 +1237,7 @@ def _fetch_game_board(
     starter_records = _frame_records(starters_frame)
 
     hit_frame = _safe_frame(
-        """
+        f"""
         WITH ranked_predictions AS (
             SELECT
                 p.*,
@@ -1176,10 +1270,7 @@ def _fetch_game_board(
                 COUNT(*) AS games_last7,
                 SUM(recent.hits) AS hits_last7,
                 SUM(recent.at_bats) AS at_bats_last7,
-                CASE
-                    WHEN SUM(recent.at_bats) = 0 THEN NULL
-                    ELSE SUM(recent.hits)::DOUBLE PRECISION / SUM(recent.at_bats)
-                END AS batting_avg_last7
+                {recent_batting_avg_expr} AS batting_avg_last7
             FROM (
                 SELECT
                     b.*,
@@ -1200,14 +1291,11 @@ def _fetch_game_board(
                 COUNT(*) AS games_season,
                 SUM(b.hits) AS season_hits,
                 SUM(b.at_bats) AS season_at_bats,
-                CASE
-                    WHEN SUM(b.at_bats) = 0 THEN NULL
-                    ELSE SUM(b.hits)::DOUBLE PRECISION / SUM(b.at_bats)
-                END AS batting_avg_season
+                                {season_batting_avg_expr} AS batting_avg_season
             FROM player_game_batting b
             INNER JOIN selected_players sp ON sp.player_id = b.player_id
             WHERE b.game_date < :target_date
-              AND EXTRACT(YEAR FROM b.game_date) = EXTRACT(YEAR FROM CAST(:target_date AS DATE))
+                            AND {game_year_expr} = {target_year_expr}
             GROUP BY b.player_id
         ),
         joined AS (
@@ -1215,7 +1303,7 @@ def _fetch_game_board(
                 p.game_id,
                 p.game_date,
                 p.player_id,
-                COALESCE(f.feature_payload ->> 'player_name', dp.full_name, CAST(p.player_id AS TEXT)) AS player_name,
+                                COALESCE({hit_player_name_expr}, dp.full_name, CAST(p.player_id AS TEXT)) AS player_name,
                 dp.bats,
                 dp.position,
                 COALESCE(f.team, p.team) AS team,
@@ -1228,20 +1316,20 @@ def _fetch_game_board(
                     END,
                     'TBD'
                 ) AS opponent,
-                CAST(NULLIF(f.feature_payload ->> 'lineup_slot', '') AS SMALLINT) AS lineup_slot,
-                CAST(NULLIF(f.feature_payload ->> 'is_confirmed_lineup', '') AS BOOLEAN) AS is_confirmed_lineup,
-                CAST(NULLIF(f.feature_payload ->> 'projected_plate_appearances', '') AS DOUBLE PRECISION) AS projected_plate_appearances,
-                CAST(NULLIF(f.feature_payload ->> 'streak_len_capped', '') AS SMALLINT) AS streak_len_capped,
+                {hit_lineup_slot_expr} AS lineup_slot,
+                {hit_confirmed_lineup_expr} AS is_confirmed_lineup,
+                {hit_projected_pa_expr} AS projected_plate_appearances,
+                {hit_streak_len_expr} AS streak_len_capped,
                 p.predicted_hit_probability,
                 p.fair_price,
                 p.market_price,
                 p.edge,
-                CAST(f.feature_payload ->> 'hit_rate_blended' AS DOUBLE PRECISION) AS hit_rate_blended,
-                CAST(f.feature_payload ->> 'xwoba_14' AS DOUBLE PRECISION) AS xwoba_14,
-                CAST(f.feature_payload ->> 'opposing_starter_xwoba' AS DOUBLE PRECISION) AS opposing_starter_xwoba,
-                CAST(f.feature_payload ->> 'opposing_starter_csw' AS DOUBLE PRECISION) AS opposing_starter_csw,
-                CAST(f.feature_payload ->> 'team_run_environment' AS DOUBLE PRECISION) AS team_run_environment,
-                CAST(f.feature_payload ->> 'park_hr_factor' AS DOUBLE PRECISION) AS park_hr_factor,
+                {hit_rate_blended_expr} AS hit_rate_blended,
+                {xwoba_14_expr} AS xwoba_14,
+                {opp_starter_xwoba_expr} AS opposing_starter_xwoba,
+                {opp_starter_csw_expr} AS opposing_starter_csw,
+                {team_run_environment_expr} AS team_run_environment,
+                {park_hr_factor_expr} AS park_hr_factor,
                 recent_batting.games_last7,
                 recent_batting.hits_last7,
                 recent_batting.at_bats_last7,
@@ -1286,8 +1374,8 @@ def _fetch_game_board(
                     PARTITION BY j.game_id, j.team
                     ORDER BY j.predicted_hit_probability DESC,
                              COALESCE(j.is_confirmed_lineup, FALSE) DESC,
-                             j.projected_plate_appearances DESC NULLS LAST,
-                             j.lineup_slot ASC NULLS LAST,
+                             {projected_pa_order},
+                             {lineup_slot_order},
                              j.player_name
                 ) AS team_rank
             FROM joined j
@@ -1334,7 +1422,7 @@ def _fetch_game_board(
             actual_total_bases
         FROM limited
         WHERE team_rank <= :hit_limit_per_team
-        ORDER BY game_id, team, predicted_hit_probability DESC, lineup_slot ASC NULLS LAST, player_name
+        ORDER BY game_id, team, predicted_hit_probability DESC, {final_lineup_slot_order}, player_name
         """,
         {
             "target_date": target_date,
@@ -1830,8 +1918,9 @@ def _fetch_team_recent_offense(team: str, target_date: date) -> dict[str, Any]:
 def _fetch_team_last_result(team: str, target_date: date) -> dict[str, Any] | None:
     if not _table_exists("games"):
         return None
+    game_start_desc_order = _sql_order_nulls_last("game_start_ts", "DESC")
     frame = _safe_frame(
-        """
+        f"""
         SELECT
             game_id,
             game_date,
@@ -1865,13 +1954,13 @@ def _fetch_team_last_result(team: str, target_date: date) -> dict[str, Any] | No
           AND (home_team = :team OR away_team = :team)
                     AND total_runs IS NOT NULL
                     AND (
-                                home_win IS NOT NULL
-                                OR LOWER(COALESCE(status, '')) LIKE '%final%'
-                                OR LOWER(COALESCE(status, '')) LIKE '%completed%'
-                                OR LOWER(COALESCE(status, '')) LIKE '%game over%'
-                                OR LOWER(COALESCE(status, '')) LIKE '%closed%'
+                            home_win IS NOT NULL
+                            OR LOWER(COALESCE(status, '')) LIKE '%final%'
+                            OR LOWER(COALESCE(status, '')) LIKE '%completed%'
+                            OR LOWER(COALESCE(status, '')) LIKE '%game over%'
+                            OR LOWER(COALESCE(status, '')) LIKE '%closed%'
                     )
-        ORDER BY game_date DESC, game_start_ts DESC NULLS LAST
+                ORDER BY game_date DESC, {game_start_desc_order}
         LIMIT 1
         """,
         {"team": team, "target_date": target_date},
@@ -1912,6 +2001,8 @@ def _fetch_team_recent_totals_history(team: str, target_date: date, limit: int =
         """
         market_select = "market.market_total"
 
+    game_start_desc_order = _sql_order_nulls_last("g.game_start_ts", "DESC")
+    recent_game_start_desc_order = _sql_order_nulls_last("recent.game_start_ts", "DESC")
     frame = _safe_frame(
         f"""
         WITH recent AS (
@@ -1951,7 +2042,7 @@ def _fetch_team_recent_totals_history(team: str, target_date: date, limit: int =
                     OR LOWER(COALESCE(g.status, '')) LIKE '%game over%'
                     OR LOWER(COALESCE(g.status, '')) LIKE '%closed%'
               )
-            ORDER BY g.game_date DESC, g.game_start_ts DESC NULLS LAST
+                        ORDER BY g.game_date DESC, {game_start_desc_order}
             LIMIT :limit
         )
         SELECT
@@ -1969,7 +2060,7 @@ def _fetch_team_recent_totals_history(team: str, target_date: date, limit: int =
             {market_select}
         FROM recent
         {market_join}
-        ORDER BY recent.game_date DESC, recent.game_start_ts DESC NULLS LAST
+        ORDER BY recent.game_date DESC, {recent_game_start_desc_order}
         """,
         {"team": team, "target_date": target_date, "limit": limit},
     )
@@ -1985,14 +2076,17 @@ def _fetch_team_recent_totals_history(team: str, target_date: date, limit: int =
 
 
 def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
+    prediction_created_order = _sql_order_nulls_last("p.created_at", "DESC")
+    feature_cutoff_order = _sql_order_nulls_last("f.feature_cutoff_ts", "DESC")
+    market_line_order = _sql_order_nulls_last("gm.line_value", "DESC")
     frame = _safe_frame(
-        """
+        f"""
         WITH ranked_predictions AS (
             SELECT
                 p.*,
                 ROW_NUMBER() OVER (
                     PARTITION BY p.game_id
-                    ORDER BY p.prediction_ts DESC, p.created_at DESC NULLS LAST
+                    ORDER BY p.prediction_ts DESC, {prediction_created_order}
                 ) AS row_rank
             FROM predictions_first5_totals p
             WHERE p.game_date = :target_date
@@ -2002,7 +2096,7 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
                 f.*,
                 ROW_NUMBER() OVER (
                     PARTITION BY f.game_id
-                    ORDER BY f.prediction_ts DESC, f.feature_cutoff_ts DESC NULLS LAST
+                    ORDER BY f.prediction_ts DESC, {feature_cutoff_order}
                 ) AS row_rank
             FROM game_features_first5_totals f
             WHERE f.game_date = :target_date
@@ -2014,7 +2108,7 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
                 gm.snapshot_ts,
                 ROW_NUMBER() OVER (
                     PARTITION BY gm.game_id, COALESCE(gm.sportsbook, ''), gm.market_type
-                    ORDER BY gm.snapshot_ts DESC, gm.line_value DESC NULLS LAST
+                    ORDER BY gm.snapshot_ts DESC, {market_line_order}
                 ) AS sportsbook_rank
             FROM game_markets gm
             WHERE gm.game_date = :target_date
@@ -2343,8 +2437,26 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
 
     lineup_records: list[dict[str, Any]] = []
     if _table_exists("player_features_hits"):
+        recent_batting_avg_expr = _sql_ratio("hits", "at_bats")
+        season_batting_avg_expr = _sql_ratio("b.hits", "b.at_bats")
+        game_year_expr = _sql_year("b.game_date")
+        target_year_expr = _sql_year("CAST(:target_date AS DATE)")
+        player_name_expr = _sql_json_text("f.feature_payload", "player_name")
+        lineup_slot_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'lineup_slot')}, '')")
+        confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
+        projected_pa_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'projected_plate_appearances')}, '')")
+        streak_len_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len_capped')}, '')")
+        hit_rate_7_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_7')}, '')")
+        hit_rate_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_14')}, '')")
+        hit_rate_30_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_30')}, '')")
+        hit_rate_blended_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_blended')}, '')")
+        xba_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'xba_14')}, '')")
+        xwoba_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'xwoba_14')}, '')")
+        hard_hit_pct_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hard_hit_pct_14')}, '')")
+        k_pct_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'k_pct_14')}, '')")
+        lineup_slot_order = _sql_order_nulls_last(lineup_slot_expr)
         lineup_frame = _safe_frame(
-            """
+            f"""
             WITH ranked_predictions AS (
                 SELECT
                     p.*, 
@@ -2380,10 +2492,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                     SUM(hits) AS hits_last7,
                     SUM(at_bats) AS at_bats_last7,
                     SUM(plate_appearances) AS plate_appearances_last7,
-                    CASE
-                        WHEN SUM(at_bats) = 0 THEN NULL
-                        ELSE SUM(hits)::DOUBLE PRECISION / SUM(at_bats)
-                    END AS batting_avg_last7,
+                    {recent_batting_avg_expr} AS batting_avg_last7,
                     AVG(xwoba) AS xwoba_last7,
                     AVG(hard_hit_pct) AS hard_hit_pct_last7
                 FROM (
@@ -2406,20 +2515,17 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                     COUNT(*) AS games_season,
                     SUM(b.hits) AS season_hits,
                     SUM(b.at_bats) AS season_at_bats,
-                    CASE
-                        WHEN SUM(b.at_bats) = 0 THEN NULL
-                        ELSE SUM(b.hits)::DOUBLE PRECISION / SUM(b.at_bats)
-                    END AS batting_avg_season
+                                        {season_batting_avg_expr} AS batting_avg_season
                 FROM player_game_batting b
                 INNER JOIN selected_players sp ON sp.player_id = b.player_id
                 WHERE b.game_date < :target_date
-                  AND EXTRACT(YEAR FROM b.game_date) = EXTRACT(YEAR FROM CAST(:target_date AS DATE))
+                                    AND {game_year_expr} = {target_year_expr}
                 GROUP BY b.player_id
             )
             SELECT
                 f.game_id,
                 f.player_id,
-                COALESCE(f.feature_payload ->> 'player_name', dp.full_name, CAST(f.player_id AS TEXT)) AS player_name,
+                                COALESCE({player_name_expr}, dp.full_name, CAST(f.player_id AS TEXT)) AS player_name,
                 COALESCE(f.team, CASE WHEN g.home_team = dp.team_abbr THEN g.home_team ELSE g.away_team END) AS team,
                 COALESCE(
                     f.opponent,
@@ -2430,18 +2536,18 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                     END,
                     'TBD'
                 ) AS opponent,
-                CAST(NULLIF(f.feature_payload ->> 'lineup_slot', '') AS SMALLINT) AS lineup_slot,
-                CAST(NULLIF(f.feature_payload ->> 'is_confirmed_lineup', '') AS BOOLEAN) AS is_confirmed_lineup,
-                CAST(NULLIF(f.feature_payload ->> 'projected_plate_appearances', '') AS DOUBLE PRECISION) AS projected_plate_appearances,
-                CAST(NULLIF(f.feature_payload ->> 'streak_len_capped', '') AS SMALLINT) AS streak_len_capped,
-                CAST(NULLIF(f.feature_payload ->> 'hit_rate_7', '') AS DOUBLE PRECISION) AS hit_rate_7,
-                CAST(NULLIF(f.feature_payload ->> 'hit_rate_14', '') AS DOUBLE PRECISION) AS hit_rate_14,
-                CAST(NULLIF(f.feature_payload ->> 'hit_rate_30', '') AS DOUBLE PRECISION) AS hit_rate_30,
-                CAST(NULLIF(f.feature_payload ->> 'hit_rate_blended', '') AS DOUBLE PRECISION) AS hit_rate_blended,
-                CAST(NULLIF(f.feature_payload ->> 'xba_14', '') AS DOUBLE PRECISION) AS xba_14,
-                CAST(NULLIF(f.feature_payload ->> 'xwoba_14', '') AS DOUBLE PRECISION) AS xwoba_14,
-                CAST(NULLIF(f.feature_payload ->> 'hard_hit_pct_14', '') AS DOUBLE PRECISION) AS hard_hit_pct_14,
-                CAST(NULLIF(f.feature_payload ->> 'k_pct_14', '') AS DOUBLE PRECISION) AS k_pct_14,
+                {lineup_slot_expr} AS lineup_slot,
+                {confirmed_lineup_expr} AS is_confirmed_lineup,
+                {projected_pa_expr} AS projected_plate_appearances,
+                {streak_len_expr} AS streak_len_capped,
+                {hit_rate_7_expr} AS hit_rate_7,
+                {hit_rate_14_expr} AS hit_rate_14,
+                {hit_rate_30_expr} AS hit_rate_30,
+                {hit_rate_blended_expr} AS hit_rate_blended,
+                {xba_14_expr} AS xba_14,
+                {xwoba_14_expr} AS xwoba_14,
+                {hard_hit_pct_14_expr} AS hard_hit_pct_14,
+                {k_pct_14_expr} AS k_pct_14,
                 p.predicted_hit_probability,
                 p.fair_price,
                 p.market_price,
@@ -2493,7 +2599,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                     WHEN COALESCE(f.team, dp.team_abbr) = g.home_team THEN 1
                     ELSE 2
                 END,
-                CAST(NULLIF(f.feature_payload ->> 'lineup_slot', '') AS SMALLINT) ASC NULLS LAST,
+                {lineup_slot_order},
                 player_name
             """,
             {"game_id": game_id, "target_date": target_date},
@@ -2699,8 +2805,28 @@ def _fetch_hot_hitters(
     if not _table_exists("player_features_hits") or not _table_exists("games"):
         return empty
 
+    recent_batting_avg_expr = _sql_ratio("hits", "at_bats")
+    season_batting_avg_expr = _sql_ratio("b.hits", "b.at_bats")
+    game_year_expr = _sql_year("b.game_date")
+    target_year_expr = _sql_year("CAST(:target_date AS DATE)")
+    player_name_expr = _sql_json_text("f.feature_payload", "player_name")
+    lineup_slot_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'lineup_slot')}, '')")
+    confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
+    projected_pa_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'projected_plate_appearances')}, '')")
+    streak_len_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len_capped')}, '')")
+    hit_rate_7_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_7')}, '')")
+    hit_rate_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_14')}, '')")
+    hit_rate_30_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_30')}, '')")
+    hit_rate_blended_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_blended')}, '')")
+    xba_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'xba_14')}, '')")
+    xwoba_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'xwoba_14')}, '')")
+    hard_hit_pct_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hard_hit_pct_14')}, '')")
+    k_pct_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'k_pct_14')}, '')")
+    game_start_order = _sql_order_nulls_last("g.game_start_ts")
+    lineup_slot_order = _sql_order_nulls_last("lineup_slot")
+
     frame = _safe_frame(
-        """
+        f"""
         WITH ranked_features AS (
             SELECT
                 f.*,
@@ -2749,10 +2875,7 @@ def _fetch_hot_hitters(
                 SUM(hits) AS hits_last7,
                 SUM(at_bats) AS at_bats_last7,
                 SUM(plate_appearances) AS plate_appearances_last7,
-                CASE
-                    WHEN SUM(at_bats) = 0 THEN NULL
-                    ELSE SUM(hits)::DOUBLE PRECISION / SUM(at_bats)
-                END AS batting_avg_last7,
+                {recent_batting_avg_expr} AS batting_avg_last7,
                 AVG(xwoba) AS xwoba_last7,
                 AVG(hard_hit_pct) AS hard_hit_pct_last7
             FROM (
@@ -2775,14 +2898,11 @@ def _fetch_hot_hitters(
                 COUNT(*) AS games_season,
                 SUM(b.hits) AS season_hits,
                 SUM(b.at_bats) AS season_at_bats,
-                CASE
-                    WHEN SUM(b.at_bats) = 0 THEN NULL
-                    ELSE SUM(b.hits)::DOUBLE PRECISION / SUM(b.at_bats)
-                END AS batting_avg_season
+                                {season_batting_avg_expr} AS batting_avg_season
             FROM player_game_batting b
             INNER JOIN selected_players sp ON sp.player_id = b.player_id
             WHERE b.game_date < :target_date
-              AND EXTRACT(YEAR FROM b.game_date) = EXTRACT(YEAR FROM CAST(:target_date AS DATE))
+                            AND {game_year_expr} = {target_year_expr}
             GROUP BY b.player_id
         )
         SELECT
@@ -2794,7 +2914,7 @@ def _fetch_hot_hitters(
             g.home_team,
             f.prediction_ts,
             f.player_id,
-            COALESCE(f.feature_payload ->> 'player_name', dp.full_name, CAST(f.player_id AS TEXT)) AS player_name,
+            COALESCE({player_name_expr}, dp.full_name, CAST(f.player_id AS TEXT)) AS player_name,
             COALESCE(f.team, CASE WHEN g.home_team = dp.team_abbr THEN g.home_team ELSE g.away_team END) AS team,
             COALESCE(
                 f.opponent,
@@ -2805,18 +2925,18 @@ def _fetch_hot_hitters(
                 END,
                 'TBD'
             ) AS opponent,
-            CAST(NULLIF(f.feature_payload ->> 'lineup_slot', '') AS SMALLINT) AS lineup_slot,
-            CAST(NULLIF(f.feature_payload ->> 'is_confirmed_lineup', '') AS BOOLEAN) AS is_confirmed_lineup,
-            CAST(NULLIF(f.feature_payload ->> 'projected_plate_appearances', '') AS DOUBLE PRECISION) AS projected_plate_appearances,
-            CAST(NULLIF(f.feature_payload ->> 'streak_len_capped', '') AS SMALLINT) AS streak_len_capped,
-            CAST(NULLIF(f.feature_payload ->> 'hit_rate_7', '') AS DOUBLE PRECISION) AS hit_rate_7,
-            CAST(NULLIF(f.feature_payload ->> 'hit_rate_14', '') AS DOUBLE PRECISION) AS hit_rate_14,
-            CAST(NULLIF(f.feature_payload ->> 'hit_rate_30', '') AS DOUBLE PRECISION) AS hit_rate_30,
-            CAST(NULLIF(f.feature_payload ->> 'hit_rate_blended', '') AS DOUBLE PRECISION) AS hit_rate_blended,
-            CAST(NULLIF(f.feature_payload ->> 'xba_14', '') AS DOUBLE PRECISION) AS xba_14,
-            CAST(NULLIF(f.feature_payload ->> 'xwoba_14', '') AS DOUBLE PRECISION) AS xwoba_14,
-            CAST(NULLIF(f.feature_payload ->> 'hard_hit_pct_14', '') AS DOUBLE PRECISION) AS hard_hit_pct_14,
-            CAST(NULLIF(f.feature_payload ->> 'k_pct_14', '') AS DOUBLE PRECISION) AS k_pct_14,
+                {lineup_slot_expr} AS lineup_slot,
+                {confirmed_lineup_expr} AS is_confirmed_lineup,
+                {projected_pa_expr} AS projected_plate_appearances,
+                {streak_len_expr} AS streak_len_capped,
+                {hit_rate_7_expr} AS hit_rate_7,
+                {hit_rate_14_expr} AS hit_rate_14,
+                {hit_rate_30_expr} AS hit_rate_30,
+                {hit_rate_blended_expr} AS hit_rate_blended,
+                {xba_14_expr} AS xba_14,
+                {xwoba_14_expr} AS xwoba_14,
+                {hard_hit_pct_14_expr} AS hard_hit_pct_14,
+                {k_pct_14_expr} AS k_pct_14,
             p.predicted_hit_probability,
             p.fair_price,
             p.market_price,
@@ -2876,7 +2996,7 @@ def _fetch_hot_hitters(
            )
            AND rs.row_rank = 1
         WHERE f.row_rank = 1
-        ORDER BY g.game_start_ts NULLS LAST, team, lineup_slot ASC NULLS LAST, player_name
+            ORDER BY {game_start_order}, team, {lineup_slot_order}, player_name
         """,
         {"target_date": target_date},
     )
@@ -3089,8 +3209,9 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
             )
 
     if _table_exists("predictions_player_hits") and _table_exists("player_features_hits") and _table_exists("games"):
+        lineup_slot_order = _sql_order_nulls_last("lineup_slot")
         hitter_frame = _safe_frame(
-            """
+            f"""
             WITH ranked_predictions AS (
                 SELECT
                     p.*,
@@ -3150,7 +3271,7 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
                AND actual.player_id = p.player_id
             WHERE p.row_rank = 1
               AND p.predicted_hit_probability >= :hit_min_probability
-            ORDER BY g.game_start_ts, p.predicted_hit_probability DESC, lineup_slot ASC NULLS LAST, player_name
+                        ORDER BY g.game_start_ts, p.predicted_hit_probability DESC, {lineup_slot_order}, player_name
             """,
             {"target_date": target_date, "hit_min_probability": hit_min_probability},
         )

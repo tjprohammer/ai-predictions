@@ -9,12 +9,14 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER_DIR = ROOT / "installer" / "windows"
-DEFAULT_DIST_DIR = ROOT / "dist" / "MLBPredictor"
+DEFAULT_APP_NAME = "MLBPredictor"
+DEFAULT_DIST_DIR = ROOT / "dist" / DEFAULT_APP_NAME
 DEFAULT_RELEASE_DIR = ROOT / "release"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build a Windows installer for MLB Predictor")
+    parser.add_argument("--app-name", default=DEFAULT_APP_NAME, help="Desktop app directory name under dist/")
     parser.add_argument("--dist-dir", default=str(DEFAULT_DIST_DIR), help="Built desktop app directory")
     parser.add_argument("--release-dir", default=str(DEFAULT_RELEASE_DIR), help="Installer output directory")
     parser.add_argument("--app-version", default="0.1.0", help="Installer app version label")
@@ -71,6 +73,8 @@ def build_portable_installer_bundle(dist_dir: Path, release_dir: Path) -> Path:
 def main() -> int:
     args = build_parser().parse_args()
     dist_dir = Path(args.dist_dir).resolve()
+    if args.dist_dir == str(DEFAULT_DIST_DIR):
+        dist_dir = (ROOT / "dist" / args.app_name).resolve()
     release_dir = Path(args.release_dir).resolve()
     if not dist_dir.exists():
         print(f"Desktop bundle not found: {dist_dir}")
