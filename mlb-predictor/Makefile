@@ -14,7 +14,7 @@ TARGET_DATE ?= $(END_DATE)
 
 .PHONY: help venv install db-up db-down db-migrate db-reset \
 	load-reference-data prepare-slate-inputs ingest-today refresh-aggregates features-today predict-today pipeline \
-	train-totals train-first5-totals train-hits train-strikeouts backtest compare-prior-modes start-app test lint clean pipeline-range product-surfaces \
+	train-totals train-first5-totals train-hits train-strikeouts backtest compare-prior-modes start-app run-desktop install-desktop build-desktop build-installer test lint clean pipeline-range product-surfaces \
 	rollout-strikeouts
 
 help: ## Show this help
@@ -28,6 +28,9 @@ venv: ## Create virtual environment
 
 install: ## Install dependencies into venv
 	"$(PIP_BIN)" install -r requirements.txt
+
+install-desktop: ## Install desktop shell dependencies into venv
+	"$(PIP_BIN)" install -r requirements-desktop.txt
 
 # ── Database ─────────────────────────────────────────────
 db-up: ## Start Postgres + Adminer via Docker
@@ -117,6 +120,15 @@ compare-prior-modes: ## Compare standard_tuned, reduced, and current_only prior 
 
 start-app: ## Run the FastAPI app and dashboard locally
 	"$(UVICORN_BIN)" src.api.app:app --reload --host 0.0.0.0 --port 8000
+
+run-desktop: ## Launch the desktop shell locally
+	"$(PYTHON_BIN)" -m src.desktop.launcher
+
+build-desktop: ## Build the Windows desktop shell with PyInstaller
+	"$(PYTHON_BIN)" scripts\build_windows_app.py
+
+build-installer: ## Build a Windows installer or portable installer bundle from dist/MLBPredictor
+	"$(PYTHON_BIN)" scripts\build_windows_installer.py
 
 # ── Quality ──────────────────────────────────────────────
 test: ## Run tests

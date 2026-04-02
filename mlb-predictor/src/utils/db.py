@@ -6,8 +6,9 @@ from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import MetaData, Table, create_engine, delete, text
+from sqlalchemy import MetaData, Table, create_engine, delete, inspect, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
 
 from .settings import get_settings
@@ -19,12 +20,24 @@ def get_engine() -> Engine:
     connect_args: dict[str, Any] = {}
     if settings.database_url.startswith("postgresql"):
         connect_args["connect_timeout"] = 3
+    if settings.database_url.startswith("sqlite"):
+        connect_args["check_same_thread"] = False
     return create_engine(
         settings.database_url,
         pool_pre_ping=True,
         future=True,
         connect_args=connect_args,
     )
+
+
+def get_dialect_name(engine: Engine | None = None) -> str:
+    active_engine = engine or get_engine()
+    return str(active_engine.dialect.name).lower()
+
+
+def table_exists(table_name: str, engine: Engine | None = None) -> bool:
+    active_engine = engine or get_engine()
+    return bool(inspect(active_engine).has_table(table_name))
 
 
 def query_df(query: str, params: dict[str, Any] | None = None, engine: Engine | None = None) -> pd.DataFrame:
@@ -82,7 +95,13 @@ def upsert_rows(
     active_engine = engine or get_engine()
     metadata = MetaData()
     table = Table(table_name, metadata, autoload_with=active_engine)
-    insert_stmt = pg_insert(table).values(row_list)
+    dialect_name = get_dialect_name(active_engine)
+    if dialect_name == "postgresql":
+        insert_stmt = pg_insert(table).values(row_list)
+    elif dialect_name == "sqlite":
+        insert_stmt = sqlite_insert(table).values(row_list)
+    else:
+        raise NotImplementedError(f"upsert_rows does not support dialect '{dialect_name}' yet")
     provided_columns = {column_name for row in row_list for column_name in row.keys()}
     update_columns = {
         column.name: insert_stmt.excluded[column.name]

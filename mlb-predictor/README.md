@@ -147,6 +147,51 @@ Useful endpoints:
 - `GET /api/trends/pitchers/{pitcher_id}?target_date=YYYY-MM-DD` for pitcher trend history
 - `POST /api/pipeline/run` to rebuild features and rescore a target date
 
+## Desktop Packaging
+
+There is now a first Windows desktop-shell path for the app. This wraps the existing FastAPI app, seeds the bundled `data/` snapshot into a user-writable runtime directory, starts the local API server in the background, and opens a desktop window when `pywebview` is installed.
+
+Install the extra desktop dependencies:
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+.venv\Scripts\pip install -r requirements-desktop.txt
+```
+
+Run the desktop shell locally:
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+make run-desktop
+```
+
+Build a Windows distributable with PyInstaller:
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+make build-desktop
+```
+
+Build an installer on top of the desktop bundle:
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+make build-installer
+```
+
+If Inno Setup is installed, this produces a standard Windows installer. If not, the build falls back to a portable installer bundle with `install_mlb_predictor.ps1` and `uninstall_mlb_predictor.ps1` plus the packaged app folder.
+
+Current limitation: this is only the app shell and bundled file snapshot. The underlying database story is still the existing one, so this does not yet remove the need for a reachable `DATABASE_URL`. The next packaging milestone is replacing that dependency with an embedded database for end users.
+
+## Embedded DB Groundwork
+
+The first migration step away from the external Postgres requirement is now in place:
+
+- the shared DB utility layer supports SQLite-safe engine creation and SQLite upserts
+- table existence checks now go through SQLAlchemy inspection instead of the Postgres-only `information_schema` path
+
+This is not the full embedded-database cutover yet. The remaining blockers are the larger set of Postgres-specific raw SQL queries and migrations, but the utility layer no longer hard-locks the app to Postgres-only upsert behavior.
+
 ## Historical Training Flow
 
 1. Backfill games, starters, boxscores, batting, pitching, weather, and markets.

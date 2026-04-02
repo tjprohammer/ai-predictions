@@ -347,6 +347,44 @@
         gap: 12px;
       }
 
+      .update-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .control-note {
+        margin: 0;
+      }
+
+      .update-job-status {
+        padding: 11px 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(20, 33, 25, 0.08);
+        background: rgba(255, 255, 255, 0.74);
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.5;
+      }
+
+      .update-job-status.running {
+        border-color: rgba(11, 106, 88, 0.18);
+        background: rgba(11, 106, 88, 0.1);
+        color: var(--accent-deep);
+      }
+
+      .update-job-status.good {
+        border-color: rgba(22, 101, 52, 0.16);
+        background: rgba(22, 101, 52, 0.08);
+        color: var(--good);
+      }
+
+      .update-job-status.warn {
+        border-color: rgba(146, 64, 14, 0.18);
+        background: rgba(146, 64, 14, 0.08);
+        color: var(--warn);
+      }
+
       .control-row {
         display: flex;
         flex-wrap: wrap;
@@ -1383,9 +1421,33 @@
               <button class="secondary" id="refreshButton">
                 Refresh board
               </button>
-              <button class="primary" id="runButton">
-                Run scoring pipeline
-              </button>
+            </div>
+
+            <div class="field">
+              <label>Update Center</label>
+              <div class="update-grid">
+                <button class="secondary" data-update-action="prepare_slate">
+                  Prepare slate
+                </button>
+                <button class="secondary" data-update-action="import_manual_inputs">
+                  Import manual inputs
+                </button>
+                <button class="secondary" data-update-action="refresh_results">
+                  Refresh results
+                </button>
+                <button class="primary" data-update-action="rebuild_predictions">
+                  Rebuild predictions
+                </button>
+              </div>
+              <p class="hint control-note">
+                Prepare slate refreshes schedule, starters, and editable CSV templates. Import manual inputs reads your edited lineup and market files. Refresh results pulls boxscores and batting logs, then updates team form tables. Rebuild predictions refreshes full-game totals, first-five totals, hitter cards, strikeout cards, and published product surfaces.
+              </p>
+              <div class="update-job-status" id="updateJobStatus">
+                No update job running.
+              </div>
+            </div>
+
+            <div class="control-row">
               <a
                 class="button-link secondary"
                 data-app-link="hot-hitters"
@@ -1616,7 +1678,7 @@
             <div class="section-tag">Pipeline</div>
             <h2 class="panel-title">Run log</h2>
           </div>
-          <span class="panel-subtitle">Exact output from the scoring call</span>
+          <span class="panel-subtitle">Live output from the active or latest update job</span>
         </div>
         <div class="log-box" id="logBox">Waiting for action.</div>
       </section>
@@ -1657,7 +1719,9 @@
       const today = localDateValue();
       const targetDateInput = document.getElementById("targetDate");
       const refreshButton = document.getElementById("refreshButton");
-      const runButton = document.getElementById("runButton");
+      const updateActionButtons = Array.from(
+        document.querySelectorAll("[data-update-action]"),
+      );
       const hitMinProbabilityInput =
         document.getElementById("hitMinProbability");
       const hitLimitInput = document.getElementById("hitLimit");
@@ -1668,7 +1732,9 @@
       );
       const gamesBoard = document.getElementById("gamesBoard");
       const logBox = document.getElementById("logBox");
+      const updateJobStatus = document.getElementById("updateJobStatus");
       const LINEUP_CONTROLS_STORAGE_KEY = "mlbPredictor.lineupControls.v2";
+      let updateJobPollTimer = null;
 
       function loadStoredLineupControls() {
         try {
@@ -1703,14 +1769,52 @@
         expandedGames: {},
         historySortMode: "time",
         lineupControls: loadStoredLineupControls(),
+        activeUpdateJobId: null,
       };
 
       applyAppLinks();
 
       targetDateInput.value = today;
 
+      const updateActionMeta = {
+        prepare_slate: {
+          label: "Prepare slate",
+          pending: "Refreshing schedule, probable starters, and slate templates",
+        },
+        import_manual_inputs: {
+          label: "Import manual inputs",
+          pending: "Importing edited lineup and market files",
+        },
+        refresh_results: {
+          label: "Refresh results",
+          pending: "Pulling boxscores, batting logs, and aggregate team form",
+        },
+        rebuild_predictions: {
+          label: "Rebuild predictions",
+          pending: "Rebuilding features, predictions, and published surfaces",
+        },
+      };
+
       function setLog(message) {
         logBox.textContent = message;
+      }
+
+      function setUpdateJobStatusCopy(message, tone = "") {
+        updateJobStatus.textContent = message;
+        updateJobStatus.className = `update-job-status${tone ? ` ${tone}` : ""}`;
+      }
+
+      function setUpdateButtonsDisabled(disabled) {
+        updateActionButtons.forEach((button) => {
+          button.disabled = disabled;
+        });
+      }
+
+      function clearUpdateJobPoll() {
+        if (updateJobPollTimer != null) {
+          window.clearTimeout(updateJobPollTimer);
+          updateJobPollTimer = null;
+        }
       }
 
       function describeError(error) {
@@ -3605,15 +3709,18 @@
         renderGames();
       }
 
-      async function refreshBoard() {
+      async function refreshBoard(options = {}) {
+        const preserveLog = Boolean(options.preserveLog);
         const filters = getHitFilters();
         state.details = {};
         state.expandedGames = {};
         gamesBoard.innerHTML = `<div class="empty-state">Refreshing slate board...</div>`;
-        setLog(
-          `Refreshing board for ${targetDateInput.value}\n` +
-            `Compact slate: ${filters.limit} hitters per team, min hit probability ${filters.minProbability || 0}, confirmed only ${filters.confirmedOnly}, include inferred ${filters.includeInferred}.`,
-        );
+        if (!preserveLog) {
+          setLog(
+            `Refreshing board for ${targetDateInput.value}\n` +
+              `Compact slate: ${filters.limit} hitters per team, min hit probability ${filters.minProbability || 0}, confirmed only ${filters.confirmedOnly}, include inferred ${filters.includeInferred}.`,
+          );
+        }
 
         const [statusResult, boardResult, scorecardResult] =
           await Promise.allSettled([
@@ -3643,49 +3750,195 @@
         }
 
         if (problems.length) {
-          setLog(
-            `Board refresh completed with issues for ${targetDateInput.value}.\n` +
-              problems.join("\n\n"),
-          );
+          if (!preserveLog) {
+            setLog(
+              `Board refresh completed with issues for ${targetDateInput.value}.\n` +
+                problems.join("\n\n"),
+            );
+          }
           return;
         }
 
-        setLog(
-          `Board refreshed for ${targetDateInput.value}. Loaded ${state.games.length} games.` +
-            `${state.boardSummary ? ` ${state.boardSummary.final_games || 0} final.` : ""}`,
-        );
+        if (!preserveLog) {
+          setLog(
+            `Board refreshed for ${targetDateInput.value}. Loaded ${state.games.length} games.` +
+              `${state.boardSummary ? ` ${state.boardSummary.final_games || 0} final.` : ""}`,
+          );
+        }
       }
 
-      async function runPipeline() {
-        const date = targetDateInput.value;
-        runButton.disabled = true;
-        setLog(`Running scoring pipeline for ${date}...`);
+      function formatStepLog(step) {
+        const stdout = step.stdout ? `stdout:\n${step.stdout}` : "stdout: (empty)";
+        const stderr = step.stderr ? `stderr:\n${step.stderr}` : "stderr: (empty)";
+        return `${step.module} -> ${step.returncode}\n${stdout}\n${stderr}`;
+      }
+
+      function updateJobTone(status) {
+        if (status === "queued" || status === "running") return "running";
+        if (status === "succeeded") return "good";
+        if (status === "failed") return "warn";
+        return "";
+      }
+
+      function updateJobOutcomeLabel(status) {
+        if (status === "queued") return "queued";
+        if (status === "running") return "running";
+        if (status === "succeeded") return "completed";
+        if (status === "failed") return "failed";
+        return "idle";
+      }
+
+      function updateJobStatusLine(job) {
+        if (!job) {
+          return "No update job running.";
+        }
+        const progress = `${job.completed_steps || 0}/${job.total_steps || 0} steps`;
+        if (job.status === "queued" || job.status === "running") {
+          return `${job.label} ${updateJobOutcomeLabel(job.status)} for ${job.target_date} · ${progress}${job.current_step ? ` · ${job.current_step}` : ""}`;
+        }
+        return `${job.label} ${updateJobOutcomeLabel(job.status)} for ${job.target_date} · ${progress}`;
+      }
+
+      function renderUpdateJobLog(job) {
+        if (!job) {
+          return "Waiting for action.";
+        }
+        const lines = [
+          `${job.label} ${updateJobOutcomeLabel(job.status)} for ${job.target_date}.`,
+          `Progress ${job.completed_steps || 0}/${job.total_steps || 0} steps.`,
+        ];
+        if (job.current_step) {
+          lines.push(`Current step: ${job.current_step}`);
+        }
+        if (job.error) {
+          lines.push(`Error: ${job.error}`);
+        }
+        if ((job.steps || []).length) {
+          lines.push(...job.steps.map(formatStepLog));
+        }
+        return lines.join("\n\n");
+      }
+
+      function applyUpdateJobState(job) {
+        if (!job) {
+          state.activeUpdateJobId = null;
+          setUpdateButtonsDisabled(false);
+          setUpdateJobStatusCopy("No update job running.");
+          return;
+        }
+        state.activeUpdateJobId =
+          job.status === "queued" || job.status === "running"
+            ? job.job_id
+            : null;
+        setUpdateButtonsDisabled(Boolean(state.activeUpdateJobId));
+        setUpdateJobStatusCopy(
+          updateJobStatusLine(job),
+          updateJobTone(job.status),
+        );
+        setLog(renderUpdateJobLog(job));
+      }
+
+      async function loadActiveUpdateJob() {
+        const response = await fetch(appUrl("api/update-jobs/active"));
+        if (!response.ok) {
+          throw new Error(`Active update job request failed: ${response.status}`);
+        }
+        const payload = await response.json();
+        return payload.job || null;
+      }
+
+      async function loadUpdateJob(jobId) {
+        const response = await fetch(
+          appUrl(`api/update-jobs/${encodeURIComponent(jobId)}`),
+        );
+        if (!response.ok) {
+          throw new Error(`Update job request failed: ${response.status}`);
+        }
+        const payload = await response.json();
+        return payload.job || null;
+      }
+
+      async function loadUpdateJobHistory() {
+        const response = await fetch(appUrl("api/update-jobs/history"));
+        if (!response.ok) {
+          throw new Error(`Update job history request failed: ${response.status}`);
+        }
+        const payload = await response.json();
+        return Array.isArray(payload.jobs) ? payload.jobs : [];
+      }
+
+      async function pollUpdateJob(jobId) {
+        clearUpdateJobPoll();
         try {
-          const response = await fetch(appUrl("api/pipeline/run"), {
+          const job = await loadUpdateJob(jobId);
+          if (!job) {
+            state.activeUpdateJobId = null;
+            setUpdateButtonsDisabled(false);
+            setUpdateJobStatusCopy("Active update job not found.", "warn");
+            return;
+          }
+
+          applyUpdateJobState(job);
+          targetDateInput.value = job.target_date || targetDateInput.value;
+
+          if (job.status === "queued" || job.status === "running") {
+            updateJobPollTimer = window.setTimeout(() => {
+              pollUpdateJob(jobId);
+            }, 1200);
+            return;
+          }
+
+          await refreshBoard({ preserveLog: true });
+          setLog(renderUpdateJobLog(job));
+        } catch (error) {
+          state.activeUpdateJobId = null;
+          setUpdateButtonsDisabled(false);
+          setUpdateJobStatusCopy("Update job polling failed.", "warn");
+          setLog(`Update job polling failed: ${describeError(error)}`);
+        }
+      }
+
+      async function startUpdateJob(action) {
+        const meta = updateActionMeta[action];
+        if (!meta) {
+          return;
+        }
+
+        const date = targetDateInput.value;
+        clearUpdateJobPoll();
+        setUpdateButtonsDisabled(true);
+        setUpdateJobStatusCopy(`${meta.label} queued for ${date}...`, "running");
+        setLog(`${meta.pending} for ${date}...`);
+        try {
+          const response = await fetch(appUrl("api/update-jobs/start"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              action,
               target_date: date,
-              refresh_aggregates: true,
-              rebuild_features: true,
             }),
           });
-          const payload = await response.json();
-          const lines = (payload.steps || []).map((step) => {
-            const stdout = step.stdout
-              ? `stdout:\n${step.stdout}`
-              : "stdout: (empty)";
-            const stderr = step.stderr
-              ? `stderr:\n${step.stderr}`
-              : "stderr: (empty)";
-            return `${step.module} -> ${step.returncode}\n${stdout}\n${stderr}`;
-          });
-          setLog(lines.join("\n\n") || "Pipeline returned no output.");
+          const payload = await response.json().catch(() => ({}));
+          if (response.status === 409 && payload.active_job) {
+            applyUpdateJobState(payload.active_job);
+            targetDateInput.value = payload.active_job.target_date || date;
+            await pollUpdateJob(payload.active_job.job_id);
+            return;
+          }
+          if (!response.ok) {
+            throw new Error(payload.message || `Update job start failed: ${response.status}`);
+          }
+          const job = payload.job;
+          if (!job) {
+            throw new Error("Update job start response was missing the job payload.");
+          }
+          applyUpdateJobState(job);
+          await pollUpdateJob(job.job_id);
         } catch (error) {
-          setLog(`Pipeline call failed: ${error}`);
-        } finally {
-          runButton.disabled = false;
-          await refreshBoard();
+          state.activeUpdateJobId = null;
+          setUpdateButtonsDisabled(false);
+          setUpdateJobStatusCopy(`${meta.label} failed to start.`, "warn");
+          setLog(`${meta.label} failed to start: ${describeError(error)}`);
         }
       }
 
@@ -3747,7 +4000,11 @@
       });
 
       refreshButton.addEventListener("click", refreshBoard);
-      runButton.addEventListener("click", runPipeline);
+      updateActionButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          startUpdateJob(button.dataset.updateAction);
+        });
+      });
       hitMinProbabilityInput.addEventListener("change", refreshBoard);
       hitLimitInput.addEventListener("change", refreshBoard);
       confirmedOnlyInput.addEventListener("change", refreshBoard);
@@ -3760,6 +4017,24 @@
       });
 
       refreshBoard();
+      loadActiveUpdateJob()
+        .then((job) => {
+          if (!job) {
+            return loadUpdateJobHistory().then((jobs) => {
+              if (!jobs.length) {
+                setUpdateJobStatusCopy("No update job running.");
+                return;
+              }
+              applyUpdateJobState(jobs[0]);
+            });
+          }
+          applyUpdateJobState(job);
+          targetDateInput.value = job.target_date || targetDateInput.value;
+          pollUpdateJob(job.job_id);
+        })
+        .catch(() => {
+          setUpdateJobStatusCopy("Could not load update job status.", "warn");
+        });
     </script>
   </body>
 </html>

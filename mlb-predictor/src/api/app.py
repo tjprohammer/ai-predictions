@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
+import threading
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from uuid import uuid4
 
 import pandas as pd
 from fastapi import FastAPI, Query
@@ -14,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from src.utils.db import query_df
+from src.utils.db import query_df, table_exists
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -44,6 +47,28 @@ class PipelineRunRequest(BaseModel):
     rebuild_features: bool = True
 
 
+UpdateAction = Literal[
+    "prepare_slate",
+    "import_manual_inputs",
+    "refresh_results",
+    "rebuild_predictions",
+]
+
+
+class UpdateJobRunRequest(BaseModel):
+    action: UpdateAction
+    target_date: date = Field(default_factory=date.today)
+
+
+UpdateJobStatus = Literal["queued", "running", "succeeded", "failed"]
+
+
+UPDATE_JOB_LOCK = threading.Lock()
+UPDATE_JOBS: dict[str, dict[str, Any]] = {}
+UPDATE_JOB_HISTORY_LIMIT = 12
+UPDATE_JOB_STORE_PATH = settings.report_dir / "update_jobs" / "history.json"
+
+
 def _safe_frame(query: str, params: dict[str, Any] | None = None) -> pd.DataFrame:
     try:
         return query_df(query, params)
@@ -61,16 +86,11 @@ def _frame_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def _table_exists(table_name: str) -> bool:
-    frame = _safe_frame(
-        """
-        SELECT 1 AS present
-        FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = :table_name
-        LIMIT 1
-        """,
-        {"table_name": table_name},
-    )
-    return not frame.empty
+    try:
+        return table_exists(table_name)
+    except Exception as exc:
+        log.warning("Table lookup failed for %s: %s", table_name, exc)
+        return False
 
 
 def _artifact_ready(lane: str) -> bool:
@@ -3272,6 +3292,316 @@ def _run_module(module_name: str, *args: str) -> dict[str, Any]:
     }
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _public_update_job(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "job_id": job["job_id"],
+        "action": job["action"],
+        "label": job["label"],
+        "target_date": job["target_date"],
+        "status": job["status"],
+        "created_at": job["created_at"],
+        "started_at": job.get("started_at"),
+        "finished_at": job.get("finished_at"),
+        "current_step": job.get("current_step"),
+        "completed_steps": job["completed_steps"],
+        "total_steps": job["total_steps"],
+        "steps": [dict(step) for step in job["steps"]],
+        "error": job.get("error"),
+        "status_snapshot": job.get("status_snapshot"),
+    }
+
+
+def _trim_finished_jobs_locked() -> None:
+    finished_job_ids = [
+        existing_job_id
+        for existing_job_id, existing_job in UPDATE_JOBS.items()
+        if existing_job["status"] in {"succeeded", "failed"}
+    ]
+    if len(finished_job_ids) <= UPDATE_JOB_HISTORY_LIMIT:
+        return
+    finished_job_ids.sort(key=lambda job_id: UPDATE_JOBS[job_id]["created_at"])
+    for job_id in finished_job_ids[: len(finished_job_ids) - UPDATE_JOB_HISTORY_LIMIT]:
+        UPDATE_JOBS.pop(job_id, None)
+
+
+def _persist_update_jobs() -> None:
+    with UPDATE_JOB_LOCK:
+        payload = [
+            _public_update_job(job)
+            for job in sorted(
+                UPDATE_JOBS.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            )
+        ]
+    UPDATE_JOB_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = UPDATE_JOB_STORE_PATH.with_suffix(".tmp")
+    temp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temp_path.replace(UPDATE_JOB_STORE_PATH)
+
+
+def _hydrate_persisted_job(payload: dict[str, Any]) -> dict[str, Any] | None:
+    job_id = str(payload.get("job_id") or "").strip()
+    action = payload.get("action")
+    target_date = str(payload.get("target_date") or "").strip()
+    created_at = str(payload.get("created_at") or "").strip()
+    if not job_id or action not in {"prepare_slate", "import_manual_inputs", "refresh_results", "rebuild_predictions"}:
+        return None
+    if not target_date or not created_at:
+        return None
+    steps = payload.get("steps") if isinstance(payload.get("steps"), list) else []
+    status = str(payload.get("status") or "failed").strip().lower()
+    error = payload.get("error")
+    if status in {"queued", "running"}:
+        status = "failed"
+        error = error or "Application restarted before the update job finished."
+    job = {
+        "job_id": job_id,
+        "action": action,
+        "label": _update_job_label(action),
+        "target_date": target_date,
+        "sequence": [],
+        "status": status,
+        "created_at": created_at,
+        "started_at": payload.get("started_at"),
+        "finished_at": payload.get("finished_at") or _utc_now_iso(),
+        "current_step": None,
+        "completed_steps": int(payload.get("completed_steps") or len(steps)),
+        "total_steps": int(payload.get("total_steps") or len(steps)),
+        "steps": steps,
+        "error": error,
+        "status_snapshot": payload.get("status_snapshot"),
+    }
+    return job
+
+
+def _load_persisted_update_jobs() -> None:
+    if not UPDATE_JOB_STORE_PATH.exists():
+        return
+    try:
+        payload = json.loads(UPDATE_JOB_STORE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("Failed to load persisted update jobs: %s", exc)
+        return
+    if not isinstance(payload, list):
+        return
+    loaded_jobs = [job for item in payload if isinstance(item, dict) for job in [_hydrate_persisted_job(item)] if job is not None]
+    with UPDATE_JOB_LOCK:
+        UPDATE_JOBS.clear()
+        for job in loaded_jobs:
+            UPDATE_JOBS[job["job_id"]] = job
+        _trim_finished_jobs_locked()
+    _persist_update_jobs()
+
+
+def _active_update_job_payload() -> dict[str, Any] | None:
+    with UPDATE_JOB_LOCK:
+        active_jobs = [
+            _public_update_job(job)
+            for job in UPDATE_JOBS.values()
+            if job["status"] in {"queued", "running"}
+        ]
+    if not active_jobs:
+        return None
+    active_jobs.sort(key=lambda item: item["created_at"], reverse=True)
+    return active_jobs[0]
+
+
+def _update_job_history_payload() -> list[dict[str, Any]]:
+    with UPDATE_JOB_LOCK:
+        jobs = [
+            _public_update_job(job)
+            for job in sorted(
+                UPDATE_JOBS.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            )
+        ]
+    return jobs
+
+
+def _safe_fetch_status(target_date: str) -> dict[str, Any] | None:
+    try:
+        return _fetch_status(date.fromisoformat(target_date))
+    except Exception as exc:
+        log.warning("Failed to capture update job status snapshot: %s", exc)
+        return None
+
+
+def _create_update_job(action: UpdateAction, target_date: str) -> dict[str, Any]:
+    sequence = _update_job_sequence(action, target_date)
+    job = {
+        "job_id": uuid4().hex,
+        "action": action,
+        "label": _update_job_label(action),
+        "target_date": target_date,
+        "sequence": sequence,
+        "status": "queued",
+        "created_at": _utc_now_iso(),
+        "started_at": None,
+        "finished_at": None,
+        "current_step": None,
+        "completed_steps": 0,
+        "total_steps": len(sequence),
+        "steps": [],
+        "error": None,
+        "status_snapshot": None,
+    }
+    with UPDATE_JOB_LOCK:
+        UPDATE_JOBS[job["job_id"]] = job
+        _trim_finished_jobs_locked()
+    _persist_update_jobs()
+    return _public_update_job(job)
+
+
+def _get_update_job(job_id: str) -> dict[str, Any] | None:
+    with UPDATE_JOB_LOCK:
+        job = UPDATE_JOBS.get(job_id)
+        return None if job is None else _public_update_job(job)
+
+
+def _run_update_job_background(job_id: str) -> None:
+    with UPDATE_JOB_LOCK:
+        job = UPDATE_JOBS.get(job_id)
+        if job is None:
+            return
+        job["status"] = "running"
+        job["started_at"] = _utc_now_iso()
+    _persist_update_jobs()
+
+    target_date = None
+    sequence: list[tuple[str, list[str]]] = []
+    with UPDATE_JOB_LOCK:
+        job = UPDATE_JOBS.get(job_id)
+        if job is None:
+            return
+        target_date = str(job["target_date"])
+        sequence = list(job["sequence"])
+
+    for index, (module_name, args) in enumerate(sequence, start=1):
+        with UPDATE_JOB_LOCK:
+            job = UPDATE_JOBS.get(job_id)
+            if job is None:
+                return
+            job["current_step"] = module_name
+        step = _run_module(module_name, *args)
+        with UPDATE_JOB_LOCK:
+            job = UPDATE_JOBS.get(job_id)
+            if job is None:
+                return
+            job["steps"].append(step)
+            job["completed_steps"] = len(job["steps"])
+            if step["returncode"] != 0:
+                job["status"] = "failed"
+                job["finished_at"] = _utc_now_iso()
+                job["current_step"] = None
+                job["error"] = f"{module_name} exited with code {step['returncode']}"
+                job["status_snapshot"] = _safe_fetch_status(target_date)
+                _trim_finished_jobs_locked()
+                _persist_update_jobs()
+                return
+        _persist_update_jobs()
+
+    with UPDATE_JOB_LOCK:
+        job = UPDATE_JOBS.get(job_id)
+        if job is None:
+            return
+        job["status"] = "succeeded"
+        job["finished_at"] = _utc_now_iso()
+        job["current_step"] = None
+        job["status_snapshot"] = _safe_fetch_status(target_date)
+        _trim_finished_jobs_locked()
+    _persist_update_jobs()
+
+
+def _launch_update_job(job_id: str) -> None:
+    thread = threading.Thread(
+        target=_run_update_job_background,
+        args=(job_id,),
+        name=f"update-job-{job_id[:8]}",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _run_module_sequence(sequence: list[tuple[str, list[str]]]) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    steps: list[dict[str, Any]] = []
+    failed_step: dict[str, Any] | None = None
+    for module_name, args in sequence:
+        step = _run_module(module_name, *args)
+        steps.append(step)
+        if step["returncode"] != 0:
+            failed_step = step
+            break
+    return steps, failed_step
+
+
+def _pipeline_sequence(target_date: str, refresh_aggregates: bool, rebuild_features: bool) -> list[tuple[str, list[str]]]:
+    sequence: list[tuple[str, list[str]]] = []
+    if refresh_aggregates:
+        sequence.extend(
+            [
+                ("src.transforms.offense_daily", []),
+                ("src.transforms.bullpens_daily", []),
+            ]
+        )
+    if rebuild_features:
+        sequence.extend(
+            [
+                ("src.features.totals_builder", ["--target-date", target_date]),
+                ("src.features.first5_totals_builder", ["--target-date", target_date]),
+                ("src.features.hits_builder", ["--target-date", target_date]),
+                ("src.features.strikeouts_builder", ["--target-date", target_date]),
+            ]
+        )
+    sequence.extend(
+        [
+            ("src.models.predict_totals", ["--target-date", target_date]),
+            ("src.models.predict_first5_totals", ["--target-date", target_date]),
+            ("src.models.predict_hits", ["--target-date", target_date]),
+            ("src.models.predict_strikeouts", ["--target-date", target_date]),
+            ("src.transforms.product_surfaces", ["--target-date", target_date]),
+        ]
+    )
+    return sequence
+
+
+def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[str, list[str]]]:
+    if action == "prepare_slate":
+        return [
+            ("src.ingestors.games", ["--target-date", target_date]),
+            ("src.ingestors.starters", ["--target-date", target_date]),
+            ("src.ingestors.prepare_slate_inputs", ["--target-date", target_date]),
+        ]
+    if action == "import_manual_inputs":
+        return [
+            ("src.ingestors.lineups", []),
+            ("src.ingestors.market_totals", ["--target-date", target_date]),
+        ]
+    if action == "refresh_results":
+        return [
+            ("src.ingestors.boxscores", ["--target-date", target_date]),
+            ("src.ingestors.player_batting", ["--target-date", target_date]),
+            ("src.transforms.offense_daily", []),
+            ("src.transforms.bullpens_daily", []),
+            ("src.transforms.product_surfaces", ["--target-date", target_date]),
+        ]
+    return _pipeline_sequence(target_date, refresh_aggregates=False, rebuild_features=True)
+
+
+def _update_job_label(action: UpdateAction) -> str:
+    return {
+        "prepare_slate": "Prepare slate",
+        "import_manual_inputs": "Import manual inputs",
+        "refresh_results": "Refresh results and stats",
+        "rebuild_predictions": "Rebuild predictions",
+    }[action]
+
+
 def _json_response(payload: dict[str, Any], status_code: int = 200) -> JSONResponse:
     return JSONResponse(content=jsonable_encoder(payload), status_code=status_code)
 
@@ -3420,35 +3750,10 @@ def game_detail(
 @app.post("/api/pipeline/run")
 def run_pipeline(request: PipelineRunRequest) -> JSONResponse:
     target_date = request.target_date.isoformat()
-    steps: list[dict[str, Any]] = []
-    if request.refresh_aggregates:
-        steps.append(_run_module("src.transforms.offense_daily"))
-        if steps[-1]["returncode"] != 0:
-            return _json_response({"ok": False, "steps": steps}, status_code=500)
-        steps.append(_run_module("src.transforms.bullpens_daily"))
-        if steps[-1]["returncode"] != 0:
-            return _json_response({"ok": False, "steps": steps}, status_code=500)
-    if request.rebuild_features:
-        steps.append(_run_module("src.features.totals_builder", "--target-date", target_date))
-        if steps[-1]["returncode"] != 0:
-            return _json_response({"ok": False, "steps": steps}, status_code=500)
-        steps.append(_run_module("src.features.hits_builder", "--target-date", target_date))
-        if steps[-1]["returncode"] != 0:
-            return _json_response({"ok": False, "steps": steps}, status_code=500)
-        steps.append(_run_module("src.features.strikeouts_builder", "--target-date", target_date))
-        if steps[-1]["returncode"] != 0:
-            return _json_response({"ok": False, "steps": steps}, status_code=500)
-    steps.append(_run_module("src.models.predict_totals", "--target-date", target_date))
-    if steps[-1]["returncode"] != 0:
-        return _json_response({"ok": False, "steps": steps}, status_code=500)
-    steps.append(_run_module("src.models.predict_hits", "--target-date", target_date))
-    if steps[-1]["returncode"] != 0:
-        return _json_response({"ok": False, "steps": steps}, status_code=500)
-    steps.append(_run_module("src.models.predict_strikeouts", "--target-date", target_date))
-    if steps[-1]["returncode"] != 0:
-        return _json_response({"ok": False, "steps": steps}, status_code=500)
-    steps.append(_run_module("src.transforms.product_surfaces", "--target-date", target_date))
-    if steps[-1]["returncode"] != 0:
+    steps, failed_step = _run_module_sequence(
+        _pipeline_sequence(target_date, request.refresh_aggregates, request.rebuild_features)
+    )
+    if failed_step is not None:
         return _json_response({"ok": False, "steps": steps}, status_code=500)
     return _json_response(
         {
@@ -3458,3 +3763,60 @@ def run_pipeline(request: PipelineRunRequest) -> JSONResponse:
             "status": _fetch_status(request.target_date),
         }
     )
+
+
+@app.post("/api/update-jobs/run")
+def run_update_job(request: UpdateJobRunRequest) -> JSONResponse:
+    target_date = request.target_date.isoformat()
+    steps, failed_step = _run_module_sequence(_update_job_sequence(request.action, target_date))
+    payload = {
+        "ok": failed_step is None,
+        "action": request.action,
+        "label": _update_job_label(request.action),
+        "target_date": target_date,
+        "steps": steps,
+        "status": _fetch_status(request.target_date),
+    }
+    if failed_step is not None:
+        return _json_response(payload, status_code=500)
+    return _json_response(payload)
+
+
+@app.post("/api/update-jobs/start")
+def start_update_job(request: UpdateJobRunRequest) -> JSONResponse:
+    active_job = _active_update_job_payload()
+    if active_job is not None:
+        return _json_response(
+            {
+                "ok": False,
+                "message": "Another update job is already running.",
+                "active_job": active_job,
+            },
+            status_code=409,
+        )
+
+    job = _create_update_job(request.action, request.target_date.isoformat())
+    _launch_update_job(job["job_id"])
+    created_job = _get_update_job(job["job_id"])
+    return _json_response({"ok": True, "job": created_job}, status_code=202)
+
+
+@app.get("/api/update-jobs/active")
+def active_update_job() -> JSONResponse:
+    return _json_response({"job": _active_update_job_payload()})
+
+
+@app.get("/api/update-jobs/history")
+def update_job_history() -> JSONResponse:
+    return _json_response({"jobs": _update_job_history_payload()})
+
+
+@app.get("/api/update-jobs/{job_id}")
+def update_job_status(job_id: str) -> JSONResponse:
+    job = _get_update_job(job_id)
+    if job is None:
+        return _json_response({"job": None}, status_code=404)
+    return _json_response({"job": job})
+
+
+_load_persisted_update_jobs()

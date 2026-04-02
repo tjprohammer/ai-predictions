@@ -1,0 +1,1 @@
+"""Desktop packaging support for the MLB Predictor app."""
