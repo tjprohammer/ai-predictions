@@ -1463,6 +1463,9 @@
               <p class="hint control-note">
                 Prepare slate refreshes schedule, starters, and editable CSV templates. Import manual inputs reads your edited lineup and market files. Refresh results pulls boxscores and batting logs, then updates team form tables. Rebuild predictions refreshes full-game totals, first-five totals, hitter cards, strikeout cards, and published product surfaces.
               </p>
+              <p class="hint control-note">
+                Daily workflow: 1. Prepare slate for the target date. 2. Edit lineup and market templates if needed. 3. Import manual inputs. 4. Rebuild predictions. 5. After games finish, run Refresh results to load final stats and outcomes.
+              </p>
               <div class="update-job-status" id="updateJobStatus">
                 No update job running.
               </div>
@@ -3625,7 +3628,7 @@
       function renderGames() {
         const games = state.games || [];
         if (!games.length) {
-          gamesBoard.innerHTML = `<div class="empty-state">No game sections are available for this date.</div>`;
+          gamesBoard.innerHTML = `<div class="empty-state">No game sections are available for ${targetDateInput.value}. On a fresh install, use Update Center in this order: Prepare slate, Import manual inputs, then Rebuild predictions. If you have not filled lineup or market templates yet, the board can stay empty or partially populated.</div>`;
           return;
         }
         gamesBoard.innerHTML = games.map(safeRenderGameSection).join("");
