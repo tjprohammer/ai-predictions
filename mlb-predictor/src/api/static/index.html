@@ -271,6 +271,22 @@
         margin: 0;
       }
 
+      .hero-note {
+        margin-top: 16px;
+        max-width: 64ch;
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid rgba(20, 33, 25, 0.08);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--ink);
+        font-size: 0.92rem;
+        line-height: 1.55;
+      }
+
+      .hero-note strong {
+        color: var(--accent-deep);
+      }
+
       .hero-metrics {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1384,6 +1400,11 @@
             The slate stays dense enough to scan quickly, then each game expands
             into full lineup context, recent hitter form, recent team offense,
             starter form, and actual outcomes when you review older dates.
+          </p>
+          <p class="hero-note">
+            <strong>Update flow:</strong> use Update Center for daily slate and
+            prediction refreshes. Only download a new GitHub release when the
+            desktop app itself has been updated.
           </p>
           <div class="hero-metrics" id="heroMetrics">
             <div class="mini-stat">

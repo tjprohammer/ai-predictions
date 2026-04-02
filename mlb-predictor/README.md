@@ -151,6 +151,37 @@ Useful endpoints:
 
 There is now a first Windows desktop-shell path for the app. This wraps the existing FastAPI app, seeds the bundled `data/` snapshot into a user-writable runtime directory, starts the local API server in the background, and opens a desktop window when `pywebview` is installed.
 
+### For Testers
+
+The best way to test the packaged app is to download a release asset from the repository's GitHub Releases page, not the source-code ZIP from the main repo page.
+
+Current Windows release flow:
+
+1. Open the latest GitHub Release.
+2. Download `MLBPredictor-Windows-PortableInstaller.zip` or `MLBPredictorSetup.exe` if an Inno Setup installer was published for that release.
+3. If you downloaded the portable ZIP, extract it and run `install_mlb_predictor.ps1`.
+4. Launch `MLBPredictor` from the shortcut or install folder.
+
+What happens on first launch:
+
+- the app creates a per-user runtime folder under `%LOCALAPPDATA%\MLBPredictor`
+- the local SQLite database is created at `%LOCALAPPDATA%\MLBPredictor\db\mlb_predictor.sqlite3`
+- bundled schema migrations are applied automatically
+- bundled park-factor reference data is seeded automatically
+
+This means a normal tester does not need to install Postgres or run bootstrap commands just to open the desktop app.
+
+### Updating Data vs Updating the App
+
+These are two separate workflows:
+
+1. Daily data updates: use the app's Update Center or other in-app update actions to refresh schedules, features, and predictions for a target day. You do not need to download a new GitHub release every day just to refresh the slate data.
+2. App updates: when the desktop code changes, download the next GitHub Release and install it over the existing app.
+
+There is not an auto-updater for the desktop binary yet. App upgrades are currently manual release downloads.
+
+Because the installed app files and the per-user SQLite database live in separate locations, installing a newer release should keep your existing local app data unless you manually delete `%LOCALAPPDATA%\MLBPredictor`.
+
 Install the extra desktop dependencies:
 
 ```powershell
