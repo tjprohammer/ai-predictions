@@ -15,10 +15,14 @@ def test_bootstrap_runtime_environment_seeds_data_and_config(tmp_path, monkeypat
 
     (bundle_root / "data" / "raw" / "manual_lineups.csv").write_text("game_id\n", encoding="utf-8")
     (bundle_root / "data" / "raw" / "manual_market_totals.csv").write_text("game_id\n", encoding="utf-8")
-    (bundle_root / "config" / ".env.example").write_text("DATABASE_URL=sqlite:///desktop.db\n", encoding="utf-8")
+    (bundle_root / "config" / ".env.example").write_text(
+        "DATABASE_URL=postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb\n",
+        encoding="utf-8",
+    )
     (bundle_root / "db" / "seeds" / "park_factors.csv").write_text("venue_id\n", encoding="utf-8")
 
     for key in (
+        "DATABASE_URL",
         "DATA_DIR",
         "MODEL_DIR",
         "REPORT_DIR",
@@ -34,8 +38,37 @@ def test_bootstrap_runtime_environment_seeds_data_and_config(tmp_path, monkeypat
     assert user_env == user_root / "config" / ".env"
     assert (user_root / "data" / "raw" / "manual_lineups.csv").exists()
     assert (user_root / "data" / "raw" / "manual_market_totals.csv").exists()
+    assert (user_root / "db" / "mlb_predictor.sqlite3").exists()
     assert Path(os.environ["DATA_DIR"]) == user_root / "data"
+    assert os.environ["DATABASE_URL"].startswith("sqlite:///")
+    assert "mlb_predictor.sqlite3" in user_env.read_text(encoding="utf-8")
     assert Path(os.environ["PARK_FACTORS_CSV"]).exists()
+
+
+def test_bootstrap_runtime_environment_preserves_explicit_database_url(tmp_path, monkeypatch):
+    bundle_root = tmp_path / "bundle"
+    user_root = tmp_path / "user"
+
+    (bundle_root / "data" / "raw").mkdir(parents=True)
+    (bundle_root / "db" / "seeds").mkdir(parents=True)
+    (bundle_root / "config").mkdir(parents=True)
+
+    (bundle_root / "data" / "raw" / "manual_lineups.csv").write_text("game_id\n", encoding="utf-8")
+    (bundle_root / "data" / "raw" / "manual_market_totals.csv").write_text("game_id\n", encoding="utf-8")
+    (bundle_root / "config" / ".env.example").write_text(
+        "DATABASE_URL=postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb\n",
+        encoding="utf-8",
+    )
+    (bundle_root / "db" / "seeds" / "park_factors.csv").write_text("venue_id\n", encoding="utf-8")
+
+    custom_database_url = "postgresql+psycopg2://custom-user:custom-pass@dbhost:5432/mlb"
+    monkeypatch.setenv("DATABASE_URL", custom_database_url)
+
+    user_env = bootstrap_runtime_environment(bundle_root, user_root)
+
+    assert user_env is not None
+    assert os.environ["DATABASE_URL"] == custom_database_url
+    assert "mlb_predictor.sqlite3" in user_env.read_text(encoding="utf-8")
 
 
 def test_ensure_standard_streams_supplies_devnull_fallbacks(monkeypatch):

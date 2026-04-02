@@ -188,7 +188,9 @@ make build-release
 
 If Inno Setup is installed, this produces a standard Windows installer. If not, the build falls back to a portable installer bundle with `install_mlb_predictor.ps1` and `uninstall_mlb_predictor.ps1` plus the packaged app folder.
 
-Current limitation: this is only the app shell and bundled file snapshot. The underlying database story is still the existing one, so this does not yet remove the need for a reachable `DATABASE_URL`. The next packaging milestone is replacing that dependency with an embedded database for end users.
+The desktop runtime now defaults to a per-user SQLite file under `%LOCALAPPDATA%\MLBPredictor\db\mlb_predictor.sqlite3` when no custom `DATABASE_URL` is configured. Explicit `DATABASE_URL` overrides are still respected for Postgres-based workflows.
+
+Current limitation: this removes the external database requirement for startup, but it is not the full embedded-database cutover yet. The remaining migration work is porting the schema and ingestion/training paths that still rely on Postgres-specific DDL and SQL.
 
 ## Embedded DB Groundwork
 

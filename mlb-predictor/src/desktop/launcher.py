@@ -13,7 +13,7 @@ from pathlib import Path
 
 import requests
 import uvicorn
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 
 APP_TITLE = "MLB Predictor"
@@ -24,6 +24,7 @@ DEFAULT_HEIGHT = 980
 SERVER_BOOT_TIMEOUT_SECONDS = 30.0
 _STDOUT_FALLBACK = None
 _STDERR_FALLBACK = None
+LEGACY_DEFAULT_DATABASE_URL = "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"
 
 
 def bundle_root() -> Path:
@@ -76,6 +77,51 @@ def _copy_tree_if_missing(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination)
 
 
+def default_runtime_database_path(user_dir: Path) -> Path:
+    return user_dir / "db" / "mlb_predictor.sqlite3"
+
+
+def default_runtime_database_url(user_dir: Path) -> str:
+    return f"sqlite:///{default_runtime_database_path(user_dir).resolve().as_posix()}"
+
+
+def ensure_runtime_database_url(user_env: Path, user_dir: Path) -> str:
+    default_database_path = default_runtime_database_path(user_dir)
+    default_database_path.parent.mkdir(parents=True, exist_ok=True)
+    default_database_path.touch(exist_ok=True)
+    default_database_url = default_runtime_database_url(user_dir)
+
+    env_values = dotenv_values(user_env) if user_env.exists() else {}
+    current_database_url = str(env_values.get("DATABASE_URL") or "").strip()
+    should_write_default = current_database_url in {"", LEGACY_DEFAULT_DATABASE_URL}
+
+    if should_write_default:
+        existing_lines = user_env.read_text(encoding="utf-8").splitlines() if user_env.exists() else []
+        replacement = f"DATABASE_URL={default_database_url}"
+        updated_lines: list[str] = []
+        replaced = False
+        for line in existing_lines:
+            if line.startswith("DATABASE_URL="):
+                updated_lines.append(replacement)
+                replaced = True
+            else:
+                updated_lines.append(line)
+        if not replaced:
+            if updated_lines and updated_lines[-1].strip():
+                updated_lines.append("")
+            updated_lines.append(replacement)
+        user_env.parent.mkdir(parents=True, exist_ok=True)
+        user_env.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+        current_database_url = default_database_url
+
+    if current_database_url:
+        os.environ.setdefault("DATABASE_URL", current_database_url)
+    else:
+        os.environ.setdefault("DATABASE_URL", default_database_url)
+        current_database_url = default_database_url
+    return current_database_url
+
+
 def bootstrap_runtime_environment(bundle_dir: Path, user_dir: Path) -> Path | None:
     user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -99,6 +145,8 @@ def bootstrap_runtime_environment(bundle_dir: Path, user_dir: Path) -> Path | No
     if not user_env.exists():
         _copy_if_missing(config_source / ".env", user_env)
         _copy_if_missing(config_source / ".env.example", user_env)
+
+    ensure_runtime_database_url(user_env, user_dir)
 
     if user_env.exists():
         load_dotenv(user_env, override=False)
