@@ -14,7 +14,7 @@ TARGET_DATE ?= $(END_DATE)
 
 .PHONY: help venv install db-up db-down db-migrate db-reset \
 	load-reference-data prepare-slate-inputs ingest-today refresh-aggregates features-today predict-today pipeline \
-	train-totals train-hits train-strikeouts backtest compare-prior-modes start-app test lint clean pipeline-range product-surfaces \
+	train-totals train-first5-totals train-hits train-strikeouts backtest compare-prior-modes start-app test lint clean pipeline-range product-surfaces \
 	rollout-strikeouts
 
 help: ## Show this help
@@ -60,7 +60,7 @@ ingest-today: ## Run all ingestors for today
 	"$(PYTHON_BIN)" -m src.ingestors.pitcher_statcast
 	"$(PYTHON_BIN)" -m src.ingestors.lineups
 	"$(PYTHON_BIN)" -m src.ingestors.weather
-	"$(PYTHON_BIN)" -m src.ingestors.market_totals
+	"$(PYTHON_BIN)" -m src.ingestors.market_totals --require-player-prop-coverage pitcher_strikeouts
 
 refresh-aggregates: ## Refresh daily shared-backbone aggregate tables
 	"$(PYTHON_BIN)" -m src.transforms.offense_daily
@@ -68,13 +68,18 @@ refresh-aggregates: ## Refresh daily shared-backbone aggregate tables
 
 features-today: ## Build features for today's slate
 	"$(PYTHON_BIN)" -m src.features.totals_builder
+	"$(PYTHON_BIN)" -m src.features.first5_totals_builder
 	"$(PYTHON_BIN)" -m src.features.hits_builder
 	"$(PYTHON_BIN)" -m src.features.strikeouts_builder
 
 predict-today: ## Generate predictions for today
 	"$(PYTHON_BIN)" -m src.models.predict_totals
+	"$(PYTHON_BIN)" -m src.models.predict_first5_totals
 	"$(PYTHON_BIN)" -m src.models.predict_hits
 	"$(PYTHON_BIN)" -m src.models.predict_strikeouts
+
+train-first5-totals: ## Train first-five totals baseline from feature snapshots
+	"$(PYTHON_BIN)" -m src.models.train_first5_totals
 
 product-surfaces: ## Build trend tables and model scorecards for today
 	"$(PYTHON_BIN)" -m src.transforms.product_surfaces

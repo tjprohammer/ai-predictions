@@ -67,6 +67,7 @@ def main() -> int:
         "src.transforms.offense_daily",
         "src.transforms.bullpens_daily",
         "src.features.totals_builder",
+        "src.features.first5_totals_builder",
         "src.features.hits_builder",
     ):
         _run_step(module_name, "--start-date", start_raw, "--end-date", end_raw)
@@ -75,6 +76,7 @@ def main() -> int:
     while current_date <= end_date:
         current_raw = current_date.isoformat()
         _run_step("src.models.predict_totals", "--target-date", current_raw)
+        _run_step("src.models.predict_first5_totals", "--target-date", current_raw)
         _run_step("src.models.predict_hits", "--target-date", current_raw)
         current_date += timedelta(days=1)
 

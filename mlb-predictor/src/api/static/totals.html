@@ -1,0 +1,1433 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MLB Predictor Totals</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bg: #f6f0e8;
+        --panel: rgba(255, 251, 246, 0.88);
+        --panel-strong: rgba(255, 251, 246, 0.96);
+        --ink: #142119;
+        --muted: #5f6e65;
+        --line: rgba(20, 33, 25, 0.12);
+        --accent: #0b6a58;
+        --accent-deep: #0a4a3f;
+        --accent-soft: rgba(11, 106, 88, 0.12);
+        --gold: #b7791f;
+        --gold-soft: rgba(183, 121, 31, 0.12);
+        --good: #166534;
+        --warn: #92400e;
+        --bad: #991b1b;
+        --shadow: 0 22px 64px rgba(20, 33, 25, 0.09);
+        --radius-xl: 28px;
+        --radius-lg: 22px;
+        --radius-md: 16px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background:
+          radial-gradient(
+            circle at top left,
+            rgba(11, 106, 88, 0.15),
+            transparent 32%
+          ),
+          radial-gradient(
+            circle at 85% 14%,
+            rgba(183, 121, 31, 0.12),
+            transparent 20%
+          ),
+          linear-gradient(180deg, #fcf9f4 0%, var(--bg) 100%);
+        font-family: "Bahnschrift", "Aptos", "Segoe UI Variable", sans-serif;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.24) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.2) 1px, transparent 1px);
+        background-size: 26px 26px;
+        opacity: 0.28;
+      }
+
+      main {
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 28px 20px 44px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+        padding: 12px 14px;
+        border-radius: 999px;
+        background: rgba(255, 251, 246, 0.82);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        position: sticky;
+        top: 16px;
+        z-index: 4;
+      }
+
+      .brand-link,
+      .nav-link {
+        text-decoration: none;
+        transition:
+          transform 140ms ease,
+          background 140ms ease,
+          border-color 140ms ease,
+          color 140ms ease;
+      }
+
+      .brand-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink);
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .brand-mark {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: linear-gradient(
+          135deg,
+          var(--accent) 0%,
+          var(--accent-deep) 100%
+        );
+        color: white;
+        font-size: 0.78rem;
+        letter-spacing: 0.16em;
+        box-shadow: 0 10px 24px rgba(11, 106, 88, 0.22);
+      }
+
+      .nav-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        justify-content: flex-end;
+      }
+
+      .nav-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(20, 33, 25, 0.08);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .nav-icon {
+        width: 15px;
+        height: 15px;
+        flex: 0 0 auto;
+      }
+
+      .nav-icon svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+        fill: currentColor;
+      }
+
+      .nav-link:hover {
+        transform: translateY(-1px);
+        border-color: rgba(11, 106, 88, 0.22);
+        color: var(--accent-deep);
+        background: rgba(11, 106, 88, 0.08);
+      }
+
+      .nav-link.active {
+        background: var(--accent);
+        color: white;
+        border-color: transparent;
+        box-shadow: 0 12px 24px rgba(11, 106, 88, 0.2);
+      }
+
+      .nav-link.active:hover {
+        background: var(--accent-deep);
+        color: white;
+      }
+
+      .hero-grid,
+      .control-grid,
+      .stat-grid,
+      .cards-grid,
+      .bullpen-grid,
+      .starter-grid,
+      .summary-grid,
+      .history-grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .hero-grid {
+        grid-template-columns: 1.2fr 0.9fr;
+        margin-bottom: 18px;
+      }
+
+      .hero-card,
+      .control-card,
+      .panel,
+      .stat-card,
+      .game-card,
+      .summary-card,
+      .starter-card,
+      .history-card {
+        background: var(--panel);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        border-radius: var(--radius-xl);
+      }
+
+      .hero-card {
+        padding: 28px;
+        background:
+          linear-gradient(
+            135deg,
+            rgba(11, 106, 88, 0.16),
+            rgba(255, 251, 245, 0.72) 35%,
+            rgba(183, 121, 31, 0.1) 100%
+          ),
+          var(--panel-strong);
+      }
+
+      .control-card,
+      .panel {
+        padding: 24px;
+      }
+
+      .eyebrow,
+      .chip,
+      .status-chip,
+      .history-chip,
+      .section-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        font-size: 0.76rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        border: 1px solid rgba(22, 36, 29, 0.08);
+      }
+
+      .eyebrow,
+      .chip,
+      .section-tag {
+        background: rgba(255, 255, 255, 0.78);
+        color: var(--accent-deep);
+      }
+
+      .chip.good,
+      .status-chip.good,
+      .history-chip.over {
+        background: rgba(22, 101, 52, 0.12);
+        color: var(--good);
+        border-color: rgba(22, 101, 52, 0.14);
+      }
+
+      .chip.warn,
+      .status-chip.warn,
+      .history-chip.under {
+        background: rgba(183, 121, 31, 0.12);
+        color: var(--warn);
+        border-color: rgba(183, 121, 31, 0.16);
+      }
+
+      .status-chip.bad,
+      .history-chip.push {
+        background: rgba(153, 27, 27, 0.1);
+        color: var(--bad);
+        border-color: rgba(153, 27, 27, 0.16);
+      }
+
+      .history-chip.no-line {
+        background: rgba(20, 33, 25, 0.08);
+        color: var(--muted);
+        border-color: rgba(20, 33, 25, 0.12);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        margin-top: 14px;
+        font-family: "Iowan Old Style", "Book Antiqua", Georgia, serif;
+        font-size: clamp(2.1rem, 3vw, 3.4rem);
+        line-height: 0.95;
+        letter-spacing: -0.04em;
+        max-width: 11ch;
+      }
+
+      .hero-copy,
+      .panel-subtitle,
+      .muted,
+      .small-copy,
+      .empty-state,
+      .data-copy,
+      .history-copy,
+      .summary-copy {
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .hero-copy {
+        margin-top: 12px;
+        max-width: 62ch;
+        font-size: 1rem;
+      }
+
+      .hero-actions,
+      .control-row,
+      .panel-head,
+      .game-header,
+      .game-topline,
+      .starter-head,
+      .history-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .hero-actions {
+        margin-top: 22px;
+      }
+
+      .button-link,
+      button,
+      input,
+      select {
+        font: inherit;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        min-height: 46px;
+        padding: 12px 16px;
+        transition:
+          transform 140ms ease,
+          background 140ms ease,
+          border-color 140ms ease;
+      }
+
+      button,
+      .button-link {
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+      }
+
+      button:hover,
+      .button-link:hover {
+        transform: translateY(-1px);
+      }
+
+      .primary {
+        background: var(--accent);
+        color: white;
+        border-color: transparent;
+      }
+
+      .secondary {
+        background: rgba(255, 255, 255, 0.88);
+        color: var(--ink);
+      }
+
+      .control-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-top: 18px;
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+
+      label {
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      input,
+      select {
+        background: rgba(255, 255, 255, 0.86);
+        color: var(--ink);
+      }
+
+      .checkbox-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 11px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.84);
+        font-size: 0.88rem;
+        font-weight: 700;
+      }
+
+      input[type="checkbox"] {
+        min-height: 0;
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        accent-color: var(--accent);
+      }
+
+      .stat-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-bottom: 18px;
+      }
+
+      .stat-card,
+      .game-card,
+      .summary-card,
+      .starter-card,
+      .history-card {
+        padding: 18px;
+        border-radius: var(--radius-lg);
+      }
+
+      .stat-value,
+      .summary-value {
+        margin-top: 8px;
+        font-size: 1.55rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+
+      .cards-grid {
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+        margin-top: 18px;
+      }
+
+      .game-card {
+        display: grid;
+        gap: 16px;
+        background: rgba(255, 255, 255, 0.75);
+      }
+
+      .game-title {
+        font-size: 1.3rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+
+      .game-subtitle,
+      .data-label,
+      .metric-label,
+      .tiny-label {
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .big-metric {
+        min-width: 132px;
+        padding: 12px 14px;
+        border-radius: 18px;
+        background: rgba(11, 106, 88, 0.08);
+        border: 1px solid rgba(11, 106, 88, 0.12);
+        text-align: right;
+      }
+
+      .big-metric .value {
+        display: block;
+        margin-top: 6px;
+        font-size: 1.35rem;
+        font-weight: 800;
+      }
+
+      .value.positive {
+        color: var(--good);
+      }
+
+      .value.negative {
+        color: var(--bad);
+      }
+
+      .value.flat {
+        color: var(--muted);
+      }
+
+      .summary-grid,
+      .bullpen-grid,
+      .starter-grid,
+      .history-grid {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+
+      .summary-card,
+      .bullpen-card,
+      .starter-card,
+      .history-card {
+        background: rgba(255, 255, 255, 0.82);
+      }
+
+      .bullpen-grid,
+      .starter-grid,
+      .history-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .bullpen-card {
+        padding: 18px;
+        border-radius: var(--radius-lg);
+      }
+
+      .data-stack {
+        display: grid;
+        gap: 8px;
+      }
+
+      .data-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+        font-size: 0.9rem;
+      }
+
+      .data-row:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .data-value {
+        font-weight: 700;
+        text-align: right;
+      }
+
+      .history-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .history-chip {
+        font-size: 0.74rem;
+        min-width: 40px;
+        justify-content: center;
+        cursor: default;
+      }
+
+      .history-summary {
+        margin-top: 10px;
+        font-size: 0.88rem;
+        color: var(--muted);
+      }
+
+      .history-entry {
+        display: grid;
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(246, 240, 232, 0.72);
+      }
+
+      .history-entry-top,
+      .history-entry-bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .history-entry-title {
+        font-size: 0.96rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+      }
+
+      .history-entry-subtitle,
+      .history-entry-meta {
+        font-size: 0.84rem;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .chip.bad {
+        background: rgba(153, 27, 27, 0.1);
+        color: var(--bad);
+        border-color: rgba(153, 27, 27, 0.16);
+      }
+
+      .empty-state {
+        padding: 22px;
+        border-radius: 20px;
+        border: 1px dashed var(--line);
+        background: rgba(255, 255, 255, 0.6);
+      }
+
+      @media (max-width: 1180px) {
+        .hero-grid,
+        .stat-grid,
+        .control-grid,
+        .summary-grid,
+        .bullpen-grid,
+        .starter-grid,
+        .history-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 820px) {
+        .topbar,
+        .nav-links {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .brand-link {
+          justify-content: center;
+        }
+
+        .nav-link,
+        button,
+        input,
+        select,
+        .button-link {
+          width: 100%;
+        }
+
+        main {
+          padding: 18px 14px 28px;
+        }
+
+        .hero-card,
+        .control-card,
+        .panel,
+        .stat-card,
+        .game-card,
+        .summary-card,
+        .bullpen-card,
+        .starter-card,
+        .history-card {
+          border-radius: 22px;
+        }
+
+        .game-header,
+        .panel-head,
+        .hero-actions,
+        .control-row,
+        .starter-head,
+        .history-head {
+          align-items: stretch;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav class="topbar" aria-label="Primary">
+        <a class="brand-link" data-app-link="" href=".">
+          <span class="brand-mark">MP</span>
+          <span>MLB Predictor</span>
+        </a>
+        <div class="nav-links">
+          <a class="nav-link" data-app-link="" href="."
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M3 5h8v6H3zm10 0h8v6h-8zM3 13h8v6H3zm10 0h8v6h-8z"
+                /></svg></span
+            ><span>Game Board</span></a
+          >
+          <a
+            class="nav-link active"
+            data-app-link="totals"
+            href="totals"
+            aria-current="page"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M4 6h16v3H4zm0 5h10v3H4zm0 5h7v3H4zm12.5-7.5L19 11l4-5"
+                /></svg></span
+            ><span>Totals</span></a
+          >
+          <a class="nav-link" data-app-link="hot-hitters" href="hot-hitters"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M13.5 2.5c.3 2.7-1 4.6-2.6 6.2-1.1 1.1-1.7 2.3-1.7 3.7 0 1.9 1.3 3.4 3.2 3.4 2.3 0 3.8-2 3.8-4.5 0-.8-.1-1.6-.5-2.5 2.3 1.3 4.3 4 4.3 7.1 0 4.1-3.3 7.1-8 7.1-4.6 0-8-2.9-8-7.4 0-3.3 1.7-5.5 4.1-7.5 2.4-1.9 4.8-3.8 5.4-5.6z"
+                /></svg></span
+            ><span>Hot Hitters</span></a
+          >
+          <a class="nav-link" data-app-link="pitchers" href="pitchers"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M15.5 2 8 9.5l1.4 1.4 2.6-2.6 3.7 3.7c.4.4 1 .6 1.5.6H19v1.8l3 3V11.8c0-.6-.2-1.1-.6-1.5L17.7 6.6l2.6-2.6zM3 19.5A2.5 2.5 0 0 0 5.5 22 2.5 2.5 0 0 0 8 19.5 2.5 2.5 0 0 0 5.5 17 2.5 2.5 0 0 0 3 19.5z"
+                /></svg></span
+            ><span>Pitcher Ks</span></a
+          >
+          <a class="nav-link" data-app-link="results" href="results"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M5 4h14v2H5zm0 5h14v2H5zm0 5h9v2H5zm11.5 1.5 1.6 1.6L22 13.2"
+                /></svg></span
+            ><span>Daily Results</span></a
+          >
+        </div>
+      </nav>
+
+      <section class="hero-grid">
+        <article class="hero-card">
+          <div class="eyebrow">Full-Game Totals</div>
+          <h1>See the over or under with the right context.</h1>
+          <p class="hero-copy">
+            This board isolates totals so you can compare model total, market
+            total, recent over-under history, run environment, and both starters
+            in one place. Starting pitchers matter here, but full-game totals
+            still move with bullpen stress, park, weather, and lineup quality.
+            Bullpen workload here means how much relief pitching a team has used
+            over its last three games.
+          </p>
+          <div class="hero-actions">
+            <a class="button-link secondary" data-app-link="" href="."
+              >Back to main board</a
+            >
+            <span class="small-copy" id="pageStatus"
+              >Waiting for totals board</span
+            >
+          </div>
+        </article>
+
+        <aside class="control-card">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Filters</div>
+              <h2>Totals controls</h2>
+            </div>
+            <span class="panel-subtitle"
+              >Trim the slate to the totals you want to compare</span
+            >
+          </div>
+
+          <div class="control-grid">
+            <div class="field">
+              <label for="targetDate">Target Date</label>
+              <input id="targetDate" type="date" />
+            </div>
+            <div class="field">
+              <label for="sortMode">Sort By</label>
+              <select id="sortMode">
+                <option value="edge" selected>Edge</option>
+                <option value="start">Start time</option>
+                <option value="total">Projected total</option>
+                <option value="lean">Lean probability</option>
+              </select>
+            </div>
+            <label class="checkbox-row"
+              ><input id="marketOnly" type="checkbox" checked />Only show
+              market-backed totals</label
+            >
+            <label class="checkbox-row"
+              ><input id="hideStartedOnly" type="checkbox" checked />Hide
+              started games</label
+            >
+          </div>
+
+          <div class="control-row" style="margin-top: 18px">
+            <button class="primary" id="refreshButton" type="button">
+              Refresh totals
+            </button>
+          </div>
+        </aside>
+      </section>
+
+      <section class="stat-grid">
+        <article class="stat-card">
+          <div class="section-tag">Displayed</div>
+          <div class="stat-value" id="displayedGamesCopy">-</div>
+          <div class="small-copy">Games matching the current totals filter</div>
+        </article>
+        <article class="stat-card">
+          <div class="section-tag">Market-Backed</div>
+          <div class="stat-value" id="marketGamesCopy">-</div>
+          <div class="small-copy">Games with a posted full-game total</div>
+        </article>
+        <article class="stat-card">
+          <div class="section-tag">Average Edge</div>
+          <div class="stat-value" id="averageEdgeCopy">-</div>
+          <div class="small-copy">
+            Average model edge across the visible totals
+          </div>
+        </article>
+        <article class="stat-card">
+          <div class="section-tag">Totals Review</div>
+          <div class="stat-value" id="totalsReviewCopy">-</div>
+          <div class="small-copy">Historical win rate after finals post</div>
+        </article>
+      </section>
+
+      <section class="panel" id="first5Panel">
+        <div class="panel-head">
+          <div>
+            <div class="section-tag">First 5</div>
+            <h2 id="first5Title">Not wired yet</h2>
+          </div>
+          <span class="panel-subtitle" id="first5Subtitle">Full-game totals only for now</span>
+        </div>
+        <div class="data-copy" id="first5Copy">
+          First 5 totals are not ingested yet. This page still shows why the
+          full-game total leans over or under, and it keeps the starter cards
+          prominent because starters are a primary totals input.
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="section-tag">Totals Board</div>
+            <h2>
+              Model total, market total, recent O/U history, and starter impact
+            </h2>
+          </div>
+          <span class="panel-subtitle" id="resultsSubtitle"
+            >Loading totals board</span
+          >
+        </div>
+        <div class="cards-grid" id="cardsGrid">
+          <div class="empty-state">Loading totals board...</div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      function localDateValue() {
+        const now = new Date();
+        const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+        return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+      }
+
+      function detectAppBase() {
+        const { pathname } = window.location;
+        if (pathname.endsWith("/totals")) {
+          const base = pathname.slice(0, -"/totals".length);
+          return base || "/";
+        }
+        return pathname.endsWith("/") ? pathname : `${pathname}/`;
+      }
+
+      const appBase = detectAppBase();
+
+      function appUrl(path = "") {
+        const normalizedBase = appBase.endsWith("/") ? appBase : `${appBase}/`;
+        return new URL(
+          path,
+          `${window.location.origin}${normalizedBase}`,
+        ).toString();
+      }
+
+      function applyAppLinks() {
+        document.querySelectorAll("[data-app-link]").forEach((link) => {
+          link.href = appUrl(link.dataset.appLink || "");
+        });
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function numberOr(value, fallback = null) {
+        if (value == null || value === "") return fallback;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : fallback;
+      }
+
+      function formatPercent(value, digits = 0) {
+        const number = numberOr(value);
+        return number == null ? "-" : `${(number * 100).toFixed(digits)}%`;
+      }
+
+      function formatNumber(value, digits = 2) {
+        const number = numberOr(value);
+        return number == null ? "-" : number.toFixed(digits);
+      }
+
+      function formatSigned(value, digits = 2) {
+        const number = numberOr(value);
+        return number == null
+          ? "-"
+          : `${number >= 0 ? "+" : ""}${number.toFixed(digits)}`;
+      }
+
+      function formatDateTime(value) {
+        if (!value) return "-";
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return String(value);
+        return parsed.toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      }
+
+      function formatShortDate(value) {
+        if (!value) return "-";
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return String(value);
+        return parsed.toLocaleDateString([], {
+          month: "short",
+          day: "numeric",
+        });
+      }
+
+      function sideLabel(side) {
+        if (side === "over") return "Over";
+        if (side === "under") return "Under";
+        if (side === "push") return "Push";
+        return "No line";
+      }
+
+      function venuePrefix(side) {
+        return side === "home" ? "vs" : "at";
+      }
+
+      function leanSide(totals) {
+        const over = numberOr(totals?.over_probability);
+        const under = numberOr(totals?.under_probability);
+        if (over == null || under == null) return "No lean";
+        return over >= under ? "Over lean" : "Under lean";
+      }
+
+      function leanProbability(totals) {
+        const over = numberOr(totals?.over_probability);
+        const under = numberOr(totals?.under_probability);
+        if (over == null || under == null) return null;
+        return Math.max(over, under);
+      }
+
+      function edgeTone(edge) {
+        const number = numberOr(edge);
+        if (number == null) return "flat";
+        if (number > 0) return "positive";
+        if (number < 0) return "negative";
+        return "flat";
+      }
+
+      function formatBaseballIp(value) {
+        const number = numberOr(value);
+        return number == null ? "-" : number.toFixed(1);
+      }
+
+      function bullpenSnapshot(team, totals, side) {
+        return {
+          team,
+          pitchesLast3: numberOr(totals?.[`${side}_bullpen_pitches_last3`]),
+          inningsLast3: numberOr(totals?.[`${side}_bullpen_innings_last3`]),
+          b2b: numberOr(totals?.[`${side}_bullpen_b2b`], 0) === 1,
+        };
+      }
+
+      function bullpenLoad(snapshot) {
+        const pitches = snapshot?.pitchesLast3;
+        const innings = snapshot?.inningsLast3;
+        const b2b = Boolean(snapshot?.b2b);
+        if (pitches == null && innings == null) {
+          return {
+            label: "Unknown load",
+            tone: "",
+            copy: "No recent bullpen workload loaded",
+          };
+        }
+        if ((pitches != null && pitches >= 110) || (innings != null && innings >= 10) || (b2b && pitches != null && pitches >= 85)) {
+          return {
+            label: "Heavy recent use",
+            tone: "bad",
+            copy: "This bullpen has thrown a lot lately, which can matter more in the late innings",
+          };
+        }
+        if ((pitches != null && pitches >= 75) || (innings != null && innings >= 7) || b2b) {
+          return {
+            label: "Used recently",
+            tone: "warn",
+            copy: "There has been some recent bullpen work, but not an extreme amount",
+          };
+        }
+        return {
+          label: "Light recent use",
+          tone: "good",
+          copy: "This bullpen has had a lighter workload lately and should be more rested",
+        };
+      }
+
+      function historyChip(record) {
+        const actualSide = String(record.actual_side || "").toLowerCase();
+        const chipClass =
+          actualSide === "over"
+            ? "over"
+            : actualSide === "under"
+              ? "under"
+              : actualSide === "push"
+                ? "push"
+                : "no-line";
+        return `<span class="history-chip ${chipClass}">${escapeHtml(sideLabel(actualSide))}</span>`;
+      }
+
+      function renderHistoryEntry(team, record) {
+        const marketTotal = numberOr(record.market_total);
+        const totalRuns = numberOr(record.total_runs);
+        const delta = numberOr(record.delta_vs_market);
+        const score = `${escapeHtml(team)} ${escapeHtml(record.team_runs ?? "-")} - ${escapeHtml(record.opponent || "TBD")} ${escapeHtml(record.opponent_runs ?? "-")}`;
+        const marketCopy =
+          marketTotal == null
+            ? "No posted full-game total loaded"
+            : `${formatNumber(totalRuns, 0)} runs vs ${formatNumber(marketTotal, 1)} line (${formatSigned(delta, 1)})`;
+        return `
+        <div class="history-entry">
+          <div class="history-entry-top">
+            <div>
+              <div class="history-entry-title">${escapeHtml(formatShortDate(record.game_date))} ${escapeHtml(venuePrefix(record.venue_side))} ${escapeHtml(record.opponent || "TBD")}</div>
+              <div class="history-entry-subtitle">${score}</div>
+            </div>
+            ${historyChip(record)}
+          </div>
+          <div class="history-entry-bottom">
+            <div class="history-entry-meta">${escapeHtml(marketCopy)}</div>
+            <div class="history-entry-meta">Final total: ${escapeHtml(record.total_runs ?? "-")}</div>
+          </div>
+        </div>
+      `;
+      }
+
+      function renderHistoryCard(team, rows) {
+        const marketBacked = (rows || []).filter(
+          (row) => numberOr(row.market_total) != null,
+        );
+        const overs = marketBacked.filter(
+          (row) => row.actual_side === "over",
+        ).length;
+        const unders = marketBacked.filter(
+          (row) => row.actual_side === "under",
+        ).length;
+        const pushes = marketBacked.filter(
+          (row) => row.actual_side === "push",
+        ).length;
+        const summary = marketBacked.length
+          ? `${overs} over, ${unders} under, ${pushes} push in the last ${marketBacked.length} lined games`
+          : "No recent lined totals loaded";
+        return `
+        <article class="history-card">
+          <div class="history-head">
+            <div>
+              <div class="section-tag">${escapeHtml(team)}</div>
+              <h3>Recent team totals</h3>
+            </div>
+            <span class="small-copy">Last 5 finals</span>
+          </div>
+          <div class="history-summary">${escapeHtml(summary)}</div>
+          <div class="history-list">${rows && rows.length ? rows.map((row) => renderHistoryEntry(team, row)).join("") : `<span class="small-copy">No recent games found</span>`}</div>
+          <div class="history-copy">Each row is one recent full game for ${escapeHtml(team)}. The result compares that game&apos;s final combined runs against the posted full-game total for that game.</div>
+        </article>
+      `;
+      }
+
+      function renderStarterCard(starter, fallbackLabel) {
+        if (!starter) {
+          return `
+          <article class="starter-card">
+            <div class="starter-head">
+              <div>
+                <div class="section-tag">${escapeHtml(fallbackLabel)}</div>
+                <h3>Starter pending</h3>
+              </div>
+              <span class="small-copy">No probable starter loaded</span>
+            </div>
+            <div class="data-stack">
+              <div class="data-row"><span class="data-label">Starter impact</span><span class="data-value">Pending</span></div>
+            </div>
+          </article>
+        `;
+        }
+        const recent = starter.recent_form || {};
+        return `
+        <article class="starter-card">
+          <div class="starter-head">
+            <div>
+              <div class="section-tag">${escapeHtml(starter.team || fallbackLabel)}</div>
+              <h3>${escapeHtml(starter.pitcher_name || "Starter")}</h3>
+            </div>
+            <span class="chip ${starter.is_probable ? "good" : "warn"}">${starter.throws ? `${escapeHtml(starter.throws)}HP` : "Hand -"}${starter.days_rest == null ? "" : ` | ${starter.days_rest}d rest`}</span>
+          </div>
+          <div class="data-stack">
+            <div class="data-row"><span class="data-label">xwOBA Against</span><span class="data-value">${formatNumber(starter.xwoba_against, 3)}</span></div>
+            <div class="data-row"><span class="data-label">CSW / Whiff</span><span class="data-value">${formatPercent(starter.csw_pct)} / ${formatPercent(starter.whiff_pct)}</span></div>
+            <div class="data-row"><span class="data-label">Recent IP / K</span><span class="data-value">${formatNumber(recent.avg_ip, 1)} / ${formatNumber(recent.avg_strikeouts, 1)}</span></div>
+            <div class="data-row"><span class="data-label">Last Start</span><span class="data-value">${formatShortDate(recent.last_start_date)}</span></div>
+          </div>
+        </article>
+      `;
+      }
+
+      function renderBullpenCard(snapshot) {
+        const load = bullpenLoad(snapshot);
+        return `
+        <article class="bullpen-card">
+          <div class="starter-head">
+            <div>
+              <div class="section-tag">${escapeHtml(snapshot.team)}</div>
+              <h3>Bullpen workload</h3>
+            </div>
+            <span class="chip ${load.tone}">${escapeHtml(load.label)}</span>
+          </div>
+          <div class="data-stack">
+            <div class="data-row"><span class="data-label">Last 3 Games</span><span class="data-value">${formatNumber(snapshot.pitchesLast3, 0)} pitches | ${formatBaseballIp(snapshot.inningsLast3)} IP</span></div>
+            <div class="data-row"><span class="data-label">Worked Yesterday</span><span class="data-value">${snapshot.b2b ? "Yes" : "No"}</span></div>
+            <div class="data-row"><span class="data-label">What It Means</span><span class="data-value">${escapeHtml(load.copy)}</span></div>
+          </div>
+        </article>
+      `;
+      }
+
+      function offenseCopy(team, recent) {
+        return `${escapeHtml(team)}: ${formatNumber(recent?.runs_per_game, 2)} RPG | ${formatNumber(recent?.xwoba, 3)} xwOBA | ${formatPercent(recent?.k_pct)}`;
+      }
+
+      function outcomeCopy(game) {
+        const totals = game.totals || {};
+        const actual = game.actual_result || {};
+        if (!actual.is_final) return "Outcome pending";
+        return `${actual.total_runs ?? "-"} runs | ${sideLabel(totals.actual_side)}${numberOr(totals.market_total) == null ? "" : ` vs ${formatNumber(totals.market_total, 1)}`}`;
+      }
+
+      function first5OutcomeCopy(first5) {
+        const actualTotal = numberOr(first5?.actual_total_runs);
+        if (actualTotal == null) return "Outcome pending";
+        return `${formatNumber(actualTotal, 0)} runs | ${sideLabel(first5.actual_side)}${numberOr(first5.market_total) == null ? "" : ` vs ${formatNumber(first5.market_total, 1)}`}`;
+      }
+
+      function renderFirst5SummaryCard(first5) {
+        if (!first5?.supported) return "";
+        const predicted = numberOr(first5.predicted_total_runs);
+        const market = numberOr(first5.market_total);
+        const awayExpected = numberOr(first5.away_expected_runs);
+        const homeExpected = numberOr(first5.home_expected_runs);
+        const splitCopy = awayExpected == null || homeExpected == null
+          ? "Starter and lineup context pending"
+          : `Expected split ${formatNumber(awayExpected, 2)} / ${formatNumber(homeExpected, 2)}`;
+        const headline = predicted == null
+          ? "Prediction pending"
+          : `${formatNumber(predicted, 2)} / ${formatNumber(market, 1)}`;
+        const detail = predicted == null
+          ? `${splitCopy} | Trained first-five pick not available yet`
+          : `Delta ${formatSigned(first5.delta_vs_market, 2)} | ${first5.recommended_side ? `${escapeHtml(first5.recommended_side)} call` : "No posted first-five total"}`;
+        return `
+            <article class="summary-card">
+              <div class="data-label">First 5 / Market</div>
+              <div class="summary-value">${headline}</div>
+              <div class="summary-copy">${detail}</div>
+              <div class="summary-copy">Outcome: ${escapeHtml(first5OutcomeCopy(first5))}</div>
+            </article>
+          `;
+      }
+
+      function renderGameCard(game) {
+        const totals = game.totals || {};
+        const first5 = game.first5_totals || {};
+        const venue = game.venue || {};
+        const weather = game.weather || {};
+        const starters = game.starters || {};
+        const bullpens = {
+          away: bullpenSnapshot(game.away_team, totals, "away"),
+          home: bullpenSnapshot(game.home_team, totals, "home"),
+        };
+        const recentTotals = game.recent_totals || {};
+        const recentOffense = game.recent_offense || {};
+        const lean = leanSide(totals);
+        const leanProb = leanProbability(totals);
+        return `
+        <article class="game-card">
+          <div class="game-header">
+            <div>
+              <div class="eyebrow">${escapeHtml(formatDateTime(game.game_start_ts))} | ${escapeHtml(venue.name || "Venue TBD")}</div>
+              <div class="game-title">${escapeHtml(game.away_team)} at ${escapeHtml(game.home_team)}</div>
+              <div class="game-subtitle">${escapeHtml([venue.city, venue.state].filter(Boolean).join(", "))}${venue.roof_type ? ` | ${escapeHtml(venue.roof_type)}` : ""}</div>
+            </div>
+            <div class="big-metric">
+              <span class="tiny-label">Totals Edge</span>
+              <span class="value ${edgeTone(totals.edge)}">${formatSigned(totals.edge)}</span>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <article class="summary-card">
+              <div class="data-label">Model / Market</div>
+              <div class="summary-value">${formatNumber(totals.predicted_total_runs, 2)} / ${formatNumber(totals.market_total, 1)}</div>
+              <div class="summary-copy">Delta ${formatSigned(totals.delta_vs_market, 2)} | ${totals.recommended_side ? `${escapeHtml(totals.recommended_side)} call` : "No posted total"}</div>
+            </article>
+            ${renderFirst5SummaryCard(first5)}
+            <article class="summary-card">
+              <div class="data-label">Lean</div>
+              <div class="summary-value">${escapeHtml(lean)}</div>
+              <div class="summary-copy">${leanProb == null ? "Probability pending" : `${formatPercent(leanProb, 1)} stronger side`}</div>
+            </article>
+            <article class="summary-card">
+              <div class="data-label">Expected Runs</div>
+              <div class="summary-value">${escapeHtml(game.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(game.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div>
+              <div class="summary-copy">Outcome: ${escapeHtml(outcomeCopy(game))}</div>
+            </article>
+          </div>
+
+          <div class="data-stack">
+            <div class="data-row"><span class="data-label">Run Environment</span><span class="data-value">Park ${formatNumber(totals.venue_run_factor, 2)} | HR ${formatNumber(totals.venue_hr_factor, 2)}</span></div>
+            <div class="data-row"><span class="data-label">Weather</span><span class="data-value">${formatNumber(weather.temperature_f, 0)}F | Wind ${formatNumber(weather.wind_speed_mph, 0)} mph | Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}</span></div>
+            <div class="data-row"><span class="data-label">Line Move</span><span class="data-value">${formatSigned(totals.line_movement, 2)}</span></div>
+            <div class="data-row"><span class="data-label">Recent Offense</span><span class="data-value">${escapeHtml(offenseCopy(game.away_team, recentOffense.away))}</span></div>
+            <div class="data-row"><span class="data-label">Recent Offense</span><span class="data-value">${escapeHtml(offenseCopy(game.home_team, recentOffense.home))}</span></div>
+          </div>
+
+          <div class="starter-grid">
+            ${renderStarterCard(starters.away, game.away_team)}
+            ${renderStarterCard(starters.home, game.home_team)}
+          </div>
+
+          <div class="bullpen-grid">
+            ${renderBullpenCard(bullpens.away)}
+            ${renderBullpenCard(bullpens.home)}
+          </div>
+
+          <div class="history-grid">
+            ${renderHistoryCard(game.away_team, recentTotals.away || [])}
+            ${renderHistoryCard(game.home_team, recentTotals.home || [])}
+          </div>
+        </article>
+      `;
+      }
+
+      const state = {
+        games: [],
+        summary: null,
+        first5Supported: false,
+      };
+
+      applyAppLinks();
+
+      const targetDateInput = document.getElementById("targetDate");
+      const sortModeInput = document.getElementById("sortMode");
+      const marketOnlyInput = document.getElementById("marketOnly");
+      const hideStartedOnlyInput = document.getElementById("hideStartedOnly");
+      const refreshButton = document.getElementById("refreshButton");
+      const pageStatus = document.getElementById("pageStatus");
+      const resultsSubtitle = document.getElementById("resultsSubtitle");
+      const cardsGrid = document.getElementById("cardsGrid");
+      const displayedGamesCopy = document.getElementById("displayedGamesCopy");
+      const marketGamesCopy = document.getElementById("marketGamesCopy");
+      const averageEdgeCopy = document.getElementById("averageEdgeCopy");
+      const totalsReviewCopy = document.getElementById("totalsReviewCopy");
+      const first5Title = document.getElementById("first5Title");
+      const first5Subtitle = document.getElementById("first5Subtitle");
+      const first5Copy = document.getElementById("first5Copy");
+
+      targetDateInput.value = localDateValue();
+
+      function isTodayTarget() {
+        return targetDateInput.value === localDateValue();
+      }
+
+      function hasStarted(startTs) {
+        if (!startTs) return false;
+        const parsed = new Date(startTs);
+        if (Number.isNaN(parsed.getTime())) return false;
+        return parsed.getTime() <= Date.now();
+      }
+
+      function sortGames(games) {
+        const sorted = [...games];
+        const mode = sortModeInput.value;
+        if (mode === "start") {
+          return sorted.sort(
+            (left, right) =>
+              new Date(left.game_start_ts || 0) -
+              new Date(right.game_start_ts || 0),
+          );
+        }
+        if (mode === "total") {
+          return sorted.sort(
+            (left, right) =>
+              numberOr((right.totals || {}).predicted_total_runs, -1) -
+              numberOr((left.totals || {}).predicted_total_runs, -1),
+          );
+        }
+        if (mode === "lean") {
+          return sorted.sort(
+            (left, right) =>
+              numberOr(leanProbability(right.totals), -1) -
+              numberOr(leanProbability(left.totals), -1),
+          );
+        }
+        return sorted.sort(
+          (left, right) =>
+            Math.abs(numberOr((right.totals || {}).edge, -999)) -
+            Math.abs(numberOr((left.totals || {}).edge, -999)),
+        );
+      }
+
+      function filteredGames() {
+        const rows = (state.games || []).filter((game) => {
+          if (
+            marketOnlyInput.checked &&
+            numberOr((game.totals || {}).market_total) == null
+          )
+            return false;
+          if (
+            hideStartedOnlyInput.checked &&
+            isTodayTarget() &&
+            hasStarted(game.game_start_ts)
+          )
+            return false;
+          return true;
+        });
+        return sortGames(rows);
+      }
+
+      function updateSummary(games) {
+        const summary = state.summary || {};
+        const edges = games
+          .map((game) => numberOr((game.totals || {}).edge))
+          .filter((value) => value != null);
+        const marketGames = games.filter(
+          (game) => numberOr((game.totals || {}).market_total) != null,
+        ).length;
+        displayedGamesCopy.textContent = String(games.length);
+        marketGamesCopy.textContent = String(marketGames);
+        averageEdgeCopy.textContent = edges.length
+          ? formatSigned(
+              edges.reduce((sum, value) => sum + value, 0) / edges.length,
+              3,
+            )
+          : "-";
+        totalsReviewCopy.textContent =
+          summary.totals_review?.win_rate == null
+            ? "-"
+            : `${Math.round(Number(summary.totals_review.win_rate) * 100)}%`;
+        pageStatus.textContent = `${games.length} totals shown for ${targetDateInput.value}`;
+      }
+
+      function renderGames() {
+        const games = filteredGames();
+        updateSummary(games);
+        const summary = state.summary || {};
+        resultsSubtitle.textContent = summary.totals_review?.graded_games
+          ? `${games.length} games shown | ${summary.totals_review.graded_games} graded totals in review`
+          : `${games.length} totals loaded for ${targetDateInput.value}`;
+        if (!games.length) {
+          cardsGrid.innerHTML = `<div class="empty-state">No totals match this filter for ${escapeHtml(targetDateInput.value)}. Try showing games without posted totals or allowing started games.</div>`;
+          return;
+        }
+        cardsGrid.innerHTML = games.map(renderGameCard).join("");
+      }
+
+      async function loadTotalsBoard() {
+        const params = new URLSearchParams({
+          target_date: targetDateInput.value,
+        });
+        const response = await fetch(
+          appUrl(`api/totals/board?${params.toString()}`),
+        );
+        if (!response.ok) {
+          throw new Error(`Totals board request failed: ${response.status}`);
+        }
+        const payload = await response.json();
+        state.games = payload.games || [];
+        state.summary = payload.summary || null;
+        state.first5Supported = Boolean(payload.first5_supported);
+      }
+
+      async function refreshPage() {
+        refreshButton.disabled = true;
+        cardsGrid.innerHTML = `<div class="empty-state">Refreshing totals board...</div>`;
+        resultsSubtitle.textContent = "Refreshing";
+        pageStatus.textContent = `Loading ${targetDateInput.value}`;
+        try {
+          await loadTotalsBoard();
+          first5Title.textContent = state.first5Supported ? "Partially wired" : "Not wired yet";
+          first5Subtitle.textContent = state.first5Supported
+            ? `${state.summary?.first5_supported_games || 0} game cards have first-five context`
+            : "Full-game totals only for now";
+          first5Copy.textContent = state.first5Supported
+            ? "First 5 context is now attached to game cards when the data exists. If you still see 'Prediction pending' on a card, the feature row exists but the trained first-five model artifact or posted first-five line is still missing for that game."
+            : "First 5 totals are not ingested yet. This page is full-game only for now, but it keeps starters prominent because they heavily influence the total before the bullpen takes over.";
+          renderGames();
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          cardsGrid.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+          resultsSubtitle.textContent = "Totals board request failed";
+          pageStatus.textContent = message;
+        } finally {
+          refreshButton.disabled = false;
+        }
+      }
+
+      refreshButton.addEventListener("click", refreshPage);
+      targetDateInput.addEventListener("change", refreshPage);
+      sortModeInput.addEventListener("change", renderGames);
+      marketOnlyInput.addEventListener("change", renderGames);
+      hideStartedOnlyInput.addEventListener("change", renderGames);
+
+      refreshPage();
+    </script>
+  </body>
+</html>

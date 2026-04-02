@@ -3,15 +3,46 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime, timezone
 
+import numpy as np
 import pandas as pd
 
 from src.models.common import encode_frame, load_feature_snapshots, load_latest_artifact
-from src.utils.db import run_sql, upsert_rows
+from src.utils.db import query_df, run_sql, upsert_rows
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
 
 log = get_logger(__name__)
+
+HITTER_MARKET_TYPES = ("player_hits", "1_plus_hit", "hits")
+
+
+def _clip_probabilities(probabilities: np.ndarray) -> np.ndarray:
+    return np.clip(np.asarray(probabilities, dtype=float), 1e-6, 1.0 - 1e-6)
+
+
+def _apply_probability_calibration(probabilities: np.ndarray, artifact: dict) -> np.ndarray:
+    calibration_method = artifact.get("calibration_method") or "identity"
+    calibrator = artifact.get("calibrator")
+    if calibrator is None or calibration_method == "identity":
+        return _clip_probabilities(probabilities)
+    reshaped = np.asarray(probabilities, dtype=float).reshape(-1, 1)
+    if calibration_method == "sigmoid":
+        return _clip_probabilities(calibrator.predict_proba(reshaped)[:, 1])
+    if calibration_method == "isotonic":
+        return _clip_probabilities(calibrator.predict(np.asarray(probabilities, dtype=float)))
+    return _clip_probabilities(probabilities)
+
+
+def _implied_probability(american_price: float | None) -> float | None:
+    if american_price is None:
+        return None
+    if american_price > 0:
+        return 100.0 / (american_price + 100.0)
+    if american_price < 0:
+        absolute = abs(american_price)
+        return absolute / (absolute + 100.0)
+    return None
 
 
 def _fair_american(probability: float | None) -> int | None:
@@ -20,6 +51,42 @@ def _fair_american(probability: float | None) -> int | None:
     if probability >= 0.5:
         return int(round(-100 * probability / (1 - probability)))
     return int(round(100 * (1 - probability) / probability))
+
+
+def _fetch_market_map(target_date: date) -> dict[tuple[int, int], int | None]:
+    frame = query_df(
+        """
+        WITH ranked AS (
+            SELECT
+                ppm.game_id,
+                ppm.player_id,
+                ppm.sportsbook,
+                ppm.market_type,
+                ppm.line_value,
+                ppm.over_price,
+                ppm.snapshot_ts,
+                ROW_NUMBER() OVER (
+                    PARTITION BY ppm.game_id, ppm.player_id, ppm.sportsbook, ppm.market_type
+                    ORDER BY ppm.snapshot_ts DESC
+                ) AS row_rank
+            FROM player_prop_markets ppm
+            WHERE ppm.game_date = :target_date
+              AND ppm.market_type = ANY(:market_types)
+        )
+        SELECT game_id, player_id, line_value, over_price
+        FROM ranked
+        WHERE row_rank = 1
+          AND (line_value IS NULL OR line_value <= 0.5)
+        """,
+        {"target_date": target_date, "market_types": list(HITTER_MARKET_TYPES)},
+    )
+    if frame.empty:
+        return {}
+    market_map: dict[tuple[int, int], int | None] = {}
+    for (game_id, player_id), rows in frame.groupby(["game_id", "player_id"]):
+        over_prices = pd.to_numeric(rows["over_price"], errors="coerce").dropna()
+        market_map[(int(game_id), int(player_id))] = int(over_prices.max()) if not over_prices.empty else None
+    return market_map
 
 
 def main() -> int:
@@ -53,10 +120,14 @@ def main() -> int:
 
     feature_columns = artifact["feature_columns"]
     X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
-    probabilities = artifact["model"].predict_proba(X)[:, 1]
+    raw_probabilities = artifact["model"].predict_proba(X)[:, 1]
+    probabilities = _apply_probability_calibration(raw_probabilities, artifact)
     prediction_ts = datetime.now(timezone.utc)
+    market_map = _fetch_market_map(target_date)
     rows = []
     for row, probability in zip(scoring.itertuples(index=False), probabilities):
+        market_price = market_map.get((int(row.game_id), int(row.player_id)))
+        implied_probability = _implied_probability(market_price)
         rows.append(
             {
                 "game_id": int(row.game_id),
@@ -68,8 +139,8 @@ def main() -> int:
                 "model_version": artifact["model_version"],
                 "predicted_hit_probability": float(probability),
                 "fair_price": _fair_american(float(probability)),
-                "market_price": None,
-                "edge": None,
+                "market_price": market_price,
+                "edge": None if implied_probability is None else float(probability) - implied_probability,
             }
         )
 

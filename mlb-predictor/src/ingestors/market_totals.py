@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from html import unescape
 from pathlib import Path
 
 import pandas as pd
@@ -17,7 +19,12 @@ from src.utils.settings import get_settings
 log = get_logger(__name__)
 
 ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
+ODDS_API_EVENTS_URL = "https://api.the-odds-api.com/v4/sports/baseball_mlb/events"
+ODDS_API_EVENT_ODDS_URL = "https://api.the-odds-api.com/v4/sports/baseball_mlb/events/{event_id}/odds"
 COVERS_ODDS_URL = "https://www.covers.com/sport/baseball/mlb/odds"
+COVERS_PLAYER_PROPS_URL = "https://www.covers.com/sport/baseball/mlb/player-props"
+COVERS_PLAYER_PROP_MATCHUP_URL = "https://www.covers.com/sport/player-props/matchup/mlb/{matchup_ids}"
+ROTOWIRE_PLAYER_PROPS_URL = "https://www.rotowire.com/betting/mlb/player-props.php"
 
 
 REQUIRED_COLUMNS = {
@@ -27,8 +34,17 @@ REQUIRED_COLUMNS = {
     "line_value",
     "snapshot_ts",
 }
+MARKET_DATA_COLUMNS = ["line_value", "over_price", "under_price"]
 
-PLAYER_PROP_MARKET_TYPES = {"pitcher_strikeouts"}
+PLAYER_PROP_MARKET_TYPES = {"pitcher_strikeouts", "player_hits"}
+ODDS_API_PLAYER_PROP_MARKETS = {
+    "batter_hits": "player_hits",
+    "pitcher_strikeouts": "pitcher_strikeouts",
+}
+COVERS_PLAYER_PROP_MARKETS = {
+    "MLB_GAME_PLAYER_HITS": "player_hits",
+    "MLB_GAME_PLAYER_PITCHER_STRIKEOUTS": "pitcher_strikeouts",
+}
 
 TEAM_ABBR_ALIASES = {
     "WAS": "WSH",
@@ -86,6 +102,10 @@ def _normalize_name(value: str | None) -> str:
     return aliases.get(cleaned, cleaned)
 
 
+def _normalize_player_name(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+
+
 def _normalize_team_abbr(value: str | None) -> str | None:
     if value is None:
         return None
@@ -126,11 +146,318 @@ def _parse_covers_date(label: str, default_year: int) -> datetime.date | None:
     if upper.startswith("TOMORROW"):
         return datetime.now(timezone.utc).date() + pd.Timedelta(days=1)
     token = raw.split(",", 1)[0].strip()
+    for date_format in ("%b %d %Y", "%B %d %Y"):
+        try:
+            return datetime.strptime(f"{token} {default_year}", date_format).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _slice_html_blocks(html: str, start_pattern: str) -> list[str]:
+    starts = [match.start() for match in re.finditer(start_pattern, html)]
+    if not starts:
+        return []
+    return [
+        html[start : starts[index + 1] if index + 1 < len(starts) else len(html)]
+        for index, start in enumerate(starts)
+    ]
+
+
+def _normalize_sportsbook_key(value: str | None) -> str | None:
+    cleaned = re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+    return cleaned or None
+
+
+def _coerce_optional_int(value: object) -> int | None:
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
     try:
-        parsed = datetime.strptime(f"{token} {default_year}", "%b %d %Y").date()
+        return int(float(text))
     except ValueError:
         return None
-    return parsed
+
+
+def _extract_covers_player_prop_matchup_ids(
+    page_html: str,
+    start_date: date,
+    end_date: date,
+) -> dict[date, list[str]]:
+    groups: dict[date, list[str]] = {}
+    section_pattern = re.compile(
+        r'<p class="message-label">([^<]+)</p>(.*?)(?=(?:<p class="message-label">)|$)',
+        re.S,
+    )
+    for match in section_pattern.finditer(page_html):
+        game_date = _parse_covers_date(unescape(match.group(1)), end_date.year)
+        if game_date is None or game_date < start_date or game_date > end_date:
+            continue
+        matchup_ids: list[str] = []
+        for matchup_id in re.findall(r"/sport/baseball/mlb/matchup/(\d+)/picks#props", match.group(2)):
+            if matchup_id not in matchup_ids:
+                matchup_ids.append(matchup_id)
+        if matchup_ids:
+            groups[game_date] = matchup_ids
+    return groups
+
+
+def _build_game_lookup(games: pd.DataFrame) -> dict[tuple[date, str, str], dict[str, object]]:
+    lookup: dict[tuple[date, str, str], dict[str, object]] = {}
+    for row in games.itertuples(index=False):
+        lookup[(row.game_date, row.home_team, row.away_team)] = row._asdict()
+    return lookup
+
+
+def _build_game_lookup_by_team_opponent(games: pd.DataFrame) -> dict[tuple[date, str, str], dict[str, object]]:
+    lookup: dict[tuple[date, str, str], dict[str, object]] = {}
+    for row in games.itertuples(index=False):
+        payload = row._asdict()
+        lookup[(row.game_date, row.away_team, row.home_team)] = payload
+        lookup[(row.game_date, row.home_team, row.away_team)] = payload
+    return lookup
+
+
+def _extract_rotowire_data_arrays(page_html: str) -> list[list[dict[str, object]]]:
+    datasets: list[list[dict[str, object]]] = []
+    for raw in re.findall(r"data:\s*(\[\{.*?\}\]),\s*theme:", page_html, re.S):
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, list) and payload:
+            datasets.append(payload)
+    return datasets
+
+
+def _extract_rotowire_strikeout_rows(
+    page_html: str,
+    game_date: date,
+    game_lookup: dict[tuple[date, str, str], dict[str, object]],
+    slate_player_lookup: dict[tuple[int, str], list[dict[str, object]]],
+    *,
+    snapshot_ts: datetime,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for dataset in _extract_rotowire_data_arrays(page_html):
+        if not dataset:
+            continue
+        first_row = dataset[0]
+        strikeout_keys = [
+            key for key in first_row.keys() if key.endswith("_strikeouts") and not key.endswith(("Under", "Over"))
+        ]
+        if not strikeout_keys:
+            continue
+
+        for entry in dataset:
+            player_name = str(entry.get("name") or "").strip()
+            team = _normalize_team_abbr(entry.get("team"))
+            opponent = _normalize_team_abbr(str(entry.get("opp") or "").strip().lstrip("@"))
+            if not player_name or not team or not opponent:
+                continue
+            matched_game = game_lookup.get((game_date, team, opponent))
+            if matched_game is None:
+                continue
+            game_id = int(matched_game["game_id"])
+            resolved_player = _resolve_slate_player(game_id, player_name, slate_player_lookup)
+            if resolved_player is None:
+                continue
+
+            for key in strikeout_keys:
+                sportsbook = _normalize_sportsbook_key(key[: -len("_strikeouts")])
+                if not sportsbook:
+                    continue
+                line_value = pd.to_numeric(entry.get(key), errors="coerce")
+                if pd.isna(line_value):
+                    continue
+                over_price = _coerce_optional_int(entry.get(f"{sportsbook}_strikeoutsOver"))
+                under_price = _coerce_optional_int(entry.get(f"{sportsbook}_strikeoutsUnder"))
+                rows.append(
+                    {
+                        "game_id": game_id,
+                        "game_date": game_date,
+                        "player_id": int(resolved_player["player_id"]),
+                        "player_name": resolved_player.get("player_name") or player_name,
+                        "team": resolved_player.get("team") or team,
+                        "sportsbook": sportsbook,
+                        "market_type": "pitcher_strikeouts",
+                        "line_value": float(line_value),
+                        "over_price": over_price,
+                        "under_price": under_price,
+                        "snapshot_ts": snapshot_ts,
+                        "is_opening": False,
+                        "is_closing": False,
+                        "source_name": "rotowire_player_props",
+                    }
+                )
+        break
+    return rows
+
+
+def _fetch_rotowire_player_prop_rows(start_date, end_date) -> list[dict[str, object]]:
+    today = datetime.now(timezone.utc).date()
+    if today < start_date or today > end_date:
+        return []
+
+    games = _load_games(start_date, end_date)
+    if games.empty:
+        return []
+
+    response = requests.get(
+        ROTOWIRE_PLAYER_PROPS_URL,
+        timeout=30,
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    response.raise_for_status()
+
+    game_lookup = _build_game_lookup_by_team_opponent(games)
+    slate_player_lookup = _load_slate_player_lookup(start_date, end_date)
+    return _extract_rotowire_strikeout_rows(
+        response.text,
+        today,
+        game_lookup,
+        slate_player_lookup,
+        snapshot_ts=datetime.now(timezone.utc),
+    )
+
+
+def _extract_covers_prop_side(row_html: str, cell_class: str) -> tuple[float | None, int | None]:
+    cell_match = re.search(
+        rf'<div class="{cell_class}"[^>]*>.*?[ou]\s*([0-9]+(?:\.[0-9]+)?)\s*<span class="oddtype">\s*([+\-]?\d+)\s*</span>',
+        row_html,
+        re.S,
+    )
+    if not cell_match:
+        return None, None
+    return float(cell_match.group(1)), int(cell_match.group(2))
+
+
+def _extract_covers_player_prop_rows(
+    partial_html: str,
+    game_date: date,
+    market_type: str,
+    game_lookup: dict[tuple[date, str, str], dict[str, object]],
+    slate_player_lookup: dict[tuple[int, str], list[dict[str, object]]],
+    *,
+    snapshot_ts: datetime,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for article_html in _slice_html_blocks(partial_html, r"<article\b"):
+        if "player-prop-article" not in article_html:
+            continue
+        article_text = unescape(article_html)
+        player_match = re.search(r'<div class="picture-div">.*?<img[^>]*alt="([^"]+)"', article_text, re.S)
+        teams_match = re.search(
+            r'<span class="away-shortname[^>]*">([A-Z]{2,3})</span>.*?<span class="home-shortname[^>]*">([A-Z]{2,3})</span>',
+            article_text,
+            re.S,
+        )
+        if not player_match or not teams_match:
+            continue
+        player_name = player_match.group(1).strip()
+        away_team = _normalize_team_abbr(teams_match.group(1))
+        home_team = _normalize_team_abbr(teams_match.group(2))
+        if not away_team or not home_team:
+            continue
+        matched_game = game_lookup.get((game_date, home_team, away_team))
+        if matched_game is None:
+            continue
+        game_id = int(matched_game["game_id"])
+        resolved_player = _resolve_slate_player(game_id, player_name, slate_player_lookup)
+        if resolved_player is None:
+            continue
+
+        prop_match = re.search(
+            r'<div class="other-over-odds"[^>]*data-num-col="2">\s*([0-9]+(?:\.[0-9]+)?)\s*<div class="player-event">',
+            article_text,
+            re.S,
+        )
+        prop_line = float(prop_match.group(1)) if prop_match else None
+
+        compare_index = article_text.find('<div class="player-compareOdds-div">')
+        compare_html = article_text[compare_index:] if compare_index >= 0 else article_text
+        for row_html in _slice_html_blocks(compare_html, r'<div class="other-odds-row"'):
+            sportsbook_match = re.search(r"sportsbooks/([a-z0-9-]+)\.(?:svg|png)", row_html, re.I)
+            sportsbook = _normalize_sportsbook_key(sportsbook_match.group(1) if sportsbook_match else None)
+            if not sportsbook:
+                continue
+            over_line, over_price = _extract_covers_prop_side(row_html, "other-over-odds")
+            under_line, under_price = _extract_covers_prop_side(row_html, "other-under-odds")
+            line_value = over_line if over_line is not None else under_line if under_line is not None else prop_line
+            if line_value is None or (over_price is None and under_price is None):
+                continue
+            rows.append(
+                {
+                    "game_id": game_id,
+                    "game_date": game_date,
+                    "player_id": int(resolved_player["player_id"]),
+                    "player_name": resolved_player.get("player_name") or player_name,
+                    "team": resolved_player.get("team"),
+                    "sportsbook": sportsbook,
+                    "market_type": market_type,
+                    "line_value": line_value,
+                    "over_price": over_price,
+                    "under_price": under_price,
+                    "snapshot_ts": snapshot_ts,
+                    "is_opening": False,
+                    "is_closing": False,
+                    "source_name": "covers_player_props",
+                }
+            )
+    return rows
+
+
+def _fetch_covers_player_prop_rows(start_date, end_date) -> list[dict[str, object]]:
+    games = _load_games(start_date, end_date)
+    if games.empty:
+        return []
+
+    response = requests.get(
+        COVERS_PLAYER_PROPS_URL,
+        timeout=30,
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    response.raise_for_status()
+    matchup_groups = _extract_covers_player_prop_matchup_ids(response.text, start_date, end_date)
+    if not matchup_groups:
+        log.info("No Covers player prop matchups were available for %s to %s", start_date, end_date)
+        return []
+
+    game_lookup = _build_game_lookup(games)
+    slate_player_lookup = _load_slate_player_lookup(start_date, end_date)
+    rows: list[dict[str, object]] = []
+    for game_date, matchup_ids in sorted(matchup_groups.items()):
+        if not matchup_ids:
+            continue
+        matchup_key = ",".join(matchup_ids)
+        for prop_event, market_type in COVERS_PLAYER_PROP_MARKETS.items():
+            snapshot_ts = datetime.now(timezone.utc)
+            partial_response = requests.get(
+                COVERS_PLAYER_PROP_MATCHUP_URL.format(matchup_ids=matchup_key),
+                params={
+                    "propEvent": prop_event,
+                    "countryCode": "US",
+                    "stateProv": "AZ",
+                    "isLeagueVersion": "True",
+                    "experiment": "false",
+                },
+                timeout=30,
+                headers={"User-Agent": "Mozilla/5.0", "X-Requested-With": "XMLHttpRequest"},
+            )
+            partial_response.raise_for_status()
+            rows.extend(
+                _extract_covers_player_prop_rows(
+                    partial_response.text,
+                    game_date,
+                    market_type,
+                    game_lookup,
+                    slate_player_lookup,
+                    snapshot_ts=snapshot_ts,
+                )
+            )
+    return rows
 
 
 def _fetch_covers_rows(start_date, end_date) -> list[dict[str, object]]:
@@ -287,6 +614,224 @@ def _fetch_odds_api_rows(start_date, end_date, api_key: str) -> list[dict[str, o
     return rows
 
 
+def _as_odds_api_timestamp(value: date, *, end_of_day: bool = False) -> str:
+    base_time = time(23, 59, 59) if end_of_day else time(0, 0, 0)
+    ts = datetime.combine(value, base_time, tzinfo=timezone.utc)
+    return ts.isoformat().replace("+00:00", "Z")
+
+
+def _match_event_to_game(event: dict[str, object], games: pd.DataFrame) -> dict[str, object] | None:
+    home_team = _normalize_name(str(event.get("home_team") or ""))
+    away_team = _normalize_name(str(event.get("away_team") or ""))
+    event_ts = pd.to_datetime(event.get("commence_time"), utc=True, errors="coerce")
+    if pd.isna(event_ts):
+        return None
+    event_date = event_ts.date()
+
+    normalized = games.copy()
+    normalized["home_team_name_key"] = normalized["home_team_name"].map(_normalize_name)
+    normalized["away_team_name_key"] = normalized["away_team_name"].map(_normalize_name)
+    matched = normalized[
+        (normalized["home_team_name_key"] == home_team)
+        & (normalized["away_team_name_key"] == away_team)
+    ].copy()
+    if matched.empty:
+        return None
+
+    exact = matched[matched["game_date"] == event_date]
+    if not exact.empty:
+        return exact.iloc[0].to_dict()
+    if len(matched) == 1:
+        return matched.iloc[0].to_dict()
+
+    matched["date_distance"] = matched["game_date"].apply(lambda game_date: abs((game_date - event_date).days))
+    return matched.sort_values(["date_distance", "game_date"]).iloc[0].to_dict()
+
+
+def _load_slate_player_lookup(start_date, end_date) -> dict[tuple[int, str], list[dict[str, object]]]:
+    frame = query_df(
+        """
+        WITH lineup_players AS (
+            SELECT
+                l.game_id,
+                l.team,
+                l.player_id,
+                COALESCE(dp.full_name, l.player_name, CAST(l.player_id AS TEXT)) AS player_name
+            FROM lineups l
+            LEFT JOIN dim_players dp ON dp.player_id = l.player_id
+            WHERE l.game_date BETWEEN :start_date AND :end_date
+        ),
+        starter_players AS (
+            SELECT DISTINCT
+                s.game_id,
+                s.team,
+                s.pitcher_id AS player_id,
+                COALESCE(dp.full_name, CAST(s.pitcher_id AS TEXT)) AS player_name
+            FROM pitcher_starts s
+            LEFT JOIN dim_players dp ON dp.player_id = s.pitcher_id
+            WHERE s.game_date BETWEEN :start_date AND :end_date
+        )
+        SELECT DISTINCT game_id, team, player_id, player_name
+        FROM (
+            SELECT * FROM lineup_players
+            UNION ALL
+            SELECT * FROM starter_players
+        ) players
+        WHERE game_id IS NOT NULL
+          AND player_id IS NOT NULL
+          AND player_name IS NOT NULL
+        """,
+        {"start_date": start_date, "end_date": end_date},
+    )
+    if frame.empty:
+        return {}
+
+    lookup: dict[tuple[int, str], list[dict[str, object]]] = {}
+    for row in frame.itertuples(index=False):
+        name_key = _normalize_player_name(getattr(row, "player_name", None))
+        if not name_key:
+            continue
+        lookup.setdefault((int(row.game_id), name_key), []).append(
+            {
+                "player_id": int(row.player_id),
+                "team": getattr(row, "team", None),
+                "player_name": getattr(row, "player_name", None),
+            }
+        )
+    return lookup
+
+
+def _resolve_slate_player(
+    game_id: int,
+    player_name: str | None,
+    slate_player_lookup: dict[tuple[int, str], list[dict[str, object]]],
+) -> dict[str, object] | None:
+    name_key = _normalize_player_name(player_name)
+    if not name_key:
+        return None
+    candidates = slate_player_lookup.get((game_id, name_key), [])
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    return sorted(
+        candidates,
+        key=lambda item: (str(item.get("team") or ""), int(item.get("player_id") or 0)),
+    )[0]
+
+
+def _extract_odds_api_event_prop_rows(
+    event_payload: dict[str, object],
+    matched_game: dict[str, object],
+    slate_player_lookup: dict[tuple[int, str], list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    game_id = int(matched_game["game_id"])
+    game_date = matched_game["game_date"]
+    home_team = matched_game["home_team"]
+    away_team = matched_game["away_team"]
+
+    for bookmaker in event_payload.get("bookmakers", []) or []:
+        sportsbook = bookmaker.get("key") or bookmaker.get("title") or "odds_api"
+        for market in bookmaker.get("markets", []) or []:
+            market_key = str(market.get("key") or "").strip().lower()
+            internal_market_type = ODDS_API_PLAYER_PROP_MARKETS.get(market_key)
+            if not internal_market_type:
+                continue
+            grouped_outcomes: dict[tuple[str, float | None], dict[str, object]] = {}
+            for outcome in market.get("outcomes", []) or []:
+                player_name = str(outcome.get("description") or "").strip()
+                side_name = str(outcome.get("name") or "").strip().lower()
+                if not player_name or side_name not in {"over", "under"}:
+                    continue
+                line_value = outcome.get("point")
+                key = (player_name, float(line_value) if line_value is not None else None)
+                bucket = grouped_outcomes.setdefault(
+                    key,
+                    {
+                        "player_name": player_name,
+                        "line_value": line_value,
+                        "over_price": None,
+                        "under_price": None,
+                    },
+                )
+                bucket[f"{side_name}_price"] = outcome.get("price")
+
+            last_update = pd.to_datetime(
+                market.get("last_update") or datetime.now(timezone.utc),
+                utc=True,
+                errors="coerce",
+            )
+            snapshot_ts = last_update.to_pydatetime() if pd.notna(last_update) else datetime.now(timezone.utc)
+            for grouped in grouped_outcomes.values():
+                resolved_player = _resolve_slate_player(game_id, grouped["player_name"], slate_player_lookup)
+                if resolved_player is None:
+                    continue
+                rows.append(
+                    {
+                        "game_id": game_id,
+                        "game_date": game_date,
+                        "player_id": int(resolved_player["player_id"]),
+                        "player_name": resolved_player.get("player_name") or grouped["player_name"],
+                        "team": resolved_player.get("team"),
+                        "sportsbook": sportsbook,
+                        "market_type": internal_market_type,
+                        "line_value": grouped["line_value"],
+                        "over_price": grouped["over_price"],
+                        "under_price": grouped["under_price"],
+                        "snapshot_ts": snapshot_ts,
+                        "is_opening": False,
+                        "is_closing": False,
+                        "source_name": "the_odds_api",
+                    }
+                )
+    return rows
+
+
+def _fetch_odds_api_player_prop_rows(start_date, end_date, api_key: str) -> list[dict[str, object]]:
+    games = _load_games(start_date, end_date)
+    if games.empty:
+        return []
+
+    events_response = requests.get(
+        ODDS_API_EVENTS_URL,
+        params={
+            "apiKey": api_key,
+            "dateFormat": "iso",
+            "commenceTimeFrom": _as_odds_api_timestamp(start_date),
+            "commenceTimeTo": _as_odds_api_timestamp(end_date + timedelta(days=1), end_of_day=False),
+        },
+        timeout=30,
+    )
+    events_response.raise_for_status()
+    events_payload = events_response.json()
+    slate_player_lookup = _load_slate_player_lookup(start_date, end_date)
+    rows: list[dict[str, object]] = []
+
+    for event in events_payload:
+        matched_game = _match_event_to_game(event, games)
+        if matched_game is None:
+            continue
+        event_id = event.get("id")
+        if not event_id:
+            continue
+        event_response = requests.get(
+            ODDS_API_EVENT_ODDS_URL.format(event_id=event_id),
+            params={
+                "apiKey": api_key,
+                "regions": "us",
+                "markets": ",".join(sorted(ODDS_API_PLAYER_PROP_MARKETS.keys())),
+                "oddsFormat": "american",
+                "dateFormat": "iso",
+            },
+            timeout=30,
+        )
+        event_response.raise_for_status()
+        event_payload = event_response.json()
+        rows.extend(_extract_odds_api_event_prop_rows(event_payload, matched_game, slate_player_lookup))
+    return rows
+
+
 def _load_manual_csv(csv_path: Path) -> pd.DataFrame:
     frame = pd.read_csv(csv_path)
     missing = REQUIRED_COLUMNS - set(frame.columns)
@@ -324,14 +869,69 @@ def _load_manual_csv(csv_path: Path) -> pd.DataFrame:
     return frame
 
 
+def _required_player_prop_coverage_gaps(
+    frame: pd.DataFrame,
+    required_market_types: set[str],
+) -> list[dict[str, object]]:
+    if frame.empty or not required_market_types:
+        return []
+
+    required = frame[frame["market_type"].isin(required_market_types)].copy()
+    if required.empty:
+        return []
+
+    required["has_market_data"] = required[MARKET_DATA_COLUMNS].notna().any(axis=1)
+    gaps = required.loc[~required["has_market_data"]].copy()
+    if gaps.empty:
+        return []
+
+    summaries: list[dict[str, object]] = []
+    grouped = gaps.groupby(["game_date", "market_type"], dropna=False, sort=True)
+    for (game_date, market_type), rows in grouped:
+        player_names = [
+            str(value).strip()
+            for value in rows["player_name"].tolist()
+            if value is not None and not pd.isna(value) and str(value).strip()
+        ]
+        preview = ", ".join(player_names[:3])
+        summaries.append(
+            {
+                "game_date": game_date,
+                "market_type": market_type,
+                "blank_rows": int(len(rows)),
+                "players_preview": preview,
+            }
+        )
+    return summaries
+
+
+def _format_required_player_prop_gap_summary(gaps: list[dict[str, object]]) -> str:
+    parts: list[str] = []
+    for gap in gaps:
+        label = f"{gap['game_date']} {gap['market_type']} ({gap['blank_rows']} blank rows)"
+        players_preview = str(gap.get("players_preview") or "").strip()
+        if players_preview:
+            label = f"{label}: {players_preview}"
+        parts.append(label)
+    return "; ".join(parts)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import totals and player prop market CSV rows")
     parser.add_argument("--csv", help="Override manual markets csv path")
+    parser.add_argument(
+        "--require-player-prop-coverage",
+        nargs="+",
+        choices=sorted(PLAYER_PROP_MARKET_TYPES),
+        default=[],
+        help="Fail if generated manual player prop template rows for these markets are still blank",
+    )
     add_date_range_args(parser)
     args = parser.parse_args()
     settings = get_settings()
     csv_path = Path(args.csv) if args.csv else settings.manual_markets_csv
     start_date, end_date = resolve_date_range(args)
+    required_player_prop_markets = {market.strip().lower() for market in args.require_player_prop_coverage}
 
     inserted = 0
     if settings.odds_api_key:
@@ -343,6 +943,19 @@ def main() -> int:
             inserted += upsert_rows("game_markets", odds_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
             if odds_rows:
                 log.info("Imported %s market rows from the Odds API", len(odds_rows))
+        try:
+            odds_prop_rows = _fetch_odds_api_player_prop_rows(start_date, end_date, settings.odds_api_key)
+        except requests.RequestException as exc:
+            log.warning("Odds API player prop pull failed: %s", exc)
+        else:
+            if odds_prop_rows:
+                _ensure_player_prop_markets_table()
+                inserted += upsert_rows(
+                    "player_prop_markets",
+                    odds_prop_rows,
+                    ["game_id", "player_id", "sportsbook", "market_type", "snapshot_ts"],
+                )
+                log.info("Imported %s player prop rows from the Odds API", len(odds_prop_rows))
     else:
         try:
             covers_rows = _fetch_covers_rows(start_date, end_date)
@@ -352,6 +965,32 @@ def main() -> int:
             inserted += upsert_rows("game_markets", covers_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
             if covers_rows:
                 log.info("Imported %s market rows from Covers totals HTML", len(covers_rows))
+        try:
+            covers_prop_rows = _fetch_covers_player_prop_rows(start_date, end_date)
+        except requests.RequestException as exc:
+            log.warning("Covers player prop pull failed: %s", exc)
+        else:
+            if covers_prop_rows:
+                _ensure_player_prop_markets_table()
+                inserted += upsert_rows(
+                    "player_prop_markets",
+                    covers_prop_rows,
+                    ["game_id", "player_id", "sportsbook", "market_type", "snapshot_ts"],
+                )
+                log.info("Imported %s player prop rows from Covers player props HTML", len(covers_prop_rows))
+        try:
+            rotowire_prop_rows = _fetch_rotowire_player_prop_rows(start_date, end_date)
+        except requests.RequestException as exc:
+            log.warning("Rotowire player prop pull failed: %s", exc)
+        else:
+            if rotowire_prop_rows:
+                _ensure_player_prop_markets_table()
+                inserted += upsert_rows(
+                    "player_prop_markets",
+                    rotowire_prop_rows,
+                    ["game_id", "player_id", "sportsbook", "market_type", "snapshot_ts"],
+                )
+                log.info("Imported %s player prop rows from Rotowire player props HTML", len(rotowire_prop_rows))
 
     if not csv_path.exists():
         log.info("No manual market CSV found at %s", csv_path)
@@ -381,6 +1020,13 @@ def main() -> int:
             merged["away_team"] = merged["away_team"].where(merged["away_team"].notna(), merged["away_team_game"])
     else:
         merged = frame.merge(games, on=["game_date", "home_team", "away_team"], how="left")
+
+    merged = merged[merged["game_date"].notna()].copy()
+    merged = merged[(merged["game_date"] >= start_date) & (merged["game_date"] <= end_date)].copy()
+
+    if merged.empty:
+        log.info("No manual market rows found in %s for %s to %s", csv_path, start_date, end_date)
+        return 0
 
     if merged["game_id"].isna().any():
         log.warning("Skipped %s unresolved market rows", int(merged["game_id"].isna().sum()))
@@ -414,12 +1060,23 @@ def main() -> int:
             if missing_names.any():
                 merged.loc[unresolved_prop_mask & missing_names, "player_name"] = resolver["full_name"].values
 
-    populated = merged[
-        merged[["line_value", "over_price", "under_price"]].notna().any(axis=1)
-    ].copy()
+    required_prop_gaps = _required_player_prop_coverage_gaps(merged, required_player_prop_markets)
+    populated = merged[merged[MARKET_DATA_COLUMNS].notna().any(axis=1)].copy()
     skipped_blank = len(merged) - len(populated)
+    if required_prop_gaps:
+        log.error(
+            "Missing required player prop coverage in %s. Fill or delete these template rows before rerunning: %s",
+            csv_path,
+            _format_required_player_prop_gap_summary(required_prop_gaps),
+        )
+        return 1
     if skipped_blank:
-        log.info("Skipped %s blank manual market template rows", skipped_blank)
+        blank_prop_rows = int((merged["market_type"].isin(PLAYER_PROP_MARKET_TYPES) & ~merged[MARKET_DATA_COLUMNS].notna().any(axis=1)).sum())
+        blank_game_rows = skipped_blank - blank_prop_rows
+        if blank_prop_rows:
+            log.warning("Skipped %s blank manual player prop template rows from %s", blank_prop_rows, csv_path)
+        if blank_game_rows:
+            log.info("Skipped %s blank manual game market template rows", blank_game_rows)
     merged = populated
 
     if merged.empty:

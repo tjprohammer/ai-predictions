@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 
 from src.features.contracts import (
+    FIRST5_TOTALS_META_COLUMNS,
+    FIRST5_TOTALS_TARGET_COLUMN,
     HITS_META_COLUMNS,
     HITS_TARGET_COLUMN,
     TOTALS_META_COLUMNS,
@@ -492,7 +494,7 @@ def _persist_feature_rows(frame: pd.DataFrame, table_name: str, meta_columns: li
         row["feature_payload"] = payload
         row[target_column] = to_native(record.get(target_column))
         rows.append(row)
-    if table_name == "game_features_totals":
+    if table_name in {"game_features_totals", "game_features_first5_totals"}:
         return upsert_rows(table_name, rows, ["game_id", "feature_cutoff_ts", "feature_version"])
     entity_key = "player_id" if "player_id" in meta_columns else "pitcher_id"
     return upsert_rows(table_name, rows, ["game_id", entity_key, "feature_cutoff_ts", "feature_version"])
@@ -500,6 +502,15 @@ def _persist_feature_rows(frame: pd.DataFrame, table_name: str, meta_columns: li
 
 def persist_totals_features(frame: pd.DataFrame) -> int:
     return _persist_feature_rows(frame, "game_features_totals", TOTALS_META_COLUMNS, TOTALS_TARGET_COLUMN)
+
+
+def persist_first5_totals_features(frame: pd.DataFrame) -> int:
+    return _persist_feature_rows(
+        frame,
+        "game_features_first5_totals",
+        FIRST5_TOTALS_META_COLUMNS,
+        FIRST5_TOTALS_TARGET_COLUMN,
+    )
 
 
 def persist_hits_features(frame: pd.DataFrame) -> int:

@@ -8,6 +8,7 @@ The rebuild is intentionally narrow:
 
 - One shared data backbone.
 - One totals model for full-game over/under runs.
+- One first-five totals model for first-five over/under runs.
 - One player hits model for 1+ hit props.
 - One starter strikeout model for pitcher K props.
 - Prior-season statistics default to 2025.
@@ -66,10 +67,9 @@ The first-pass rebuild includes:
 - Shared settings, logging, and DB utilities
 - Canonical ingestors for schedule, starters, boxscores, batting, weather, market totals, and manual lineups
 - Daily aggregate refresh jobs for offense and bullpen state
-- Historical feature builders for totals and player hits with prior shrinkage
-- Historical feature builders for totals, player hits, and starter strikeouts with prior shrinkage
+- Historical feature builders for full-game totals, first-five totals, player hits, and starter strikeouts with prior shrinkage
 - Product-surface transforms for player trends, pitcher trends, prediction outcomes, and daily model scorecards
-- Baseline training and prediction entrypoints for all three lanes
+- Baseline training and prediction entrypoints for full-game totals, first-five totals, player hits, and starter strikeouts
 
 ## Setup
 
@@ -97,12 +97,19 @@ ingest raw -> refresh daily aggregates -> build feature snapshots -> train or sc
 Recommended order:
 
 1. `make prepare-slate-inputs`
-2. Fill or confirm the generated lineup and market CSVs in `data/raw/` as needed.
+2. Fill or confirm the generated lineup and market CSVs in `data/raw/` as needed. `manual_market_totals.csv` now seeds full-game totals, first-five totals via `first_five_total`, and player prop templates. For strikeouts, populate or delete the generated `pitcher_strikeouts` template rows before running ingest; `make ingest-today` now fails if those required strikeout prop rows are still blank.
 3. `make ingest-today`
 4. `make refresh-aggregates`
 5. `make features-today`
 6. `make predict-today`
 7. `make product-surfaces`
+
+If you want to train the first-five model explicitly after backfilling labeled first-five results:
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+make train-first5-totals
+```
 
 For the strikeout lane rollout and trend/scorecard rebuild in one command:
 
@@ -155,7 +162,7 @@ Useful endpoints:
 - Open-Meteo for forecast and archive weather snapshots
 - Park factors loaded from `db/seeds/park_factors.csv` when present, with automatic current-season bootstrap when the table is empty
 - Generated lineup templates in `data/raw/manual_lineups.csv`, with historical inference as the default starting point
-- Odds API totals snapshots when `THE_ODDS_API_KEY` is set, with `data/raw/manual_market_totals.csv` as a manual fallback or override
+- Odds API totals snapshots when `THE_ODDS_API_KEY` is set, with `data/raw/manual_market_totals.csv` as a manual fallback or override for full-game and first-five totals plus player props
 
 ## Near-Term Build Order
 

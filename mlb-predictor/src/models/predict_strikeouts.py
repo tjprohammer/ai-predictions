@@ -89,6 +89,7 @@ def main() -> int:
     prediction_ts = datetime.now(timezone.utc)
     market_map = _fetch_market_map(target_date)
     rows = []
+    missing_market_lines = 0
     for row, predicted_strikeouts in zip(scoring.itertuples(index=False), predictions):
         market_line = market_map.get((int(row.game_id), int(row.pitcher_id)))
         over_probability = None
@@ -98,6 +99,8 @@ def main() -> int:
             over_probability = _sigmoid((float(predicted_strikeouts) - float(market_line)) / residual_std)
             under_probability = 1.0 - over_probability
             edge = abs(over_probability - 0.5)
+        else:
+            missing_market_lines += 1
         rows.append(
             {
                 "game_id": int(row.game_id),
@@ -113,6 +116,14 @@ def main() -> int:
                 "market_line": market_line,
                 "edge": edge,
             }
+        )
+
+    if missing_market_lines:
+        log.warning(
+            "Strikeout market coverage for %s is incomplete: %s of %s pitchers are missing market lines; probabilities and edge were left null",
+            target_date,
+            missing_market_lines,
+            len(rows),
         )
 
     run_sql(

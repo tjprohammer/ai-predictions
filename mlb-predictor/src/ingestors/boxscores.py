@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 
-from src.ingestors.common import player_dimension_row, statsapi_get
+from src.ingestors.common import statsapi_get
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df, upsert_rows
 from src.utils.logging import get_logger
@@ -18,15 +18,45 @@ def _parse_baseball_innings(value: object) -> float | None:
     return float(str(value))
 
 
-def _player_row(player: dict[str, object], team: str) -> dict[str, object]:
+def _first_five_team_runs(linescore: dict[str, object] | None) -> tuple[int | None, int | None]:
+    innings = (linescore or {}).get("innings") or []
+    if len(innings) < 5:
+        return None, None
+
+    home_runs = 0
+    away_runs = 0
+    for inning in innings[:5]:
+        away_half = (inning or {}).get("away") or {}
+        home_half = (inning or {}).get("home") or {}
+        away_inning_runs = away_half.get("runs")
+        home_inning_runs = home_half.get("runs")
+        if away_inning_runs is None or home_inning_runs is None:
+            return None, None
+        home_runs += int(home_inning_runs)
+        away_runs += int(away_inning_runs)
+    return home_runs, away_runs
+
+
+def _player_row(
+    player: dict[str, object],
+    team: str,
+    existing_players: dict[int, dict[str, object]],
+) -> dict[str, object]:
     person = player.get("person") or {}
     positions = player.get("allPositions") or []
-    return player_dimension_row(
-        int(person["id"]),
-        full_name_override=person.get("fullName") or str(person["id"]),
-        team_abbr_override=team,
-        position_override=positions[0]["abbreviation"] if positions else None,
-    )
+    player_id = int(person["id"])
+    existing = existing_players.get(player_id) or {}
+    return {
+        "player_id": player_id,
+        "full_name": existing.get("full_name") or person.get("fullName") or str(player_id),
+        "first_name": existing.get("first_name") or person.get("firstName"),
+        "last_name": existing.get("last_name") or person.get("lastName"),
+        "bats": existing.get("bats"),
+        "throws": existing.get("throws"),
+        "position": existing.get("position") or (positions[0]["abbreviation"] if positions else None),
+        "team_abbr": team or existing.get("team_abbr"),
+        "active": existing.get("active") if existing.get("active") is not None else True,
+    }
 
 
 def _pitching_row(game_id: int, game_date, team: str, opponent: str, side_code: str, player: dict[str, object]) -> dict[str, object] | None:
@@ -86,6 +116,36 @@ def main() -> int:
         log.info("No game rows available for %s to %s", start_date, end_date)
         return 0
 
+    existing_players_frame = query_df(
+        """
+        SELECT
+            player_id,
+            full_name,
+            first_name,
+            last_name,
+            bats,
+            throws,
+            position,
+            team_abbr,
+            active
+        FROM dim_players
+        """
+    )
+    existing_players = {
+        int(row.player_id): {
+            "full_name": row.full_name,
+            "first_name": row.first_name,
+            "last_name": row.last_name,
+            "bats": row.bats,
+            "throws": row.throws,
+            "position": row.position,
+            "team_abbr": row.team_abbr,
+            "active": row.active,
+        }
+        for row in existing_players_frame.itertuples(index=False)
+        if row.player_id is not None
+    }
+
     game_rows = []
     pitcher_rows = []
     player_rows = []
@@ -106,11 +166,12 @@ def main() -> int:
 
         home_score = home_box.get("teamStats", {}).get("batting", {}).get("runs")
         away_score = away_box.get("teamStats", {}).get("batting", {}).get("runs")
+        linescore = live_data.get("linescore") or {}
         if home_score is None or away_score is None:
-            linescore = live_data.get("linescore") or {}
             teams_line = linescore.get("teams") or {}
             home_score = (teams_line.get("home") or {}).get("runs")
             away_score = (teams_line.get("away") or {}).get("runs")
+        home_runs_first5, away_runs_first5 = _first_five_team_runs(linescore)
 
         game_rows.append(
             {
@@ -130,6 +191,11 @@ def main() -> int:
                 "home_runs": home_score,
                 "away_runs": away_score,
                 "total_runs": None if home_score is None or away_score is None else int(home_score) + int(away_score),
+                "home_runs_first5": home_runs_first5,
+                "away_runs_first5": away_runs_first5,
+                "total_runs_first5": None
+                if home_runs_first5 is None or away_runs_first5 is None
+                else int(home_runs_first5) + int(away_runs_first5),
                 "home_hits": home_batting.get("hits"),
                 "away_hits": away_batting.get("hits"),
                 "home_errors": home_fielding.get("errors"),
@@ -148,7 +214,7 @@ def main() -> int:
                 person = player.get("person") or {}
                 if not person.get("id"):
                     continue
-                player_rows.append(_player_row(player, team_abbr))
+                player_rows.append(_player_row(player, team_abbr, existing_players))
                 pitching_row = _pitching_row(int(game.game_id), game.game_date, team_abbr, opponent, side_code, player)
                 if not pitching_row:
                     continue

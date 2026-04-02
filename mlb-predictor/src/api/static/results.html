@@ -1,0 +1,1235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MLB Predictor Daily Results</title>
+    <style>
+      :root {
+        --bg: #f4efe6;
+        --panel: rgba(255, 252, 247, 0.96);
+        --panel-strong: #fffaf2;
+        --ink: #1d1d1b;
+        --muted: #6d6558;
+        --line: rgba(61, 49, 34, 0.12);
+        --accent: #0c6b58;
+        --accent-soft: rgba(12, 107, 88, 0.12);
+        --warm: #a95c1b;
+        --warm-soft: rgba(169, 92, 27, 0.14);
+        --good: #0d7a43;
+        --good-soft: rgba(13, 122, 67, 0.12);
+        --warn: #b13d27;
+        --warn-soft: rgba(177, 61, 39, 0.12);
+        --neutral-soft: rgba(61, 49, 34, 0.08);
+        --shadow: 0 18px 36px rgba(42, 32, 20, 0.08);
+        --radius-lg: 24px;
+        --radius-md: 16px;
+        --radius-sm: 12px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(
+            circle at top left,
+            rgba(12, 107, 88, 0.12),
+            transparent 28%
+          ),
+          radial-gradient(
+            circle at top right,
+            rgba(169, 92, 27, 0.14),
+            transparent 32%
+          ),
+          linear-gradient(180deg, #fbf8f2 0%, var(--bg) 100%);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+
+      main {
+        width: min(1280px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 20px 0 36px;
+      }
+
+      .topbar,
+      .hero-grid,
+      .control-grid,
+      .summary-grid,
+      .panel-grid,
+      .table-head,
+      .table-row,
+      .meta-row {
+        display: grid;
+        gap: 14px;
+      }
+
+      .topbar,
+      .hero-card,
+      .control-card,
+      .summary-card,
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow);
+      }
+
+      .topbar {
+        grid-template-columns: auto 1fr;
+        align-items: center;
+        padding: 16px 18px;
+        margin-bottom: 18px;
+      }
+
+      .brand-link,
+      .nav-link,
+      .button-link {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .brand-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+
+      .brand-mark {
+        display: inline-grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--accent), #0b4d5b);
+        color: #fff;
+        font-size: 0.92rem;
+      }
+
+      .nav-links {
+        display: flex;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .nav-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.75);
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .nav-link.active {
+        color: var(--ink);
+        background: rgba(12, 107, 88, 0.12);
+        border-color: rgba(12, 107, 88, 0.26);
+      }
+
+      .nav-icon,
+      .nav-icon svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .hero-grid {
+        grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
+        margin-bottom: 18px;
+      }
+
+      .hero-card,
+      .control-card,
+      .summary-card,
+      .panel {
+        padding: 20px;
+      }
+
+      .eyebrow,
+      .section-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.76rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: var(--accent);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        margin-top: 10px;
+        font-size: clamp(2rem, 4vw, 3.15rem);
+        line-height: 1;
+        letter-spacing: -0.04em;
+      }
+
+      .hero-copy,
+      .small-copy,
+      .table-copy,
+      .empty-state,
+      .panel-subtitle {
+        color: var(--muted);
+      }
+
+      .hero-copy {
+        margin-top: 14px;
+        font-size: 1.03rem;
+        line-height: 1.65;
+        max-width: 60ch;
+      }
+
+      .hero-actions,
+      .control-row,
+      .panel-head,
+      .table-tools,
+      .pill-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .hero-actions {
+        margin-top: 22px;
+      }
+
+      .button-link,
+      button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 44px;
+        padding: 0 16px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button.primary {
+        background: linear-gradient(135deg, var(--accent), #0b4d5b);
+        border-color: transparent;
+        color: #fff;
+      }
+
+      .control-card {
+        display: grid;
+        gap: 16px;
+      }
+
+      .control-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+
+      label {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: var(--muted);
+      }
+
+      input,
+      select {
+        width: 100%;
+        min-height: 44px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: #fff;
+        padding: 0 12px;
+        font: inherit;
+        color: var(--ink);
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-bottom: 18px;
+      }
+
+      .section-jumpbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+
+      .jump-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 42px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.78);
+        color: var(--ink);
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .jump-chip.active {
+        background: var(--accent-soft);
+        border-color: rgba(12, 107, 88, 0.22);
+      }
+
+      .jump-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 28px;
+        min-height: 28px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: rgba(61, 49, 34, 0.08);
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+      }
+
+      .summary-card {
+        display: grid;
+        gap: 8px;
+      }
+
+      .summary-value {
+        font-size: clamp(1.7rem, 3vw, 2.4rem);
+        font-weight: 800;
+        letter-spacing: -0.04em;
+      }
+
+      .summary-foot {
+        font-size: 0.92rem;
+      }
+
+      .panel-grid {
+        margin-top: 18px;
+      }
+
+      .panel {
+        display: grid;
+        gap: 16px;
+      }
+
+      .panel.hidden {
+        display: none;
+      }
+
+      .panel-head {
+        justify-content: space-between;
+      }
+
+      .panel-title {
+        margin-top: 6px;
+        font-size: 1.45rem;
+        letter-spacing: -0.03em;
+      }
+
+      .table-shell {
+        overflow: hidden;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: var(--panel-strong);
+      }
+
+      .table-head,
+      .table-row {
+        grid-template-columns: 1.35fr 0.95fr 0.9fr 0.9fr 0.85fr 0.7fr;
+        align-items: center;
+        padding: 12px 14px;
+      }
+
+      .table-head {
+        background: rgba(61, 49, 34, 0.05);
+        border-bottom: 1px solid var(--line);
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+      }
+
+      .table-row + .table-row {
+        border-top: 1px solid var(--line);
+      }
+
+      .table-row.won,
+      .table-row.hit {
+        background: linear-gradient(90deg, var(--good-soft), transparent 28%);
+      }
+
+      .table-row.lost,
+      .table-row.no_hit {
+        background: linear-gradient(90deg, var(--warn-soft), transparent 28%);
+      }
+
+      .table-row.push {
+        background: linear-gradient(90deg, var(--warm-soft), transparent 28%);
+      }
+
+      .cell-main {
+        display: grid;
+        gap: 4px;
+      }
+
+      .cell-title {
+        font-weight: 800;
+      }
+
+      .cell-subtitle,
+      .meta-row,
+      .result-note {
+        font-size: 0.88rem;
+        color: var(--muted);
+      }
+
+      .pill-row {
+        gap: 8px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 800;
+        border: 1px solid transparent;
+      }
+
+      .pill.good {
+        color: var(--good);
+        background: var(--good-soft);
+      }
+
+      .pill.warn {
+        color: var(--warn);
+        background: var(--warn-soft);
+      }
+
+      .pill.neutral {
+        color: var(--muted);
+        background: var(--neutral-soft);
+      }
+
+      .pill.market {
+        color: var(--accent);
+        background: var(--accent-soft);
+      }
+
+      .result-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 78px;
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        border: 1px solid transparent;
+      }
+
+      .result-badge.won,
+      .result-badge.hit {
+        background: var(--good-soft);
+        color: var(--good);
+      }
+
+      .result-badge.lost,
+      .result-badge.no_hit,
+      .result-badge.missing {
+        background: var(--warn-soft);
+        color: var(--warn);
+      }
+
+      .result-badge.push {
+        background: var(--warm-soft);
+        color: var(--warm);
+      }
+
+      .result-badge.pending,
+      .result-badge.no_line {
+        background: var(--neutral-soft);
+        color: var(--muted);
+      }
+
+      .empty-state {
+        padding: 18px;
+      }
+
+      @media (max-width: 1120px) {
+        .hero-grid,
+        .summary-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .control-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 900px) {
+        .table-head {
+          display: none;
+        }
+
+        .table-row {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+
+        .table-row > div {
+          display: grid;
+          gap: 4px;
+        }
+
+        .table-row > div::before {
+          font-size: 0.76rem;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+
+        .table-row > div:nth-child(2)::before {
+          content: "Model";
+        }
+        .table-row > div:nth-child(3)::before {
+          content: "Line / Market";
+        }
+        .table-row > div:nth-child(4)::before {
+          content: "Actual";
+        }
+        .table-row > div:nth-child(5)::before {
+          content: "Context";
+        }
+        .table-row > div:nth-child(6)::before {
+          content: "Result";
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav class="topbar" aria-label="Primary">
+        <a class="brand-link" data-app-link="" href=".">
+          <span class="brand-mark">MP</span>
+          <span>MLB Predictor</span>
+        </a>
+        <div class="nav-links">
+          <a class="nav-link" data-app-link="" href="."
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M3 5h8v6H3zm10 0h8v6h-8zM3 13h8v6H3zm10 0h8v6h-8z"
+                /></svg></span
+            ><span>Game Board</span></a
+          >
+          <a class="nav-link" data-app-link="hot-hitters" href="hot-hitters"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M13.5 2.5c.3 2.7-1 4.6-2.6 6.2-1.1 1.1-1.7 2.3-1.7 3.7 0 1.9 1.3 3.4 3.2 3.4 2.3 0 3.8-2 3.8-4.5 0-.8-.1-1.6-.5-2.5 2.3 1.3 4.3 4 4.3 7.1 0 4.1-3.3 7.1-8 7.1-4.6 0-8-2.9-8-7.4 0-3.3 1.7-5.5 4.1-7.5 2.4-1.9 4.8-3.8 5.4-5.6z"
+                /></svg></span
+            ><span>Hot Hitters</span></a
+          >
+          <a class="nav-link" data-app-link="totals" href="totals"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M4 6h16v3H4zm0 5h10v3H4zm0 5h7v3H4zm12.5-7.5L19 11l4-5"
+                /></svg></span
+            ><span>Totals</span></a
+          >
+          <a class="nav-link" data-app-link="pitchers" href="pitchers"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M15.5 2 8 9.5l1.4 1.4 2.6-2.6 3.7 3.7c.4.4 1 .6 1.5.6H19v1.8l3 3V11.8c0-.6-.2-1.1-.6-1.5L17.7 6.6l2.6-2.6zM3 19.5A2.5 2.5 0 0 0 5.5 22 2.5 2.5 0 0 0 8 19.5 2.5 2.5 0 0 0 5.5 17 2.5 2.5 0 0 0 3 19.5z"
+                /></svg></span
+            ><span>Pitcher Ks</span></a
+          >
+          <a
+            class="nav-link active"
+            data-app-link="results"
+            href="results"
+            aria-current="page"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M5 4h14v2H5zm0 5h14v2H5zm0 5h9v2H5zm11.5 1.5 1.6 1.6L22 13.2"
+                /></svg></span
+            ><span>Daily Results</span></a
+          >
+        </div>
+      </nav>
+
+      <section class="hero-grid">
+        <article class="hero-card">
+          <div class="eyebrow">Daily Results</div>
+          <h1>Simple answers for the day.</h1>
+          <p class="hero-copy">
+            This page strips the slate down to outcomes: did totals go over or
+            under, did hitters get a hit, and did pitchers clear their strikeout
+            line. It is built for fast review after games finish.
+          </p>
+          <div class="hero-actions">
+            <a class="button-link" data-app-link="" href="."
+              ><span>Back to main board</span></a
+            >
+            <span class="small-copy" id="pageStatus"
+              >Waiting for results load</span
+            >
+          </div>
+        </article>
+
+        <aside class="control-card">
+          <div>
+            <div class="section-tag">Controls</div>
+            <h2 class="panel-title">Date and review filter</h2>
+          </div>
+          <div class="control-grid">
+            <div class="field">
+              <label for="targetDate">Target Date</label>
+              <input id="targetDate" type="date" />
+            </div>
+            <div class="field">
+              <label for="hitMinProbability">Minimum hitter probability</label>
+              <select id="hitMinProbability">
+                <option value="0.35">35%+</option>
+                <option value="0.40">40%+</option>
+                <option value="0.45">45%+</option>
+                <option value="0.50" selected>50%+</option>
+                <option value="0.55">55%+</option>
+                <option value="0.60">60%+</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="resultFilter">Show</label>
+              <select id="resultFilter">
+                <option value="all" selected>All rows</option>
+                <option value="graded">Only graded</option>
+                <option value="pending">Only pending or missing</option>
+                <option value="market">Only market-backed</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="focusSection">Focus section</label>
+              <select id="focusSection">
+                <option value="all" selected>Show all sections</option>
+                <option value="totals">Totals only</option>
+                <option value="hitters">Hitter hits only</option>
+                <option value="strikeouts">Pitcher Ks only</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="sortMode">Sort rows by</label>
+              <select id="sortMode">
+                <option value="default" selected>Default order</option>
+                <option value="result">Best results first</option>
+                <option value="edge_desc">Biggest edge first</option>
+                <option value="confidence_desc">Strongest model first</option>
+                <option value="start_time">Earliest start first</option>
+                <option value="alpha">Alphabetical</option>
+              </select>
+            </div>
+          </div>
+          <div class="control-row">
+            <button class="primary" id="refreshButton" type="button">
+              Refresh daily results
+            </button>
+          </div>
+        </aside>
+      </section>
+
+      <section class="summary-grid">
+        <article class="summary-card">
+          <div class="section-tag">Games</div>
+          <div class="summary-value" id="gamesSummary">-</div>
+          <div class="summary-foot" id="gamesSummaryFoot">Waiting for data</div>
+        </article>
+        <article class="summary-card">
+          <div class="section-tag">Totals</div>
+          <div class="summary-value" id="totalsSummary">-</div>
+          <div class="summary-foot" id="totalsSummaryFoot">
+            Waiting for data
+          </div>
+        </article>
+        <article class="summary-card">
+          <div class="section-tag">Hitter Hits</div>
+          <div class="summary-value" id="hittersSummary">-</div>
+          <div class="summary-foot" id="hittersSummaryFoot">
+            Waiting for data
+          </div>
+        </article>
+        <article class="summary-card">
+          <div class="section-tag">Pitcher Ks</div>
+          <div class="summary-value" id="strikeoutsSummary">-</div>
+          <div class="summary-foot" id="strikeoutsSummaryFoot">
+            Waiting for data
+          </div>
+        </article>
+      </section>
+
+      <section class="section-jumpbar" aria-label="Section shortcuts">
+        <button
+          class="jump-chip active"
+          data-section-target="all"
+          type="button"
+        >
+          <span>All Results</span>
+          <span class="jump-count" id="allCount">-</span>
+        </button>
+        <button class="jump-chip" data-section-target="totals" type="button">
+          <span>Totals</span>
+          <span class="jump-count" id="totalsCount">-</span>
+        </button>
+        <button class="jump-chip" data-section-target="hitters" type="button">
+          <span>Hitter Hits</span>
+          <span class="jump-count" id="hittersCount">-</span>
+        </button>
+        <button
+          class="jump-chip"
+          data-section-target="strikeouts"
+          type="button"
+        >
+          <span>Pitcher Ks</span>
+          <span class="jump-count" id="strikeoutsCount">-</span>
+        </button>
+      </section>
+
+      <section class="panel-grid">
+        <section class="panel" id="totalsSection" data-section="totals">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Totals</div>
+              <h2 class="panel-title">Did the over or under hit?</h2>
+            </div>
+            <span class="panel-subtitle" id="totalsSubtitle"
+              >Loading totals results</span
+            >
+          </div>
+          <div class="table-shell" id="totalsTable"></div>
+        </section>
+
+        <section class="panel" id="hittersSection" data-section="hitters">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Hitter Hits</div>
+              <h2 class="panel-title">Did the player get a hit?</h2>
+            </div>
+            <span class="panel-subtitle" id="hittersSubtitle"
+              >Loading hitter results</span
+            >
+          </div>
+          <div class="table-shell" id="hittersTable"></div>
+        </section>
+
+        <section class="panel" id="strikeoutsSection" data-section="strikeouts">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Pitcher Strikeouts</div>
+              <h2 class="panel-title">Did the pitcher clear the line?</h2>
+            </div>
+            <span class="panel-subtitle" id="strikeoutsSubtitle"
+              >Loading pitcher results</span
+            >
+          </div>
+          <div class="table-shell" id="strikeoutsTable"></div>
+        </section>
+      </section>
+    </main>
+
+    <script>
+      function localDateValue() {
+        const now = new Date();
+        const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+        return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+      }
+
+      function detectAppBase() {
+        const { pathname } = window.location;
+        if (pathname.endsWith("/results/")) {
+          const base = pathname.slice(0, -"/results/".length);
+          return base || "/";
+        }
+        if (pathname.endsWith("/results")) {
+          const base = pathname.slice(0, -"/results".length);
+          return base || "/";
+        }
+        return pathname.endsWith("/") ? pathname : `${pathname}/`;
+      }
+
+      const appBase = detectAppBase();
+
+      function appUrl(path = "") {
+        const normalizedBase = appBase.endsWith("/") ? appBase : `${appBase}/`;
+        return new URL(
+          path,
+          `${window.location.origin}${normalizedBase}`,
+        ).toString();
+      }
+
+      function applyAppLinks() {
+        document.querySelectorAll("[data-app-link]").forEach((link) => {
+          link.href = appUrl(link.dataset.appLink || "");
+        });
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function numberOr(value, fallback = null) {
+        if (value == null || value === "") return fallback;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : fallback;
+      }
+
+      function formatNumber(value, digits = 2) {
+        const number = numberOr(value);
+        return number == null ? "-" : number.toFixed(digits);
+      }
+
+      function formatPercent(value, digits = 0) {
+        const number = numberOr(value);
+        return number == null ? "-" : `${(number * 100).toFixed(digits)}%`;
+      }
+
+      function formatPrice(value) {
+        const number = numberOr(value);
+        return number == null ? "-" : `${number > 0 ? "+" : ""}${number}`;
+      }
+
+      function formatSigned(value, digits = 3) {
+        const number = numberOr(value);
+        return number == null
+          ? "-"
+          : `${number >= 0 ? "+" : ""}${number.toFixed(digits)}`;
+      }
+
+      function formatDateTime(value) {
+        if (!value) return "Start TBD";
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return "Start TBD";
+        return new Intl.DateTimeFormat(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(parsed);
+      }
+
+      function resultTone(result) {
+        if (["won", "hit"].includes(result)) return "good";
+        if (["lost", "no_hit", "missing"].includes(result)) return "warn";
+        if (result === "push") return "neutral";
+        return "neutral";
+      }
+
+      function resultLabel(result) {
+        if (result === "won") return "Won";
+        if (result === "lost") return "Lost";
+        if (result === "push") return "Push";
+        if (result === "hit") return "Hit";
+        if (result === "no_hit") return "No Hit";
+        if (result === "missing") return "Missing";
+        if (result === "no_line") return "No Line";
+        return "Pending";
+      }
+
+      function isGradedResult(result) {
+        return ["won", "lost", "push", "hit", "no_hit"].includes(result);
+      }
+
+      function resultRank(result) {
+        if (["won", "hit"].includes(result)) return 0;
+        if (result === "push") return 1;
+        if (["lost", "no_hit"].includes(result)) return 2;
+        if (result === "missing") return 3;
+        if (result === "pending") return 4;
+        if (result === "no_line") return 5;
+        return 6;
+      }
+
+      function compareText(left, right) {
+        return String(left || "").localeCompare(String(right || ""));
+      }
+
+      function compareDate(left, right) {
+        const leftTime = left
+          ? new Date(left).getTime()
+          : Number.MAX_SAFE_INTEGER;
+        const rightTime = right
+          ? new Date(right).getTime()
+          : Number.MAX_SAFE_INTEGER;
+        return leftTime - rightTime;
+      }
+
+      function compareNumberDesc(left, right) {
+        const leftValue = numberOr(left, Number.NEGATIVE_INFINITY);
+        const rightValue = numberOr(right, Number.NEGATIVE_INFINITY);
+        return rightValue - leftValue;
+      }
+
+      function confidenceValue(row, category) {
+        if (category === "hitters") {
+          return numberOr(
+            row.predicted_hit_probability,
+            Number.NEGATIVE_INFINITY,
+          );
+        }
+        return Math.max(
+          numberOr(row.over_probability, Number.NEGATIVE_INFINITY),
+          numberOr(row.under_probability, Number.NEGATIVE_INFINITY),
+        );
+      }
+
+      function alphaValue(row, category) {
+        if (category === "totals") return row.matchup;
+        if (category === "hitters") return row.player_name;
+        return row.pitcher_name;
+      }
+
+      function sortRows(rows, category) {
+        const mode = sortModeInput.value;
+        const workingRows = [...rows];
+        if (mode === "edge_desc") {
+          return workingRows.sort(
+            (left, right) =>
+              compareNumberDesc(left.edge, right.edge) ||
+              compareDate(left.game_start_ts, right.game_start_ts),
+          );
+        }
+        if (mode === "confidence_desc") {
+          return workingRows.sort(
+            (left, right) =>
+              compareNumberDesc(
+                confidenceValue(left, category),
+                confidenceValue(right, category),
+              ) || compareNumberDesc(left.edge, right.edge),
+          );
+        }
+        if (mode === "result") {
+          return workingRows.sort(
+            (left, right) =>
+              resultRank(left.result) - resultRank(right.result) ||
+              compareNumberDesc(left.edge, right.edge),
+          );
+        }
+        if (mode === "start_time") {
+          return workingRows.sort(
+            (left, right) =>
+              compareDate(left.game_start_ts, right.game_start_ts) ||
+              compareText(
+                alphaValue(left, category),
+                alphaValue(right, category),
+              ),
+          );
+        }
+        if (mode === "alpha") {
+          return workingRows.sort(
+            (left, right) =>
+              compareText(
+                alphaValue(left, category),
+                alphaValue(right, category),
+              ) || compareDate(left.game_start_ts, right.game_start_ts),
+          );
+        }
+        return workingRows;
+      }
+
+      function updateSectionVisibility() {
+        const focus = focusSectionInput.value;
+        document.querySelectorAll("[data-section]").forEach((panel) => {
+          const visible = focus === "all" || panel.dataset.section === focus;
+          panel.classList.toggle("hidden", !visible);
+        });
+        document.querySelectorAll("[data-section-target]").forEach((button) => {
+          button.classList.toggle(
+            "active",
+            button.dataset.sectionTarget === focus,
+          );
+        });
+      }
+
+      function jumpToFocusedSection() {
+        const focus = focusSectionInput.value;
+        if (focus === "all") {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          return;
+        }
+        const target = document.getElementById(`${focus}Section`);
+        if (target) {
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+
+      function applyResultFilter(rows) {
+        const filter = resultFilterInput.value;
+        if (filter === "graded") {
+          return rows.filter((row) => isGradedResult(row.result));
+        }
+        if (filter === "pending") {
+          return rows.filter((row) => !isGradedResult(row.result));
+        }
+        if (filter === "market") {
+          return rows.filter((row) => row.market_backed);
+        }
+        return rows;
+      }
+
+      function renderEmptyState(message) {
+        return `<div class="empty-state">${escapeHtml(message)}</div>`;
+      }
+
+      function renderTable(headings, rows, rowRenderer, emptyMessage) {
+        if (!rows.length) {
+          return renderEmptyState(emptyMessage);
+        }
+        return `
+          <div class="table-head">${headings.map((heading) => `<div>${escapeHtml(heading)}</div>`).join("")}</div>
+          ${rows.map(rowRenderer).join("")}
+        `;
+      }
+
+      function renderTotalsRow(row) {
+        return `
+          <div class="table-row ${escapeHtml(row.result || "pending")}">
+            <div class="cell-main">
+              <div class="cell-title">${escapeHtml(row.matchup)}</div>
+              <div class="cell-subtitle">${escapeHtml(formatDateTime(row.game_start_ts))} · ${escapeHtml(row.status || "status pending")}</div>
+            </div>
+            <div>${escapeHtml(formatNumber(row.predicted_total_runs, 2))}</div>
+            <div>${escapeHtml(formatNumber(row.market_total, 1))} · ${escapeHtml((row.recommended_side || "no line").toUpperCase())}</div>
+            <div>${escapeHtml(formatNumber(row.actual_total_runs, 0))} · ${escapeHtml((row.actual_side || "pending").toUpperCase())}</div>
+            <div class="cell-main">
+              <div>${escapeHtml(formatPercent(row.over_probability, 0))} over · ${escapeHtml(formatPercent(row.under_probability, 0))} under</div>
+              <div class="result-note">Edge ${escapeHtml(formatSigned(row.edge, 3))}</div>
+            </div>
+            <div><span class="result-badge ${escapeHtml(row.result || "pending")}">${escapeHtml(resultLabel(row.result))}</span></div>
+          </div>
+        `;
+      }
+
+      function renderHitterRow(row) {
+        const lineupSlot = numberOr(row.lineup_slot);
+        const actualHits = numberOr(row.actual_hits);
+        const actualAtBats = numberOr(row.actual_at_bats);
+        return `
+          <div class="table-row ${escapeHtml(row.result || "pending")}">
+            <div class="cell-main">
+              <div class="cell-title">${escapeHtml(row.player_name)}</div>
+              <div class="cell-subtitle">${escapeHtml(row.team)} vs ${escapeHtml(row.opponent || "TBD")}${lineupSlot == null ? "" : ` · Slot ${escapeHtml(lineupSlot)}`}</div>
+            </div>
+            <div>${escapeHtml(formatPercent(row.predicted_hit_probability, 0))}</div>
+            <div class="cell-main">
+              <div>${escapeHtml(formatPrice(row.market_price))}</div>
+              <div class="result-note">Fair ${escapeHtml(formatPrice(row.fair_price))} · Edge ${escapeHtml(formatSigned(row.edge, 3))}</div>
+            </div>
+            <div>${actualHits == null ? escapeHtml(row.actual_status_label || "Pending") : `${escapeHtml(formatNumber(actualHits, 0))} hit${actualHits === 1 ? "" : "s"}${actualAtBats == null ? "" : ` · ${escapeHtml(formatNumber(actualAtBats, 0))} AB`}`}</div>
+            <div>
+              <div class="pill-row">
+                <span class="pill ${row.market_backed ? "market" : "neutral"}">${row.market_backed ? "Market" : "Model only"}</span>
+              </div>
+            </div>
+            <div><span class="result-badge ${escapeHtml(row.result || "pending")}">${escapeHtml(resultLabel(row.result))}</span></div>
+          </div>
+        `;
+      }
+
+      function renderStrikeoutRow(row) {
+        return `
+          <div class="table-row ${escapeHtml(row.result || "pending")}">
+            <div class="cell-main">
+              <div class="cell-title">${escapeHtml(row.pitcher_name)}</div>
+              <div class="cell-subtitle">${escapeHtml(row.team)} vs ${escapeHtml(row.opponent || "TBD")} · ${escapeHtml(formatDateTime(row.game_start_ts))}</div>
+            </div>
+            <div>${escapeHtml(formatNumber(row.predicted_strikeouts, 2))}</div>
+            <div>${escapeHtml(formatNumber(row.market_line, 1))} · ${escapeHtml((row.recommended_side || "no line").toUpperCase())}</div>
+            <div>${escapeHtml(formatNumber(row.actual_strikeouts, 0))} · ${escapeHtml((row.actual_side || "pending").toUpperCase())}</div>
+            <div class="cell-main">
+              <div>${escapeHtml(formatPercent(row.over_probability, 0))} over · ${escapeHtml(formatPercent(row.under_probability, 0))} under</div>
+              <div class="result-note">Edge ${escapeHtml(formatSigned(row.edge, 3))}</div>
+            </div>
+            <div><span class="result-badge ${escapeHtml(row.result || "pending")}">${escapeHtml(resultLabel(row.result))}</span></div>
+          </div>
+        `;
+      }
+
+      function updateSummary(summary) {
+        const totals = summary?.totals || {};
+        const hitters = summary?.hitters || {};
+        const strikeouts = summary?.strikeouts || {};
+        gamesSummary.textContent = `${summary?.final_games || 0}/${summary?.total_games || 0}`;
+        gamesSummaryFoot.textContent = `${summary?.pending_games || 0} game${summary?.pending_games === 1 ? "" : "s"} still pending final grading.`;
+        totalsSummary.textContent = `${totals.won || 0}-${totals.lost || 0}-${totals.push || 0}`;
+        totalsSummaryFoot.textContent = `${totals.market_backed || 0} market-backed totals · ${totals.pending || 0} pending`;
+        hittersSummary.textContent = `${hitters.hit || 0}-${hitters.no_hit || 0}`;
+        hittersSummaryFoot.textContent = `${hitters.market_backed || 0} market-backed hitters · ${hitters.missing || 0} missing box score rows`;
+        strikeoutsSummary.textContent = `${strikeouts.won || 0}-${strikeouts.lost || 0}`;
+        strikeoutsSummaryFoot.textContent = `${strikeouts.market_backed || 0} market-backed Ks · ${strikeouts.no_line || 0} no-line starters`;
+      }
+
+      function renderAll(payload) {
+        const totalsRows = sortRows(
+          applyResultFilter(payload.totals || []),
+          "totals",
+        );
+        const hitterRows = sortRows(
+          applyResultFilter(payload.hitters || []),
+          "hitters",
+        );
+        const strikeoutRows = sortRows(
+          applyResultFilter(payload.strikeouts || []),
+          "strikeouts",
+        );
+
+        updateSummary(payload.summary || {});
+        totalsCount.textContent = String(totalsRows.length);
+        hittersCount.textContent = String(hitterRows.length);
+        strikeoutsCount.textContent = String(strikeoutRows.length);
+        allCount.textContent = String(
+          totalsRows.length + hitterRows.length + strikeoutRows.length,
+        );
+        updateSectionVisibility();
+        totalsSubtitle.textContent = `${totalsRows.length} totals result${totalsRows.length === 1 ? "" : "s"} shown`;
+        hittersSubtitle.textContent = `${hitterRows.length} hitter result${hitterRows.length === 1 ? "" : "s"} shown`;
+        strikeoutsSubtitle.textContent = `${strikeoutRows.length} pitcher result${strikeoutRows.length === 1 ? "" : "s"} shown`;
+
+        totalsTable.innerHTML = renderTable(
+          ["Matchup", "Model", "Line / Pick", "Actual", "Context", "Result"],
+          totalsRows,
+          renderTotalsRow,
+          "No totals rows match this filter.",
+        );
+        hittersTable.innerHTML = renderTable(
+          ["Player", "Model Hit%", "Price", "Actual", "Context", "Result"],
+          hitterRows,
+          renderHitterRow,
+          "No hitter rows match this filter.",
+        );
+        strikeoutsTable.innerHTML = renderTable(
+          ["Pitcher", "Model Ks", "Line / Pick", "Actual", "Context", "Result"],
+          strikeoutRows,
+          renderStrikeoutRow,
+          "No strikeout rows match this filter.",
+        );
+      }
+
+      async function refreshResults() {
+        const dateValue = targetDateInput.value || localDateValue();
+        const hitMinProbability = hitMinProbabilityInput.value || "0.5";
+        pageStatus.textContent = "Refreshing";
+        totalsSubtitle.textContent = "Refreshing totals";
+        hittersSubtitle.textContent = "Refreshing hitters";
+        strikeoutsSubtitle.textContent = "Refreshing strikeouts";
+        const response = await fetch(
+          appUrl(
+            `api/results/daily?target_date=${encodeURIComponent(dateValue)}&hit_min_probability=${encodeURIComponent(hitMinProbability)}`,
+          ),
+        );
+        if (!response.ok) {
+          throw new Error(`Daily results request failed: ${response.status}`);
+        }
+        const payload = await response.json();
+        renderAll(payload);
+        pageStatus.textContent = `${payload.summary?.final_games || 0} of ${payload.summary?.total_games || 0} games final`;
+      }
+
+      const targetDateInput = document.getElementById("targetDate");
+      const hitMinProbabilityInput =
+        document.getElementById("hitMinProbability");
+      const resultFilterInput = document.getElementById("resultFilter");
+      const focusSectionInput = document.getElementById("focusSection");
+      const sortModeInput = document.getElementById("sortMode");
+      const refreshButton = document.getElementById("refreshButton");
+      const pageStatus = document.getElementById("pageStatus");
+      const gamesSummary = document.getElementById("gamesSummary");
+      const gamesSummaryFoot = document.getElementById("gamesSummaryFoot");
+      const totalsSummary = document.getElementById("totalsSummary");
+      const totalsSummaryFoot = document.getElementById("totalsSummaryFoot");
+      const hittersSummary = document.getElementById("hittersSummary");
+      const hittersSummaryFoot = document.getElementById("hittersSummaryFoot");
+      const strikeoutsSummary = document.getElementById("strikeoutsSummary");
+      const strikeoutsSummaryFoot = document.getElementById(
+        "strikeoutsSummaryFoot",
+      );
+      const totalsSubtitle = document.getElementById("totalsSubtitle");
+      const hittersSubtitle = document.getElementById("hittersSubtitle");
+      const strikeoutsSubtitle = document.getElementById("strikeoutsSubtitle");
+      const totalsTable = document.getElementById("totalsTable");
+      const hittersTable = document.getElementById("hittersTable");
+      const strikeoutsTable = document.getElementById("strikeoutsTable");
+      const allCount = document.getElementById("allCount");
+      const totalsCount = document.getElementById("totalsCount");
+      const hittersCount = document.getElementById("hittersCount");
+      const strikeoutsCount = document.getElementById("strikeoutsCount");
+
+      applyAppLinks();
+      targetDateInput.value = localDateValue();
+      updateSectionVisibility();
+
+      refreshButton.addEventListener("click", () => {
+        refreshResults().catch((error) => {
+          pageStatus.textContent = error.message;
+          totalsTable.innerHTML = renderEmptyState(error.message);
+          hittersTable.innerHTML = renderEmptyState(error.message);
+          strikeoutsTable.innerHTML = renderEmptyState(error.message);
+        });
+      });
+      targetDateInput.addEventListener("change", () => refreshButton.click());
+      hitMinProbabilityInput.addEventListener("change", () =>
+        refreshButton.click(),
+      );
+      resultFilterInput.addEventListener("change", () => refreshButton.click());
+      sortModeInput.addEventListener("change", () => refreshButton.click());
+      focusSectionInput.addEventListener("change", () => {
+        updateSectionVisibility();
+        jumpToFocusedSection();
+      });
+      document.querySelectorAll("[data-section-target]").forEach((button) => {
+        button.addEventListener("click", () => {
+          focusSectionInput.value = button.dataset.sectionTarget;
+          updateSectionVisibility();
+          jumpToFocusedSection();
+        });
+      });
+
+      refreshButton.click();
+    </script>
+  </body>
+</html>

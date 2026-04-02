@@ -29,7 +29,23 @@ def load_feature_snapshots(lane: str) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     combined = pd.concat(frames, ignore_index=True)
-    return combined.reindex(columns=column_order)
+    combined = combined.reindex(columns=column_order)
+
+    sort_columns = [column for column in ["game_date", "feature_cutoff_ts", "prediction_ts"] if column in combined.columns]
+    if sort_columns:
+        combined = combined.sort_values(sort_columns).reset_index(drop=True)
+
+    dedupe_columns: list[str] = []
+    if "game_id" in combined.columns:
+        dedupe_columns.append("game_id")
+    if "player_id" in combined.columns:
+        dedupe_columns.append("player_id")
+    elif "pitcher_id" in combined.columns:
+        dedupe_columns.append("pitcher_id")
+    if dedupe_columns:
+        combined = combined.drop_duplicates(subset=dedupe_columns, keep="last").reset_index(drop=True)
+
+    return combined
 
 
 def encode_frame(frame: pd.DataFrame, category_columns: list[str], training_columns: list[str] | None = None) -> pd.DataFrame:

@@ -24,6 +24,9 @@ settings = get_settings()
 STATIC_DIR = Path(__file__).with_name("static")
 INDEX_FILE = STATIC_DIR / "index.html"
 HOT_HITTERS_FILE = STATIC_DIR / "hot-hitters.html"
+PITCHERS_FILE = STATIC_DIR / "pitchers.html"
+RESULTS_FILE = STATIC_DIR / "results.html"
+TOTALS_FILE = STATIC_DIR / "totals.html"
 FAVICON_FILE = STATIC_DIR / "favicon.svg"
 
 app = FastAPI(title="MLB Predictor", version="0.1.0")
@@ -72,6 +75,47 @@ def _table_exists(table_name: str) -> bool:
 
 def _artifact_ready(lane: str) -> bool:
     return any((settings.model_dir / lane).glob("*.pkl"))
+
+
+def _fetch_lineup_snapshot_keys(target_date: date) -> set[tuple[int, int]]:
+    if not _table_exists("lineups"):
+        return set()
+    frame = _safe_frame(
+        """
+        SELECT DISTINCT game_id, player_id
+        FROM lineups
+        WHERE game_date = :target_date
+          AND game_id IS NOT NULL
+          AND player_id IS NOT NULL
+        """,
+        {"target_date": target_date},
+    )
+    if frame.empty:
+        return set()
+    return {
+        (int(row["game_id"]), int(row["player_id"]))
+        for row in _frame_records(frame)
+        if row.get("game_id") is not None and row.get("player_id") is not None
+    }
+
+
+def _annotate_lineup_confidence(
+    records: list[dict[str, Any]],
+    lineup_snapshot_keys: set[tuple[int, int]],
+) -> list[dict[str, Any]]:
+    for record in records:
+        game_id = record.get("game_id")
+        player_id = record.get("player_id")
+        snapshot_key = None
+        if game_id is not None and player_id is not None:
+            snapshot_key = (int(game_id), int(player_id))
+        has_lineup_snapshot = snapshot_key in lineup_snapshot_keys if snapshot_key is not None else False
+        is_confirmed_lineup = bool(record.get("is_confirmed_lineup")) if record.get("is_confirmed_lineup") is not None else False
+        is_inferred_lineup = not has_lineup_snapshot and not is_confirmed_lineup
+        record["has_lineup_snapshot"] = has_lineup_snapshot
+        record["is_inferred_lineup"] = is_inferred_lineup
+        record["lineup_source"] = "confirmed" if is_confirmed_lineup else ("snapshot" if has_lineup_snapshot else "inferred")
+    return records
 
 
 def _is_final_game_status(status: Any) -> bool:
@@ -130,6 +174,9 @@ def _classify_hitter_form(player: dict[str, Any]) -> dict[str, Any]:
     hit_rate_30 = _to_float(player.get("hit_rate_30"))
     xwoba_14 = _to_float(player.get("xwoba_14"))
     hard_hit_pct_14 = _to_float(player.get("hard_hit_pct_14"))
+    batting_avg_last7 = _to_float(player.get("batting_avg_last7"))
+    hit_games_last7 = int(player.get("hit_games_last7") or 0)
+    games_last7 = int(player.get("games_last7") or 0)
     streak = int(player.get("streak_len_capped") or 0)
     hit_delta = None if hit_rate_7 is None or hit_rate_30 is None else hit_rate_7 - hit_rate_30
 
@@ -142,6 +189,7 @@ def _classify_hitter_form(player: dict[str, Any]) -> dict[str, Any]:
     ]
 
     hot_reasons: list[str] = []
+    warm_reasons: list[str] = []
     cold_reasons: list[str] = []
     if hit_delta is not None and hit_delta >= 0.12:
         hot_reasons.append(f"7G hit rate {_format_rate(hit_rate_7)} is {hit_delta * 100:+.0f} points above the 30G baseline")
@@ -151,6 +199,19 @@ def _classify_hitter_form(player: dict[str, Any]) -> dict[str, Any]:
         hot_reasons.append(f"Riding a {streak}-game hit streak")
     if hard_hit_pct_14 is not None and hard_hit_pct_14 >= 0.45:
         hot_reasons.append(f"Hard-hit rate over the last 14 games is {_format_rate(hard_hit_pct_14)}")
+
+    if streak >= 2:
+        warm_reasons.append(f"On a {streak}-game hit streak")
+    if hit_rate_7 is not None and hit_rate_7 >= 0.65:
+        warm_reasons.append(f"7G hit rate is {_format_rate(hit_rate_7)}")
+    if games_last7 >= 5 and hit_games_last7 >= 4:
+        warm_reasons.append(f"Has hits in {hit_games_last7} of the last {games_last7} games")
+    if batting_avg_last7 is not None and batting_avg_last7 >= 0.320:
+        warm_reasons.append(f"Batting {_format_metric(batting_avg_last7)} over the last 7 games")
+    if xwoba_14 is not None and xwoba_14 >= 0.345:
+        warm_reasons.append(f"xwOBA over the last 14 games is {_format_metric(xwoba_14)}")
+    if hard_hit_pct_14 is not None and hard_hit_pct_14 >= 0.40:
+        warm_reasons.append(f"Hard-hit rate over the last 14 games is {_format_rate(hard_hit_pct_14)}")
 
     if hit_delta is not None and hit_delta <= -0.12:
         cold_reasons.append(f"7G hit rate {_format_rate(hit_rate_7)} is {hit_delta * 100:+.0f} points below the 30G baseline")
@@ -164,6 +225,10 @@ def _classify_hitter_form(player: dict[str, Any]) -> dict[str, Any]:
         label = "Hot"
         tone = "good"
         reasons = hot_reasons
+    elif warm_reasons:
+        label = "Streaking" if streak >= 2 else "Hitting well"
+        tone = "good"
+        reasons = warm_reasons
     elif cold_reasons:
         label = "Cold"
         tone = "warn"
@@ -846,7 +911,13 @@ def _fetch_totals_predictions(target_date: date) -> list[dict[str, Any]]:
     return _frame_records(frame)
 
 
-def _fetch_hit_predictions(target_date: date, limit: int, min_probability: float, confirmed_only: bool) -> list[dict[str, Any]]:
+def _fetch_hit_predictions(
+    target_date: date,
+    limit: int,
+    min_probability: float,
+    confirmed_only: bool,
+    include_inferred: bool,
+) -> list[dict[str, Any]]:
     if not _table_exists("predictions_player_hits"):
         return []
     frame = _safe_frame(
@@ -917,9 +988,13 @@ def _fetch_hit_predictions(target_date: date, limit: int, min_probability: float
             "min_probability": min_probability,
         },
     )
-    if confirmed_only and not frame.empty and "is_confirmed_lineup" in frame.columns:
-        frame = frame[frame["is_confirmed_lineup"] == True].copy()
-    return _frame_records(frame)
+    records = _frame_records(frame)
+    records = _annotate_lineup_confidence(records, _fetch_lineup_snapshot_keys(target_date))
+    if confirmed_only:
+        records = [record for record in records if record.get("is_confirmed_lineup")]
+    if not include_inferred:
+        records = [record for record in records if not record.get("is_inferred_lineup")]
+    return records
 
 
 def _fetch_game_board(
@@ -927,6 +1002,7 @@ def _fetch_game_board(
     hit_limit_per_team: int,
     min_probability: float,
     confirmed_only: bool,
+    include_inferred: bool,
 ) -> list[dict[str, Any]]:
     if not _table_exists("games"):
         return []
@@ -972,6 +1048,12 @@ def _fetch_game_board(
             p.edge,
             CAST(f.feature_payload ->> 'away_runs_rate_blended' AS DOUBLE PRECISION) AS away_expected_runs,
             CAST(f.feature_payload ->> 'home_runs_rate_blended' AS DOUBLE PRECISION) AS home_expected_runs,
+            CAST(f.feature_payload ->> 'away_bullpen_pitches_last3' AS DOUBLE PRECISION) AS away_bullpen_pitches_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_pitches_last3' AS DOUBLE PRECISION) AS home_bullpen_pitches_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_innings_last3' AS DOUBLE PRECISION) AS away_bullpen_innings_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_innings_last3' AS DOUBLE PRECISION) AS home_bullpen_innings_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_b2b' AS DOUBLE PRECISION) AS away_bullpen_b2b,
+            CAST(f.feature_payload ->> 'home_bullpen_b2b' AS DOUBLE PRECISION) AS home_bullpen_b2b,
             CAST(f.feature_payload ->> 'away_lineup_top5_xwoba' AS DOUBLE PRECISION) AS away_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'home_lineup_top5_xwoba' AS DOUBLE PRECISION) AS home_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'away_lineup_k_pct' AS DOUBLE PRECISION) AS away_lineup_k_pct,
@@ -1243,6 +1325,9 @@ def _fetch_game_board(
     if confirmed_only and not hit_frame.empty and "is_confirmed_lineup" in hit_frame.columns:
         hit_frame = hit_frame[hit_frame["is_confirmed_lineup"] == True].copy()
     hit_records = _frame_records(hit_frame)
+    hit_records = _annotate_lineup_confidence(hit_records, _fetch_lineup_snapshot_keys(target_date))
+    if not include_inferred:
+        hit_records = [record for record in hit_records if not record.get("is_inferred_lineup")]
     hit_split_map = _fetch_hitter_pitch_hand_splits(
         target_date,
         [int(hit["player_id"]) for hit in hit_records if hit.get("player_id") is not None],
@@ -1292,6 +1377,12 @@ def _fetch_game_board(
                 "edge": record["edge"],
                 "away_expected_runs": record["away_expected_runs"],
                 "home_expected_runs": record["home_expected_runs"],
+                "away_bullpen_pitches_last3": record["away_bullpen_pitches_last3"],
+                "home_bullpen_pitches_last3": record["home_bullpen_pitches_last3"],
+                "away_bullpen_innings_last3": record["away_bullpen_innings_last3"],
+                "home_bullpen_innings_last3": record["home_bullpen_innings_last3"],
+                "away_bullpen_b2b": record["away_bullpen_b2b"],
+                "home_bullpen_b2b": record["home_bullpen_b2b"],
                 "away_lineup_top5_xwoba": record["away_lineup_top5_xwoba"],
                 "home_lineup_top5_xwoba": record["home_lineup_top5_xwoba"],
                 "away_lineup_k_pct": record["away_lineup_k_pct"],
@@ -1441,6 +1532,7 @@ def _fetch_full_hit_review(target_date: date) -> dict[str, Any]:
     default = {
         "total_targets": 0,
         "confirmed_targets": 0,
+        "market_backed_targets": 0,
         "graded_targets": 0,
         "landed_targets": 0,
         "missed_targets": 0,
@@ -1466,6 +1558,7 @@ def _fetch_full_hit_review(target_date: date) -> dict[str, Any]:
             SELECT
                 p.game_id,
                 p.player_id,
+                p.market_price,
                 ROW_NUMBER() OVER (
                     PARTITION BY p.game_id, p.player_id
                     ORDER BY p.prediction_ts DESC
@@ -1491,6 +1584,7 @@ def _fetch_full_hit_review(target_date: date) -> dict[str, Any]:
         SELECT
             COUNT(*) AS total_targets,
             SUM(CASE WHEN COALESCE(f.is_confirmed_lineup, FALSE) THEN 1 ELSE 0 END) AS confirmed_targets,
+            SUM(CASE WHEN p.market_price IS NOT NULL THEN 1 ELSE 0 END) AS market_backed_targets,
             SUM(CASE WHEN actual.hits IS NOT NULL THEN 1 ELSE 0 END) AS graded_targets,
             SUM(CASE WHEN actual.hits > 0 THEN 1 ELSE 0 END) AS landed_targets,
             SUM(CASE WHEN actual.hits = 0 THEN 1 ELSE 0 END) AS missed_targets,
@@ -1767,6 +1861,286 @@ def _fetch_team_last_result(team: str, target_date: date) -> dict[str, Any] | No
     return _frame_records(frame)[0]
 
 
+def _fetch_team_recent_totals_history(team: str, target_date: date, limit: int = 5) -> list[dict[str, Any]]:
+    if not _table_exists("games"):
+        return []
+
+    market_join = ""
+    market_select = "CAST(NULL AS DOUBLE PRECISION) AS market_total"
+    if _table_exists("game_markets"):
+        market_join = """
+        LEFT JOIN (
+            WITH ranked_market_books AS (
+                SELECT
+                    gm.game_id,
+                    gm.line_value,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY gm.game_id, gm.sportsbook, gm.market_type
+                        ORDER BY gm.snapshot_ts DESC
+                    ) AS sportsbook_rank
+                FROM game_markets gm
+                WHERE gm.market_type = 'total'
+            )
+            SELECT
+                game_id,
+                AVG(line_value) AS market_total
+            FROM ranked_market_books
+            WHERE sportsbook_rank = 1
+              AND line_value IS NOT NULL
+            GROUP BY game_id
+        ) market ON market.game_id = recent.game_id
+        """
+        market_select = "market.market_total"
+
+    frame = _safe_frame(
+        f"""
+        WITH recent AS (
+            SELECT
+                g.game_id,
+                g.game_date,
+                g.game_start_ts,
+                g.status,
+                g.away_team,
+                g.home_team,
+                g.away_runs,
+                g.home_runs,
+                g.total_runs,
+                CASE
+                    WHEN g.home_team = :team THEN g.home_runs
+                    ELSE g.away_runs
+                END AS team_runs,
+                CASE
+                    WHEN g.home_team = :team THEN g.away_runs
+                    ELSE g.home_runs
+                END AS opponent_runs,
+                CASE
+                    WHEN g.home_team = :team THEN g.away_team
+                    ELSE g.home_team
+                END AS opponent,
+                CASE
+                    WHEN g.home_team = :team THEN 'home'
+                    ELSE 'away'
+                END AS venue_side
+            FROM games g
+            WHERE g.game_date < :target_date
+              AND (g.home_team = :team OR g.away_team = :team)
+              AND g.total_runs IS NOT NULL
+              AND (
+                  LOWER(COALESCE(g.status, '')) LIKE '%final%'
+                    OR LOWER(COALESCE(g.status, '')) LIKE '%completed%'
+                    OR LOWER(COALESCE(g.status, '')) LIKE '%game over%'
+                    OR LOWER(COALESCE(g.status, '')) LIKE '%closed%'
+              )
+            ORDER BY g.game_date DESC, g.game_start_ts DESC NULLS LAST
+            LIMIT :limit
+        )
+        SELECT
+            recent.game_id,
+            recent.game_date,
+            recent.game_start_ts,
+            recent.status,
+            recent.away_team,
+            recent.home_team,
+            recent.team_runs,
+            recent.opponent_runs,
+            recent.total_runs,
+            recent.opponent,
+            recent.venue_side,
+            {market_select}
+        FROM recent
+        {market_join}
+        ORDER BY recent.game_date DESC, recent.game_start_ts DESC NULLS LAST
+        """,
+        {"team": team, "target_date": target_date, "limit": limit},
+    )
+    rows = _frame_records(frame)
+    for row in rows:
+        actual_side = _actual_side(row.get("total_runs"), row.get("market_total"))
+        row["actual_side"] = actual_side
+        row["market_backed"] = _to_float(row.get("market_total")) is not None
+        total_runs = _to_float(row.get("total_runs"))
+        market_total = _to_float(row.get("market_total"))
+        row["delta_vs_market"] = None if total_runs is None or market_total is None else round(total_runs - market_total, 2)
+    return rows
+
+
+def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
+    frame = _safe_frame(
+        """
+        WITH ranked_predictions AS (
+            SELECT
+                p.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY p.game_id
+                    ORDER BY p.prediction_ts DESC, p.created_at DESC NULLS LAST
+                ) AS row_rank
+            FROM predictions_first5_totals p
+            WHERE p.game_date = :target_date
+        ),
+        ranked_features AS (
+            SELECT
+                f.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY f.game_id
+                    ORDER BY f.prediction_ts DESC, f.feature_cutoff_ts DESC NULLS LAST
+                ) AS row_rank
+            FROM game_features_first5_totals f
+            WHERE f.game_date = :target_date
+        ),
+        ranked_markets AS (
+            SELECT
+                gm.game_id,
+                gm.line_value,
+                gm.snapshot_ts,
+                ROW_NUMBER() OVER (
+                    PARTITION BY gm.game_id, COALESCE(gm.sportsbook, ''), gm.market_type
+                    ORDER BY gm.snapshot_ts DESC, gm.line_value DESC NULLS LAST
+                ) AS sportsbook_rank
+            FROM game_markets gm
+            WHERE gm.game_date = :target_date
+              AND gm.market_type = 'first_five_total'
+        ),
+        market AS (
+            SELECT
+                game_id,
+                AVG(line_value) AS market_total
+            FROM ranked_markets
+            WHERE sportsbook_rank = 1
+              AND line_value IS NOT NULL
+            GROUP BY game_id
+        )
+        SELECT
+            g.game_id,
+            g.away_runs_first5,
+            g.home_runs_first5,
+            g.total_runs_first5,
+            p.model_name,
+            p.model_version,
+            p.prediction_ts,
+            p.predicted_total_runs,
+            COALESCE(p.market_total, market.market_total) AS market_total,
+            p.over_probability,
+            p.under_probability,
+            p.edge,
+            CAST(f.feature_payload ->> 'away_runs_rate_blended' AS DOUBLE PRECISION) AS away_expected_runs,
+            CAST(f.feature_payload ->> 'home_runs_rate_blended' AS DOUBLE PRECISION) AS home_expected_runs
+        FROM games g
+        LEFT JOIN ranked_predictions p ON p.game_id = g.game_id AND p.row_rank = 1
+        LEFT JOIN ranked_features f ON f.game_id = g.game_id AND f.row_rank = 1
+        LEFT JOIN market ON market.game_id = g.game_id
+        WHERE g.game_date = :target_date
+        """,
+        {"target_date": target_date},
+    )
+    payload_by_game: dict[int, dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        game_id = row.get("game_id")
+        if game_id is None:
+            continue
+        predicted_total = _to_float(row.get("predicted_total_runs"))
+        market_total = _to_float(row.get("market_total"))
+        actual_total = _to_float(row.get("total_runs_first5"))
+        supported = any(
+            value is not None
+            for value in (
+                predicted_total,
+                market_total,
+                actual_total,
+                _to_float(row.get("away_expected_runs")),
+                _to_float(row.get("home_expected_runs")),
+            )
+        )
+        recommended_side = _recommended_side(predicted_total, market_total)
+        actual_side = _actual_side(actual_total, market_total) if actual_total is not None else None
+        payload_by_game[int(game_id)] = {
+            "supported": supported,
+            "model_name": row.get("model_name"),
+            "model_version": row.get("model_version"),
+            "prediction_ts": row.get("prediction_ts"),
+            "predicted_total_runs": row.get("predicted_total_runs"),
+            "market_total": row.get("market_total"),
+            "over_probability": row.get("over_probability"),
+            "under_probability": row.get("under_probability"),
+            "edge": row.get("edge"),
+            "market_backed": market_total is not None,
+            "away_expected_runs": row.get("away_expected_runs"),
+            "home_expected_runs": row.get("home_expected_runs"),
+            "away_runs": row.get("away_runs_first5"),
+            "home_runs": row.get("home_runs_first5"),
+            "actual_total_runs": row.get("total_runs_first5"),
+            "recommended_side": recommended_side,
+            "actual_side": actual_side,
+            "result": _graded_pick_result(recommended_side, actual_side, actual_total is not None),
+            "delta_vs_market": None if predicted_total is None or market_total is None else round(predicted_total - market_total, 2),
+        }
+    return payload_by_game
+
+
+def _fetch_totals_board(target_date: date) -> dict[str, Any]:
+    board_rows = _fetch_game_board(
+        target_date,
+        hit_limit_per_team=1,
+        min_probability=1.0,
+        confirmed_only=False,
+        include_inferred=True,
+    )
+    first5_totals_map = _fetch_first5_totals_map(target_date)
+    rows: list[dict[str, Any]] = []
+    first5_supported_games = 0
+    for game in board_rows:
+        totals = dict(game.get("totals") or {})
+        market_total = _to_float(totals.get("market_total"))
+        predicted_total = _to_float(totals.get("predicted_total_runs"))
+        actual = dict(game.get("actual_result") or {})
+        actual_total = _to_float(actual.get("total_runs"))
+        actual_side = _actual_side(actual_total, market_total) if actual.get("is_final") else None
+        recommended_side = _recommended_side(predicted_total, market_total)
+        game_id = int(game.get("game_id") or 0)
+        first5_totals = dict(first5_totals_map.get(game_id) or {"supported": False})
+        if first5_totals.get("supported"):
+            first5_supported_games += 1
+        totals.update(
+            {
+                "recommended_side": recommended_side,
+                "actual_side": actual_side,
+                "result": _graded_pick_result(recommended_side, actual_side, bool(actual.get("is_final"))),
+                "delta_vs_market": None if predicted_total is None or market_total is None else round(predicted_total - market_total, 2),
+            }
+        )
+        rows.append(
+            {
+                "game_id": game.get("game_id"),
+                "game_date": game.get("game_date"),
+                "status": game.get("status"),
+                "game_start_ts": game.get("game_start_ts"),
+                "away_team": game.get("away_team"),
+                "home_team": game.get("home_team"),
+                "venue": game.get("venue") or {},
+                "weather": game.get("weather") or {},
+                "totals": totals,
+                "first5_totals": first5_totals,
+                "starters": game.get("starters") or {},
+                "actual_result": actual,
+                "recent_offense": {
+                    "away": _fetch_team_recent_offense(str(game.get("away_team") or ""), target_date),
+                    "home": _fetch_team_recent_offense(str(game.get("home_team") or ""), target_date),
+                },
+                "recent_totals": {
+                    "away": _fetch_team_recent_totals_history(str(game.get("away_team") or ""), target_date),
+                    "home": _fetch_team_recent_totals_history(str(game.get("home_team") or ""), target_date),
+                },
+            }
+        )
+
+    summary = _summarize_board_rows(board_rows, target_date)
+    summary["first5_supported_games"] = first5_supported_games
+    return {
+        "summary": summary,
+        "first5_supported": first5_supported_games > 0,
+        "games": rows,
+    }
+
+
 def _fetch_starter_recent_form(pitcher_id: int | None, target_date: date) -> dict[str, Any]:
     default = {
         "sample_starts": 0,
@@ -1813,7 +2187,7 @@ def _fetch_starter_recent_form(pitcher_id: int | None, target_date: date) -> dic
     return {**default, **record}
 
 
-def _fetch_game_detail(game_id: int, target_date: date) -> dict[str, Any] | None:
+def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool = False) -> dict[str, Any] | None:
     if not _table_exists("games"):
         return None
 
@@ -1860,6 +2234,12 @@ def _fetch_game_detail(game_id: int, target_date: date) -> dict[str, Any] | None
             p.edge,
             CAST(f.feature_payload ->> 'away_runs_rate_blended' AS DOUBLE PRECISION) AS away_expected_runs,
             CAST(f.feature_payload ->> 'home_runs_rate_blended' AS DOUBLE PRECISION) AS home_expected_runs,
+            CAST(f.feature_payload ->> 'away_bullpen_pitches_last3' AS DOUBLE PRECISION) AS away_bullpen_pitches_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_pitches_last3' AS DOUBLE PRECISION) AS home_bullpen_pitches_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_innings_last3' AS DOUBLE PRECISION) AS away_bullpen_innings_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_innings_last3' AS DOUBLE PRECISION) AS home_bullpen_innings_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_b2b' AS DOUBLE PRECISION) AS away_bullpen_b2b,
+            CAST(f.feature_payload ->> 'home_bullpen_b2b' AS DOUBLE PRECISION) AS home_bullpen_b2b,
             CAST(f.feature_payload ->> 'away_lineup_top5_xwoba' AS DOUBLE PRECISION) AS away_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'home_lineup_top5_xwoba' AS DOUBLE PRECISION) AS home_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'away_lineup_k_pct' AS DOUBLE PRECISION) AS away_lineup_k_pct,
@@ -2017,6 +2397,7 @@ def _fetch_game_detail(game_id: int, target_date: date) -> dict[str, Any] | None
                 GROUP BY b.player_id
             )
             SELECT
+                f.game_id,
                 f.player_id,
                 COALESCE(f.feature_payload ->> 'player_name', dp.full_name, CAST(f.player_id AS TEXT)) AS player_name,
                 COALESCE(f.team, CASE WHEN g.home_team = dp.team_abbr THEN g.home_team ELSE g.away_team END) AS team,
@@ -2098,6 +2479,9 @@ def _fetch_game_detail(game_id: int, target_date: date) -> dict[str, Any] | None
             {"game_id": game_id, "target_date": target_date},
         )
         lineup_records = _frame_records(lineup_frame)
+        lineup_records = _annotate_lineup_confidence(lineup_records, _fetch_lineup_snapshot_keys(target_date))
+        if not include_inferred:
+            lineup_records = [record for record in lineup_records if not record.get("is_inferred_lineup")]
         lineup_split_map = _fetch_hitter_pitch_hand_splits(
             target_date,
             [int(player["player_id"]) for player in lineup_records if player.get("player_id") is not None],
@@ -2142,6 +2526,12 @@ def _fetch_game_detail(game_id: int, target_date: date) -> dict[str, Any] | None
             "edge": game["edge"],
             "away_expected_runs": game["away_expected_runs"],
             "home_expected_runs": game["home_expected_runs"],
+            "away_bullpen_pitches_last3": game["away_bullpen_pitches_last3"],
+            "home_bullpen_pitches_last3": game["home_bullpen_pitches_last3"],
+            "away_bullpen_innings_last3": game["away_bullpen_innings_last3"],
+            "home_bullpen_innings_last3": game["home_bullpen_innings_last3"],
+            "away_bullpen_b2b": game["away_bullpen_b2b"],
+            "home_bullpen_b2b": game["home_bullpen_b2b"],
             "away_lineup_top5_xwoba": game["away_lineup_top5_xwoba"],
             "home_lineup_top5_xwoba": game["home_lineup_top5_xwoba"],
             "away_lineup_k_pct": game["away_lineup_k_pct"],
@@ -2253,18 +2643,39 @@ def _fetch_game_detail(game_id: int, target_date: date) -> dict[str, Any] | None
     return detail
 
 
-def _fetch_hot_hitters(target_date: date, min_probability: float, confirmed_only: bool, limit: int) -> dict[str, Any]:
-    empty = {
-        "rows": [],
-        "summary": {
-            "count": 0,
-            "total_hot_count": 0,
-            "confirmed_count": 0,
-            "games_count": 0,
-            "average_hit_probability": None,
-            "latest_prediction_ts": None,
-        },
-    }
+def _fetch_hot_hitters(
+    target_date: date,
+    min_probability: float,
+    confirmed_only: bool,
+    limit: int,
+    include_inferred: bool,
+) -> dict[str, Any]:
+    def _empty_payload(
+        *,
+        suppressed_inferred_count: int = 0,
+        inferred_count: int = 0,
+        available_count: int = 0,
+        available_confirmed_count: int = 0,
+        available_market_count: int = 0,
+    ) -> dict[str, Any]:
+        return {
+            "rows": [],
+            "summary": {
+                "count": 0,
+                "total_hot_count": 0,
+                "confirmed_count": 0,
+                "inferred_count": inferred_count,
+                "suppressed_inferred_count": suppressed_inferred_count,
+                "available_count": available_count,
+                "available_confirmed_count": available_confirmed_count,
+                "available_market_count": available_market_count,
+                "games_count": 0,
+                "average_hit_probability": None,
+                "latest_prediction_ts": None,
+            },
+        }
+
+    empty = _empty_payload()
     if not _table_exists("player_features_hits") or not _table_exists("games"):
         return empty
 
@@ -2453,10 +2864,23 @@ def _fetch_hot_hitters(target_date: date, min_probability: float, confirmed_only
         return empty
 
     records = _frame_records(frame)
+    records = _annotate_lineup_confidence(records, _fetch_lineup_snapshot_keys(target_date))
+    available_count = len(records)
+    available_confirmed_count = sum(1 for record in records if record.get("is_confirmed_lineup"))
+    available_market_count = sum(1 for record in records if _to_float(record.get("market_price")) is not None)
     if confirmed_only:
         records = [record for record in records if record.get("is_confirmed_lineup")]
+    suppressed_inferred_count = 0
+    if not include_inferred:
+        suppressed_inferred_count = sum(1 for record in records if record.get("is_inferred_lineup"))
+        records = [record for record in records if not record.get("is_inferred_lineup")]
     if not records:
-        return empty
+        return _empty_payload(
+            suppressed_inferred_count=suppressed_inferred_count,
+            available_count=available_count,
+            available_confirmed_count=available_confirmed_count,
+            available_market_count=available_market_count,
+        )
 
     hit_split_map = _fetch_hitter_pitch_hand_splits(
         target_date,
@@ -2466,7 +2890,7 @@ def _fetch_hot_hitters(target_date: date, min_probability: float, confirmed_only
     all_hot_rows: list[dict[str, Any]] = []
     for record in records:
         form = _classify_hitter_form(record)
-        if form["label"] != "Hot":
+        if form["label"] not in {"Hot", "Streaking", "Hitting well"}:
             continue
         actual_meta = _build_hit_actual_meta(record.get("actual_hits"), _is_final_game_status(record.get("game_status")))
         enriched = _attach_hitter_matchup_context(
@@ -2508,10 +2932,326 @@ def _fetch_hot_hitters(target_date: date, min_probability: float, confirmed_only
             "count": len(hot_rows),
             "total_hot_count": len(all_hot_rows),
             "confirmed_count": sum(1 for row in hot_rows if row.get("is_confirmed_lineup")),
+            "inferred_count": sum(1 for row in hot_rows if row.get("is_inferred_lineup")),
+            "suppressed_inferred_count": suppressed_inferred_count,
+            "available_count": available_count,
+            "available_confirmed_count": available_confirmed_count,
+            "available_market_count": available_market_count,
             "games_count": len({int(row["game_id"]) for row in hot_rows if row.get("game_id") is not None}),
             "average_hit_probability": round(sum(valid_probabilities) / len(valid_probabilities), 4) if valid_probabilities else None,
             "latest_prediction_ts": max((row.get("prediction_ts") for row in hot_rows if row.get("prediction_ts") is not None), default=None),
         },
+    }
+
+
+def _recommended_side(predicted_value: Any, market_line: Any) -> str | None:
+    predicted = _to_float(predicted_value)
+    line = _to_float(market_line)
+    if predicted is None or line is None:
+        return None
+    return "over" if predicted >= line else "under"
+
+
+def _actual_side(actual_value: Any, market_line: Any) -> str | None:
+    actual = _to_float(actual_value)
+    line = _to_float(market_line)
+    if actual is None or line is None:
+        return None
+    if actual > line:
+        return "over"
+    if actual < line:
+        return "under"
+    return "push"
+
+
+def _graded_pick_result(recommended_side: str | None, actual_side: str | None, is_final: bool) -> str:
+    if recommended_side is None:
+        return "no_line"
+    if actual_side is None:
+        return "pending" if not is_final else "missing"
+    if actual_side == "push":
+        return "push"
+    return "won" if recommended_side == actual_side else "lost"
+
+
+def _summarize_category(rows: list[dict[str, Any]], *, result_key: str = "result") -> dict[str, Any]:
+    summary = {
+        "total": len(rows),
+        "graded": 0,
+        "pending": 0,
+        "won": 0,
+        "lost": 0,
+        "push": 0,
+        "hit": 0,
+        "no_hit": 0,
+        "market_backed": 0,
+        "no_line": 0,
+        "missing": 0,
+    }
+    for row in rows:
+        result = str(row.get(result_key) or "pending")
+        if row.get("market_backed"):
+            summary["market_backed"] += 1
+        if result in {"won", "lost", "push", "hit", "no_hit"}:
+            summary["graded"] += 1
+        if result in summary:
+            summary[result] += 1
+        else:
+            summary["pending"] += 1
+    return summary
+
+
+def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) -> dict[str, Any]:
+    totals_rows: list[dict[str, Any]] = []
+    hitter_rows: list[dict[str, Any]] = []
+    strikeout_rows: list[dict[str, Any]] = []
+
+    if _table_exists("predictions_totals") and _table_exists("games"):
+        totals_frame = _safe_frame(
+            """
+            WITH ranked_predictions AS (
+                SELECT
+                    p.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY p.game_id
+                        ORDER BY p.prediction_ts DESC
+                    ) AS row_rank
+                FROM predictions_totals p
+                WHERE p.game_date = :target_date
+            )
+            SELECT
+                p.game_id,
+                p.game_date,
+                g.game_start_ts,
+                g.status,
+                g.away_team,
+                g.home_team,
+                p.predicted_total_runs,
+                p.market_total,
+                p.over_probability,
+                p.under_probability,
+                p.edge,
+                g.total_runs AS actual_total_runs
+            FROM ranked_predictions p
+            INNER JOIN games g
+                ON g.game_id = p.game_id
+               AND g.game_date = p.game_date
+            WHERE p.row_rank = 1
+            ORDER BY g.game_start_ts, p.game_id
+            """,
+            {"target_date": target_date},
+        )
+        for row in _frame_records(totals_frame):
+            is_final = _is_final_game_status(row.get("status"))
+            recommended_side = _recommended_side(row.get("predicted_total_runs"), row.get("market_total"))
+            actual_side = _actual_side(row.get("actual_total_runs"), row.get("market_total")) if is_final else None
+            totals_rows.append(
+                {
+                    "game_id": row.get("game_id"),
+                    "game_date": row.get("game_date"),
+                    "game_start_ts": row.get("game_start_ts"),
+                    "status": row.get("status"),
+                    "is_final": is_final,
+                    "matchup": f"{row.get('away_team')} at {row.get('home_team')}",
+                    "away_team": row.get("away_team"),
+                    "home_team": row.get("home_team"),
+                    "predicted_total_runs": row.get("predicted_total_runs"),
+                    "market_total": row.get("market_total"),
+                    "over_probability": row.get("over_probability"),
+                    "under_probability": row.get("under_probability"),
+                    "edge": row.get("edge"),
+                    "actual_total_runs": row.get("actual_total_runs"),
+                    "recommended_side": recommended_side,
+                    "actual_side": actual_side,
+                    "result": _graded_pick_result(recommended_side, actual_side, is_final),
+                    "market_backed": row.get("market_total") is not None,
+                }
+            )
+
+    if _table_exists("predictions_player_hits") and _table_exists("player_features_hits") and _table_exists("games"):
+        hitter_frame = _safe_frame(
+            """
+            WITH ranked_predictions AS (
+                SELECT
+                    p.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY p.game_id, p.player_id
+                        ORDER BY p.prediction_ts DESC
+                    ) AS row_rank
+                FROM predictions_player_hits p
+                WHERE p.game_date = :target_date
+            ),
+            ranked_features AS (
+                SELECT
+                    f.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY f.game_id, f.player_id
+                        ORDER BY f.prediction_ts DESC
+                    ) AS row_rank
+                FROM player_features_hits f
+                WHERE f.game_date = :target_date
+            )
+            SELECT
+                p.game_id,
+                p.game_date,
+                g.game_start_ts,
+                g.status AS game_status,
+                p.player_id,
+                COALESCE(f.feature_payload ->> 'player_name', dp.full_name, CAST(p.player_id AS TEXT)) AS player_name,
+                COALESCE(f.team, p.team) AS team,
+                COALESCE(
+                    f.opponent,
+                    CASE
+                        WHEN g.home_team = COALESCE(f.team, p.team) THEN g.away_team
+                        WHEN g.away_team = COALESCE(f.team, p.team) THEN g.home_team
+                        ELSE NULL
+                    END,
+                    'TBD'
+                ) AS opponent,
+                CAST(NULLIF(f.feature_payload ->> 'lineup_slot', '') AS SMALLINT) AS lineup_slot,
+                p.predicted_hit_probability,
+                p.fair_price,
+                p.market_price,
+                p.edge,
+                actual.hits AS actual_hits,
+                actual.at_bats AS actual_at_bats,
+                actual.plate_appearances AS actual_plate_appearances
+            FROM ranked_predictions p
+            INNER JOIN games g
+                ON g.game_id = p.game_id
+               AND g.game_date = p.game_date
+            LEFT JOIN ranked_features f
+                ON f.game_id = p.game_id
+               AND f.player_id = p.player_id
+               AND f.row_rank = 1
+            LEFT JOIN dim_players dp ON dp.player_id = p.player_id
+            LEFT JOIN player_game_batting actual
+                ON actual.game_id = p.game_id
+               AND actual.player_id = p.player_id
+            WHERE p.row_rank = 1
+              AND p.predicted_hit_probability >= :hit_min_probability
+            ORDER BY g.game_start_ts, p.predicted_hit_probability DESC, lineup_slot ASC NULLS LAST, player_name
+            """,
+            {"target_date": target_date, "hit_min_probability": hit_min_probability},
+        )
+        for row in _frame_records(hitter_frame):
+            is_final = _is_final_game_status(row.get("game_status"))
+            actual_hits = _to_float(row.get("actual_hits"))
+            actual_meta = _build_hit_actual_meta(row.get("actual_hits"), is_final)
+            hitter_rows.append(
+                {
+                    "game_id": row.get("game_id"),
+                    "game_date": row.get("game_date"),
+                    "game_start_ts": row.get("game_start_ts"),
+                    "game_status": row.get("game_status"),
+                    "is_final": is_final,
+                    "player_id": row.get("player_id"),
+                    "player_name": row.get("player_name"),
+                    "team": row.get("team"),
+                    "opponent": row.get("opponent"),
+                    "lineup_slot": row.get("lineup_slot"),
+                    "predicted_hit_probability": row.get("predicted_hit_probability"),
+                    "fair_price": row.get("fair_price"),
+                    "market_price": row.get("market_price"),
+                    "edge": row.get("edge"),
+                    "actual_hits": row.get("actual_hits"),
+                    "actual_at_bats": row.get("actual_at_bats"),
+                    "actual_plate_appearances": row.get("actual_plate_appearances"),
+                    "result": "hit" if actual_hits and actual_hits > 0 else ("no_hit" if actual_hits == 0 else ("missing" if is_final else "pending")),
+                    "market_backed": row.get("market_price") is not None,
+                    "actual_status": actual_meta.get("actual_status"),
+                    "actual_status_label": actual_meta.get("actual_status_label"),
+                }
+            )
+
+    if _table_exists("predictions_pitcher_strikeouts") and _table_exists("games"):
+        strikeout_frame = _safe_frame(
+            """
+            WITH ranked_predictions AS (
+                SELECT
+                    p.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY p.game_id, p.pitcher_id
+                        ORDER BY p.prediction_ts DESC
+                    ) AS row_rank
+                FROM predictions_pitcher_strikeouts p
+                WHERE p.game_date = :target_date
+            )
+            SELECT
+                p.game_id,
+                p.game_date,
+                g.game_start_ts,
+                g.status AS game_status,
+                p.pitcher_id,
+                COALESCE(dp.full_name, CAST(p.pitcher_id AS TEXT)) AS pitcher_name,
+                p.team,
+                CASE
+                    WHEN p.team = g.home_team THEN g.away_team
+                    WHEN p.team = g.away_team THEN g.home_team
+                    ELSE NULL
+                END AS opponent,
+                p.predicted_strikeouts,
+                p.market_line,
+                p.over_probability,
+                p.under_probability,
+                p.edge,
+                ps.strikeouts AS actual_strikeouts
+            FROM ranked_predictions p
+            INNER JOIN games g
+                ON g.game_id = p.game_id
+               AND g.game_date = p.game_date
+            LEFT JOIN dim_players dp ON dp.player_id = p.pitcher_id
+            LEFT JOIN pitcher_starts ps
+                ON ps.game_id = p.game_id
+               AND ps.pitcher_id = p.pitcher_id
+               AND ps.game_date = p.game_date
+            WHERE p.row_rank = 1
+            ORDER BY g.game_start_ts, CASE WHEN p.market_line IS NULL THEN 1 ELSE 0 END, p.team, pitcher_name
+            """,
+            {"target_date": target_date},
+        )
+        for row in _frame_records(strikeout_frame):
+            is_final = _is_final_game_status(row.get("game_status"))
+            recommended_side = _recommended_side(row.get("predicted_strikeouts"), row.get("market_line"))
+            actual_side = _actual_side(row.get("actual_strikeouts"), row.get("market_line")) if is_final else None
+            strikeout_rows.append(
+                {
+                    "game_id": row.get("game_id"),
+                    "game_date": row.get("game_date"),
+                    "game_start_ts": row.get("game_start_ts"),
+                    "game_status": row.get("game_status"),
+                    "is_final": is_final,
+                    "pitcher_id": row.get("pitcher_id"),
+                    "pitcher_name": row.get("pitcher_name"),
+                    "team": row.get("team"),
+                    "opponent": row.get("opponent"),
+                    "predicted_strikeouts": row.get("predicted_strikeouts"),
+                    "market_line": row.get("market_line"),
+                    "over_probability": row.get("over_probability"),
+                    "under_probability": row.get("under_probability"),
+                    "edge": row.get("edge"),
+                    "actual_strikeouts": row.get("actual_strikeouts"),
+                    "recommended_side": recommended_side,
+                    "actual_side": actual_side,
+                    "result": _graded_pick_result(recommended_side, actual_side, is_final),
+                    "market_backed": row.get("market_line") is not None,
+                }
+            )
+
+    final_games = sum(1 for row in totals_rows if row.get("is_final"))
+    total_games = len(totals_rows)
+    return {
+        "summary": {
+            "final_games": final_games,
+            "pending_games": max(total_games - final_games, 0),
+            "total_games": total_games,
+            "totals": _summarize_category(totals_rows),
+            "hitters": _summarize_category(hitter_rows),
+            "strikeouts": _summarize_category(strikeout_rows),
+        },
+        "totals": totals_rows,
+        "hitters": hitter_rows,
+        "strikeouts": strikeout_rows,
     }
 
 
@@ -2561,6 +3301,24 @@ def hot_hitters_page() -> FileResponse:
     return FileResponse(HOT_HITTERS_FILE)
 
 
+@app.get("/results/")
+@app.get("/results")
+def results_page() -> FileResponse:
+    return FileResponse(RESULTS_FILE)
+
+
+@app.get("/totals/")
+@app.get("/totals")
+def totals_page() -> FileResponse:
+    return FileResponse(TOTALS_FILE)
+
+
+@app.get("/pitchers/")
+@app.get("/pitchers")
+def pitchers_page() -> FileResponse:
+    return FileResponse(PITCHERS_FILE)
+
+
 @app.get("/api/status")
 def status(target_date: date = Query(default_factory=date.today)) -> JSONResponse:
     return _json_response(_fetch_status(target_date))
@@ -2572,14 +3330,20 @@ def totals_predictions(target_date: date = Query(default_factory=date.today)) ->
     return _json_response({"target_date": target_date.isoformat(), "rows": rows})
 
 
+@app.get("/api/totals/board")
+def totals_board(target_date: date = Query(default_factory=date.today)) -> JSONResponse:
+    return _json_response({"target_date": target_date.isoformat(), **_fetch_totals_board(target_date)})
+
+
 @app.get("/api/predictions/hits")
 def hit_predictions(
     target_date: date = Query(default_factory=date.today),
     limit: int = Query(default=40, ge=1, le=200),
     min_probability: float = Query(default=0.0, ge=0.0, le=1.0),
     confirmed_only: bool = Query(default=False),
+    include_inferred: bool = Query(default=True),
 ) -> JSONResponse:
-    rows = _fetch_hit_predictions(target_date, limit, min_probability, confirmed_only)
+    rows = _fetch_hit_predictions(target_date, limit, min_probability, confirmed_only, include_inferred)
     return _json_response({"target_date": target_date.isoformat(), "rows": rows})
 
 
@@ -2589,9 +3353,23 @@ def hot_hitters(
     limit: int = Query(default=60, ge=1, le=200),
     min_probability: float = Query(default=0.35, ge=0.0, le=1.0),
     confirmed_only: bool = Query(default=False),
+    include_inferred: bool = Query(default=True),
 ) -> JSONResponse:
-    payload = _fetch_hot_hitters(target_date, min_probability, confirmed_only, limit)
+    payload = _fetch_hot_hitters(target_date, min_probability, confirmed_only, limit, include_inferred)
     return _json_response({"target_date": target_date.isoformat(), **payload})
+
+
+@app.get("/api/results/daily")
+def daily_results(
+    target_date: date = Query(default_factory=date.today),
+    hit_min_probability: float = Query(default=0.5, ge=0.0, le=1.0),
+) -> JSONResponse:
+    return _json_response(
+        {
+            "target_date": target_date.isoformat(),
+            **_fetch_daily_results(target_date, hit_min_probability),
+        }
+    )
 
 
 @app.get("/api/model-scorecards")
@@ -2615,8 +3393,9 @@ def games_board(
     hit_limit_per_team: int = Query(default=4, ge=1, le=9),
     min_probability: float = Query(default=0.0, ge=0.0, le=1.0),
     confirmed_only: bool = Query(default=False),
+    include_inferred: bool = Query(default=True),
 ) -> JSONResponse:
-    rows = _fetch_game_board(target_date, hit_limit_per_team, min_probability, confirmed_only)
+    rows = _fetch_game_board(target_date, hit_limit_per_team, min_probability, confirmed_only, include_inferred)
     return _json_response(
         {
             "target_date": target_date.isoformat(),
@@ -2627,8 +3406,12 @@ def games_board(
 
 
 @app.get("/api/games/{game_id}/detail")
-def game_detail(game_id: int, target_date: date = Query(default_factory=date.today)) -> JSONResponse:
-    payload = _fetch_game_detail(game_id, target_date)
+def game_detail(
+    game_id: int,
+    target_date: date = Query(default_factory=date.today),
+    include_inferred: bool = Query(default=True),
+) -> JSONResponse:
+    payload = _fetch_game_detail(game_id, target_date, include_inferred=include_inferred)
     if payload is None:
         return _json_response({"target_date": target_date.isoformat(), "game": None}, status_code=404)
     return _json_response({"target_date": target_date.isoformat(), "game": payload})

@@ -46,6 +46,9 @@ MARKET_COLUMNS = [
     "is_closing",
     "source_name",
 ]
+HITTER_PROP_MARKET_TYPE = "player_hits"
+HITTER_PROP_LINE_VALUE = 0.5
+FIRST5_TOTAL_MARKET_TYPE = "first_five_total"
 
 
 def _read_csv(path: Path, columns: list[str]) -> pd.DataFrame:
@@ -161,7 +164,13 @@ def _build_lineup_templates(games: pd.DataFrame, existing: pd.DataFrame, snapsho
     return pd.concat([existing[LINEUP_COLUMNS], generated], ignore_index=True)
 
 
-def _build_market_templates(games: pd.DataFrame, starters: pd.DataFrame, existing: pd.DataFrame, snapshot_ts: str) -> pd.DataFrame:
+def _build_market_templates(
+    games: pd.DataFrame,
+    starters: pd.DataFrame,
+    lineups: pd.DataFrame,
+    existing: pd.DataFrame,
+    snapshot_ts: str,
+) -> pd.DataFrame:
     if games.empty:
         return pd.DataFrame(columns=MARKET_COLUMNS)
     existing = existing.copy()
@@ -204,6 +213,29 @@ def _build_market_templates(games: pd.DataFrame, starters: pd.DataFrame, existin
                 }
             )
 
+        first5_total_key = (int(game.game_id), FIRST5_TOTAL_MARKET_TYPE, None)
+        if first5_total_key not in existing_keys:
+            rows.append(
+                {
+                    "game_id": int(game.game_id),
+                    "game_date": game.game_date.isoformat(),
+                    "home_team": game.home_team,
+                    "away_team": game.away_team,
+                    "team": None,
+                    "player_id": None,
+                    "player_name": None,
+                    "sportsbook": "manual",
+                    "market_type": FIRST5_TOTAL_MARKET_TYPE,
+                    "line_value": None,
+                    "over_price": None,
+                    "under_price": None,
+                    "snapshot_ts": snapshot_ts,
+                    "is_opening": False,
+                    "is_closing": False,
+                    "source_name": "manual_template",
+                }
+            )
+
         game_starters = starters[starters["game_id"] == int(game.game_id)] if not starters.empty else pd.DataFrame()
         for starter in game_starters.itertuples(index=False):
             prop_key = (int(game.game_id), "pitcher_strikeouts", int(starter.pitcher_id))
@@ -229,10 +261,44 @@ def _build_market_templates(games: pd.DataFrame, starters: pd.DataFrame, existin
                     "source_name": "manual_template",
                 }
             )
+
+        game_lineups = lineups[lineups["game_id"] == int(game.game_id)] if not lineups.empty else pd.DataFrame()
+        if not game_lineups.empty:
+            for hitter in game_lineups.itertuples(index=False):
+                if pd.isna(getattr(hitter, "player_id", None)):
+                    continue
+                prop_key = (int(game.game_id), HITTER_PROP_MARKET_TYPE, int(hitter.player_id))
+                if prop_key in existing_keys:
+                    continue
+                rows.append(
+                    {
+                        "game_id": int(game.game_id),
+                        "game_date": game.game_date.isoformat(),
+                        "home_team": game.home_team,
+                        "away_team": game.away_team,
+                        "team": getattr(hitter, "team", None),
+                        "player_id": int(hitter.player_id),
+                        "player_name": getattr(hitter, "player_name", None),
+                        "sportsbook": "manual",
+                        "market_type": HITTER_PROP_MARKET_TYPE,
+                        "line_value": HITTER_PROP_LINE_VALUE,
+                        "over_price": None,
+                        "under_price": None,
+                        "snapshot_ts": snapshot_ts,
+                        "is_opening": False,
+                        "is_closing": False,
+                        "source_name": "manual_template",
+                    }
+                )
     generated = pd.DataFrame(rows, columns=MARKET_COLUMNS)
     if existing.empty:
         return generated
-    return pd.concat([existing[MARKET_COLUMNS], generated], ignore_index=True)
+    if generated.empty:
+        return existing[MARKET_COLUMNS].copy()
+    return pd.concat(
+        [existing[MARKET_COLUMNS].astype(object), generated.astype(object)],
+        ignore_index=True,
+    )
 
 
 def _write_csv(frame: pd.DataFrame, path: Path) -> None:
@@ -258,7 +324,7 @@ def main() -> int:
     starters = _load_starting_pitchers(start_date, end_date)
 
     lineup_frame = _build_lineup_templates(games, lineups_existing, snapshot_ts)
-    market_frame = _build_market_templates(games, starters, markets_existing, snapshot_ts)
+    market_frame = _build_market_templates(games, starters, lineup_frame, markets_existing, snapshot_ts)
 
     _write_csv(lineup_frame, settings.manual_lineups_csv)
     _write_csv(market_frame, settings.manual_markets_csv)

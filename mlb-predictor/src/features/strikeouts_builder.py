@@ -48,9 +48,9 @@ def _load_frames(start_date, end_date, settings):
             """
             SELECT *
             FROM pitcher_starts
-            WHERE game_date >= :history_start AND game_date <= :end_date
+            WHERE game_date >= :prior_start AND game_date <= :end_date
             """,
-            {"history_start": history_start.date(), "end_date": end_date},
+            {"prior_start": prior_start, "end_date": end_date},
         ),
         "team_offense": query_df(
             """
@@ -254,6 +254,13 @@ def main() -> int:
             frames[frame_name]["snapshot_ts"] = pd.to_datetime(frames[frame_name]["snapshot_ts"], utc=True)
     games["game_date"] = pd.to_datetime(games["game_date"]).dt.date
     games["game_start_ts"] = pd.to_datetime(games["game_start_ts"], utc=True)
+    player_name_map = (
+        frames["players"][["player_id", "full_name"]]
+        .dropna(subset=["player_id"])
+        .drop_duplicates(subset=["player_id"])
+        .set_index("player_id")["full_name"]
+        .to_dict()
+    )
 
     team_priors = build_team_priors(frames["team_offense"], settings.prior_season)
     pitcher_priors = build_pitcher_priors(frames["pitcher_starts"], settings.prior_season)
@@ -314,6 +321,7 @@ def main() -> int:
             opponent_lineup = away_lineup if team == game.home_team else home_lineup
             opponent_handedness = away_handedness if team == game.home_team else home_handedness
             opponent_offense = away_offense if team == game.home_team else home_offense
+            pitcher_name = player_name_map.get(int(starter.pitcher_id)) or getattr(starter, "pitcher_name", None) or str(starter.pitcher_id)
 
             history = frames["pitcher_starts"][
                 (frames["pitcher_starts"]["pitcher_id"] == starter.pitcher_id)
@@ -349,7 +357,7 @@ def main() -> int:
                     "line_snapshot_ts": market["line_snapshot_ts"],
                     "feature_cutoff_ts": cutoff_ts,
                     "feature_version": feature_version,
-                    "pitcher_name": getattr(starter, "pitcher_name", None) or str(starter.pitcher_id),
+                    "pitcher_name": pitcher_name,
                     "throws": throw_hand or None,
                     "days_rest": starter.days_rest,
                     "projected_innings": projected_innings,

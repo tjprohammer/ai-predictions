@@ -210,7 +210,10 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
     totals = _latest_rows(
         """
         WITH ranked AS (
-            SELECT p.*, ROW_NUMBER() OVER (PARTITION BY p.game_date, p.game_id, p.model_name, p.model_version ORDER BY p.prediction_ts DESC) AS row_rank
+            SELECT p.*, ROW_NUMBER() OVER (
+                PARTITION BY p.game_date, p.game_id
+                ORDER BY p.prediction_ts DESC, p.created_at DESC, p.model_version DESC, p.model_name DESC
+            ) AS row_rank
             FROM predictions_totals p
             WHERE p.game_date BETWEEN :start_date AND :end_date
         )
@@ -283,7 +286,10 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
     hits = _latest_rows(
         """
         WITH ranked AS (
-            SELECT p.*, ROW_NUMBER() OVER (PARTITION BY p.game_date, p.game_id, p.player_id, p.model_name, p.model_version ORDER BY p.prediction_ts DESC) AS row_rank
+            SELECT p.*, ROW_NUMBER() OVER (
+                PARTITION BY p.game_date, p.game_id, p.player_id
+                ORDER BY p.prediction_ts DESC, p.created_at DESC, p.model_version DESC, p.model_name DESC
+            ) AS row_rank
             FROM predictions_player_hits p
             WHERE p.game_date BETWEEN :start_date AND :end_date
         )
@@ -337,7 +343,10 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
     strikeouts = _latest_rows(
         """
         WITH ranked AS (
-            SELECT p.*, ROW_NUMBER() OVER (PARTITION BY p.game_date, p.game_id, p.pitcher_id, p.model_name, p.model_version ORDER BY p.prediction_ts DESC) AS row_rank
+            SELECT p.*, ROW_NUMBER() OVER (
+                PARTITION BY p.game_date, p.game_id, p.pitcher_id
+                ORDER BY p.prediction_ts DESC, p.created_at DESC, p.model_version DESC, p.model_name DESC
+            ) AS row_rank
             FROM predictions_pitcher_strikeouts p
             WHERE p.game_date BETWEEN :start_date AND :end_date
         )

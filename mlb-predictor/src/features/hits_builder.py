@@ -175,7 +175,8 @@ def main() -> int:
 
         market = latest_market_snapshot(game.game_id, cutoff_ts, frames["markets"])
         weather = latest_weather_snapshot(game.game_id, cutoff_ts, frames["weather"])
-        park = park_snapshot(game.home_team, int(game.season or game.game_date.year), frames["parks"], settings.prior_season)
+        season = int(game.game_date.year) if pd.isna(game.season) else int(game.season)
+        park = park_snapshot(game.home_team, season, frames["parks"], settings.prior_season)
         home_offense = offense_snapshot(
             game.home_team,
             game.game_date,
@@ -233,6 +234,7 @@ def main() -> int:
                 prior_blend_mode=settings.prior_blend_mode,
                 prior_weight_multiplier=settings.prior_weight_multiplier,
             )
+            actual_player_hits = actual_map.get(int(lineup_row.player_id)) if actual_map else None
             rows.append(
                 {
                     "game_id": int(game.game_id),
@@ -271,7 +273,7 @@ def main() -> int:
                     "wind_speed_mph": weather["wind_speed_mph"],
                     "team_run_environment": team_environment,
                     "streak_len_capped": hitter["streak_len_capped"],
-                    "got_hit": actual_map.get(int(lineup_row.player_id), 0) > 0 if actual_map else None,
+                    "got_hit": None if actual_player_hits is None else actual_player_hits > 0,
                 }
             )
 
