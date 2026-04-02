@@ -192,6 +192,8 @@ The desktop runtime now defaults to a per-user SQLite file under `%LOCALAPPDATA%
 
 On desktop SQLite startups, the launcher now applies the bundled migrations automatically before the API comes up, so a first-run local database file is initialized with the app schema.
 
+On top of schema creation, the desktop runtime now seeds bundled park-factor reference data automatically on SQLite first-run startup, so local installs come up with baseline reference rows without manual bootstrap commands.
+
 Current limitation: this removes the external database requirement for startup and base schema creation, but it is not the full embedded-database cutover yet. The remaining migration work is porting the broader ingestion and training queries that still rely on Postgres-specific SQL semantics.
 
 ## Embedded DB Groundwork

@@ -167,15 +167,23 @@ def _latest_home_venues() -> pd.DataFrame:
 
 def _build_bootstrap_frame(target_season: int, fallback_season: int) -> pd.DataFrame:
     venue_lookup = _latest_home_venues()
-    if venue_lookup.empty:
-        return _empty_frame()
-
     existing = query_df("SELECT * FROM park_factors ORDER BY season, team_abbr")
     existing = _normalize_frame(existing) if not existing.empty else _empty_frame()
 
     fallback = existing[existing["season"] == fallback_season].copy()
     if fallback.empty and not existing.empty:
         fallback = existing.sort_values("season").drop_duplicates(subset=["team_abbr"], keep="last")
+
+    if venue_lookup.empty:
+        if fallback.empty:
+            return _empty_frame()
+        fallback_rows = fallback.copy()
+        fallback_rows["season"] = target_season
+        fallback_rows["source_name"] = f"bootstrap_{fallback_season}"
+        return fallback_rows[["season", "team_abbr", *OPTIONAL_COLUMNS, *FACTOR_COLUMNS]].drop_duplicates(
+            subset=["season", "team_abbr"],
+            keep="last",
+        )
 
     merged = venue_lookup.merge(
         fallback[["team_abbr", "venue_id", "venue_name", "source_name", *FACTOR_COLUMNS]],
@@ -210,6 +218,80 @@ def _build_bootstrap_frame(target_season: int, fallback_season: int) -> pd.DataF
     return pd.DataFrame(rows, columns=["season", "team_abbr", *OPTIONAL_COLUMNS, *FACTOR_COLUMNS])
 
 
+def ensure_park_factors_seeded(
+    *,
+    csv_path: Path | None = None,
+    source: str = "auto",
+    target_season: int | None = None,
+    fallback_season: int | None = None,
+    skip_bootstrap: bool = False,
+    write_seed: bool = False,
+    force_bootstrap: bool = False,
+) -> dict[str, int | bool]:
+    settings = get_settings()
+    resolved_csv_path = csv_path or settings.park_factors_csv
+    resolved_target_season = target_season or settings.current_season
+    resolved_fallback_season = fallback_season or settings.prior_season
+
+    imported = 0
+    imported_frame = _empty_frame()
+    if source in {"auto", "csv"}:
+        imported_frame = _load_csv(resolved_csv_path)
+    if imported_frame.empty and source in {"auto", "statcast"}:
+        imported_frame = _fetch_statcast_frame(resolved_fallback_season)
+        if write_seed or not resolved_csv_path.exists():
+            _write_seed_file(imported_frame, resolved_csv_path)
+            log.info("Wrote %s park factor rows to %s", len(imported_frame), resolved_csv_path)
+    if not imported_frame.empty:
+        imported = upsert_rows("park_factors", _frame_to_rows(imported_frame), ["season", "team_abbr"])
+        log.info("Imported %s park factor rows into the database", imported)
+
+    if skip_bootstrap:
+        return {
+            "imported": imported,
+            "bootstrapped": 0,
+            "target_ready": imported > 0,
+            "bootstrap_attempted": False,
+        }
+
+    existing_target = query_df(
+        "SELECT COUNT(*) AS row_count FROM park_factors WHERE season = :season",
+        {"season": resolved_target_season},
+    )
+    if int(existing_target.iloc[0]["row_count"]) > 0 and not force_bootstrap:
+        log.info("Park factors for season %s already exist; skipping bootstrap", resolved_target_season)
+        return {
+            "imported": imported,
+            "bootstrapped": 0,
+            "target_ready": True,
+            "bootstrap_attempted": False,
+        }
+
+    bootstrap = _build_bootstrap_frame(resolved_target_season, resolved_fallback_season)
+    if bootstrap.empty:
+        log.warning("Could not bootstrap park factors for season %s; no team or venue data found", resolved_target_season)
+        return {
+            "imported": imported,
+            "bootstrapped": 0,
+            "target_ready": False,
+            "bootstrap_attempted": True,
+        }
+
+    inserted = upsert_rows("park_factors", _frame_to_rows(bootstrap), ["season", "team_abbr"])
+    log.info(
+        "Bootstrapped %s park factor rows for season %s using fallback season %s",
+        inserted,
+        resolved_target_season,
+        resolved_fallback_season,
+    )
+    return {
+        "imported": imported,
+        "bootstrapped": inserted,
+        "target_ready": inserted > 0,
+        "bootstrap_attempted": True,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Load park factors from CSV and bootstrap the current season")
     parser.add_argument("--csv", help="Override park factors csv path")
@@ -226,46 +308,14 @@ def main() -> int:
     parser.add_argument("--force-bootstrap", action="store_true", help="Rebuild the target season even if rows already exist")
     args = parser.parse_args()
 
-    settings = get_settings()
-    csv_path = Path(args.csv) if args.csv else settings.park_factors_csv
-    target_season = args.target_season or settings.current_season
-    fallback_season = args.fallback_season or settings.prior_season
-
-    imported = 0
-    imported_frame = _empty_frame()
-    if args.source in {"auto", "csv"}:
-        imported_frame = _load_csv(csv_path)
-    if imported_frame.empty and args.source in {"auto", "statcast"}:
-        imported_frame = _fetch_statcast_frame(fallback_season)
-        if args.write_seed or not csv_path.exists():
-            _write_seed_file(imported_frame, csv_path)
-            log.info("Wrote %s park factor rows to %s", len(imported_frame), csv_path)
-    if not imported_frame.empty:
-        imported = upsert_rows("park_factors", _frame_to_rows(imported_frame), ["season", "team_abbr"])
-        log.info("Imported %s park factor rows into the database", imported)
-
-    if args.skip_bootstrap:
-        return 0
-
-    existing_target = query_df(
-        "SELECT COUNT(*) AS row_count FROM park_factors WHERE season = :season",
-        {"season": target_season},
-    )
-    if int(existing_target.iloc[0]["row_count"]) > 0 and not args.force_bootstrap:
-        log.info("Park factors for season %s already exist; skipping bootstrap", target_season)
-        return 0
-
-    bootstrap = _build_bootstrap_frame(target_season, fallback_season)
-    if bootstrap.empty:
-        log.warning("Could not bootstrap park factors for season %s; no team or venue data found", target_season)
-        return 0
-
-    inserted = upsert_rows("park_factors", _frame_to_rows(bootstrap), ["season", "team_abbr"])
-    log.info(
-        "Bootstrapped %s park factor rows for season %s using fallback season %s",
-        inserted,
-        target_season,
-        fallback_season,
+    ensure_park_factors_seeded(
+        csv_path=Path(args.csv) if args.csv else None,
+        source=args.source,
+        target_season=args.target_season,
+        fallback_season=args.fallback_season,
+        skip_bootstrap=args.skip_bootstrap,
+        write_seed=args.write_seed,
+        force_bootstrap=args.force_bootstrap,
     )
     return 0
 

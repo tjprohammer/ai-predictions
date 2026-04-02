@@ -193,6 +193,22 @@ def maybe_run_startup_migrations(log_path: Path) -> None:
     run_migrations()
 
 
+def maybe_run_startup_reference_bootstrap(log_path: Path) -> None:
+    database_url = str(os.environ.get("DATABASE_URL") or "")
+    if not database_url.startswith("sqlite"):
+        return
+
+    from src.ingestors.park_factors import ensure_park_factors_seeded
+
+    append_runtime_log(log_path, "Ensuring startup park factor reference data")
+    result = ensure_park_factors_seeded()
+    append_runtime_log(
+        log_path,
+        "Startup park factor bootstrap result: "
+        f"imported={result['imported']} bootstrapped={result['bootstrapped']} target_ready={result['target_ready']}",
+    )
+
+
 class AppServer:
     def __init__(self, host: str, port: int, app) -> None:
         self.host = host
@@ -288,6 +304,7 @@ def main() -> int:
     try:
         port = args.port or find_open_port(args.host)
         maybe_run_startup_migrations(log_path)
+        maybe_run_startup_reference_bootstrap(log_path)
         fastapi_app = load_fastapi_app()
         server = AppServer(args.host, port, fastapi_app)
         server.start()

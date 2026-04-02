@@ -122,6 +122,36 @@ def test_maybe_run_startup_migrations_skips_non_sqlite(monkeypatch, tmp_path):
     assert calls == []
 
 
+def test_maybe_run_startup_reference_bootstrap_only_for_sqlite(monkeypatch, tmp_path):
+    calls: list[str] = []
+
+    def fake_seed():
+        calls.append("ran")
+        return {"imported": 30, "bootstrapped": 0, "target_ready": True}
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{(tmp_path / 'desktop.sqlite3').as_posix()}")
+    monkeypatch.setattr("src.ingestors.park_factors.ensure_park_factors_seeded", fake_seed)
+
+    launcher_module.maybe_run_startup_reference_bootstrap(tmp_path / "launcher.log")
+
+    assert calls == ["ran"]
+
+
+def test_maybe_run_startup_reference_bootstrap_skips_non_sqlite(monkeypatch, tmp_path):
+    calls: list[str] = []
+
+    def fake_seed():
+        calls.append("ran")
+        return {"imported": 0, "bootstrapped": 0, "target_ready": False}
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg2://user:pass@localhost:5432/mlb")
+    monkeypatch.setattr("src.ingestors.park_factors.ensure_park_factors_seeded", fake_seed)
+
+    launcher_module.maybe_run_startup_reference_bootstrap(tmp_path / "launcher.log")
+
+    assert calls == []
+
+
 def test_app_server_uses_direct_app_object(monkeypatch):
     captured = {}
 
