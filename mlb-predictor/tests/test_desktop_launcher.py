@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 import src.desktop.launcher as launcher_module
@@ -173,3 +174,41 @@ def test_app_server_uses_direct_app_object(monkeypatch):
 
     assert captured["app"] is fake_app
     assert captured["kwargs"]["log_config"] is None
+
+
+def test_launch_window_returns_false_when_pywebview_runtime_fails(monkeypatch, tmp_path):
+    class FakeWebviewModule:
+        @staticmethod
+        def create_window(*args, **kwargs):
+            return None
+
+        @staticmethod
+        def start():
+            raise RuntimeError("pythonnet loader failed")
+
+    monkeypatch.setitem(sys.modules, "webview", FakeWebviewModule)
+
+    log_path = tmp_path / "launcher.log"
+
+    launched = launcher_module.launch_window("http://127.0.0.1:8126/", 1480, 980, log_path=log_path)
+
+    assert launched is False
+    assert "pywebview launch failed (RuntimeError): pythonnet loader failed" in log_path.read_text(encoding="utf-8")
+
+
+def test_launch_window_returns_false_when_pywebview_missing(monkeypatch, tmp_path):
+    original_import = __import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "webview":
+            raise ImportError("No module named 'webview'")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+
+    log_path = tmp_path / "launcher.log"
+
+    launched = launcher_module.launch_window("http://127.0.0.1:8126/", 1480, 980, log_path=log_path)
+
+    assert launched is False
+    assert "pywebview unavailable; falling back to browser launch" in log_path.read_text(encoding="utf-8")

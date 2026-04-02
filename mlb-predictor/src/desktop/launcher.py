@@ -260,15 +260,25 @@ class AppServer:
             self._thread.join(timeout=5.0)
 
 
-def launch_window(url: str, width: int, height: int) -> bool:
+def launch_window(url: str, width: int, height: int, log_path: Path | None = None) -> bool:
     try:
         import webview
     except ImportError:
+        if log_path is not None:
+            append_runtime_log(log_path, "pywebview unavailable; falling back to browser launch")
         return False
 
-    webview.create_window(APP_TITLE, url, width=width, height=height, min_size=(1120, 760))
-    webview.start()
-    return True
+    try:
+        webview.create_window(APP_TITLE, url, width=width, height=height, min_size=(1120, 760))
+        webview.start()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        if log_path is not None:
+            append_runtime_log(
+                log_path,
+                f"pywebview launch failed ({exc.__class__.__name__}): {exc}; falling back to browser launch",
+            )
+        return False
 
 
 def hold_browser_session(url: str) -> None:
@@ -318,9 +328,8 @@ def main() -> int:
             except KeyboardInterrupt:
                 return 0
 
-        if not launch_window(server.url, args.width, args.height):
-            append_runtime_log(log_path, "pywebview unavailable; falling back to browser launch")
-            print("pywebview is not installed; opening the app in a browser window instead.")
+        if not launch_window(server.url, args.width, args.height, log_path=log_path):
+            print("Embedded desktop window unavailable; opening the app in a browser window instead.")
             hold_browser_session(server.url)
         return 0
     except Exception as exc:  # noqa: BLE001
