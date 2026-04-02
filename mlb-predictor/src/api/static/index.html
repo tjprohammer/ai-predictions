@@ -1819,6 +1819,34 @@
         },
       };
 
+      const updateStepLabels = {
+        "src.ingestors.games": "Load games for the selected date",
+        "src.ingestors.starters": "Load probable starters",
+        "src.ingestors.prepare_slate_inputs": "Create editable lineup and market templates",
+        "src.ingestors.lineups": "Import lineup inputs",
+        "src.ingestors.market_totals": "Import market inputs",
+        "src.ingestors.boxscores": "Load final game scores",
+        "src.ingestors.player_batting": "Load hitter box score stats",
+        "src.transforms.offense_daily": "Refresh team offense form",
+        "src.transforms.bullpens_daily": "Refresh bullpen form",
+        "src.features.totals_builder": "Build full-game totals features",
+        "src.features.first5_totals_builder": "Build first-five totals features",
+        "src.features.hits_builder": "Build hitter features",
+        "src.features.strikeouts_builder": "Build strikeout features",
+        "src.models.predict_totals": "Generate full-game totals predictions",
+        "src.models.predict_first5_totals": "Generate first-five totals predictions",
+        "src.models.predict_hits": "Generate hitter predictions",
+        "src.models.predict_strikeouts": "Generate strikeout predictions",
+        "src.transforms.product_surfaces": "Refresh board, results, and scorecards",
+      };
+
+      function humanizeUpdateStep(stepName) {
+        if (!stepName) {
+          return "Waiting for the next step";
+        }
+        return updateStepLabels[stepName] || stepName;
+      }
+
       function setLog(message) {
         logBox.textContent = message;
       }
@@ -3794,7 +3822,7 @@
       function formatStepLog(step) {
         const stdout = step.stdout ? `stdout:\n${step.stdout}` : "stdout: (empty)";
         const stderr = step.stderr ? `stderr:\n${step.stderr}` : "stderr: (empty)";
-        return `${step.module} -> ${step.returncode}\n${stdout}\n${stderr}`;
+        return `${humanizeUpdateStep(step.module)} (${step.module}) -> ${step.returncode}\n${stdout}\n${stderr}`;
       }
 
       function updateJobTone(status) {
@@ -3818,7 +3846,7 @@
         }
         const progress = `${job.completed_steps || 0}/${job.total_steps || 0} steps`;
         if (job.status === "queued" || job.status === "running") {
-          return `${job.label} ${updateJobOutcomeLabel(job.status)} for ${job.target_date} · ${progress}${job.current_step ? ` · ${job.current_step}` : ""}`;
+          return `${job.label} ${updateJobOutcomeLabel(job.status)} for ${job.target_date} · ${progress}${job.current_step ? ` · ${humanizeUpdateStep(job.current_step)}` : ""}`;
         }
         return `${job.label} ${updateJobOutcomeLabel(job.status)} for ${job.target_date} · ${progress}`;
       }
@@ -3832,7 +3860,7 @@
           `Progress ${job.completed_steps || 0}/${job.total_steps || 0} steps.`,
         ];
         if (job.current_step) {
-          lines.push(`Current step: ${job.current_step}`);
+          lines.push(`Current step: ${humanizeUpdateStep(job.current_step)}`);
         }
         if (job.error) {
           lines.push(`Error: ${job.error}`);
