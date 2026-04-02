@@ -190,7 +190,9 @@ If Inno Setup is installed, this produces a standard Windows installer. If not, 
 
 The desktop runtime now defaults to a per-user SQLite file under `%LOCALAPPDATA%\MLBPredictor\db\mlb_predictor.sqlite3` when no custom `DATABASE_URL` is configured. Explicit `DATABASE_URL` overrides are still respected for Postgres-based workflows.
 
-Current limitation: this removes the external database requirement for startup, but it is not the full embedded-database cutover yet. The remaining migration work is porting the schema and ingestion/training paths that still rely on Postgres-specific DDL and SQL.
+On desktop SQLite startups, the launcher now applies the bundled migrations automatically before the API comes up, so a first-run local database file is initialized with the app schema.
+
+Current limitation: this removes the external database requirement for startup and base schema creation, but it is not the full embedded-database cutover yet. The remaining migration work is porting the broader ingestion and training queries that still rely on Postgres-specific SQL semantics.
 
 ## Embedded DB Groundwork
 

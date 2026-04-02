@@ -183,6 +183,16 @@ def load_fastapi_app():
     return fastapi_app
 
 
+def maybe_run_startup_migrations(log_path: Path) -> None:
+    database_url = str(os.environ.get("DATABASE_URL") or "")
+    if not database_url.startswith("sqlite"):
+        return
+    append_runtime_log(log_path, f"Applying startup migrations for {database_url}")
+    from src.utils.db_migrate import run_migrations
+
+    run_migrations()
+
+
 class AppServer:
     def __init__(self, host: str, port: int, app) -> None:
         self.host = host
@@ -277,6 +287,7 @@ def main() -> int:
 
     try:
         port = args.port or find_open_port(args.host)
+        maybe_run_startup_migrations(log_path)
         fastapi_app = load_fastapi_app()
         server = AppServer(args.host, port, fastapi_app)
         server.start()

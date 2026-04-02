@@ -94,6 +94,34 @@ def test_load_fastapi_app_returns_fastapi_instance():
     assert app.title == "MLB Predictor"
 
 
+def test_maybe_run_startup_migrations_only_for_sqlite(monkeypatch, tmp_path):
+    calls: list[str] = []
+
+    def fake_run_migrations():
+        calls.append("ran")
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{(tmp_path / 'desktop.sqlite3').as_posix()}")
+    monkeypatch.setattr("src.utils.db_migrate.run_migrations", fake_run_migrations)
+
+    launcher_module.maybe_run_startup_migrations(tmp_path / "launcher.log")
+
+    assert calls == ["ran"]
+
+
+def test_maybe_run_startup_migrations_skips_non_sqlite(monkeypatch, tmp_path):
+    calls: list[str] = []
+
+    def fake_run_migrations():
+        calls.append("ran")
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg2://user:pass@localhost:5432/mlb")
+    monkeypatch.setattr("src.utils.db_migrate.run_migrations", fake_run_migrations)
+
+    launcher_module.maybe_run_startup_migrations(tmp_path / "launcher.log")
+
+    assert calls == []
+
+
 def test_app_server_uses_direct_app_object(monkeypatch):
     captured = {}
 

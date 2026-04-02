@@ -17,6 +17,15 @@ log = get_logger(__name__)
 HITTER_MARKET_TYPES = ("player_hits", "1_plus_hit", "hits")
 
 
+def _bind_list(prefix: str, values: list[object], params: dict[str, object]) -> str:
+    placeholders: list[str] = []
+    for index, value in enumerate(values):
+        key = f"{prefix}_{index}"
+        params[key] = value
+        placeholders.append(f":{key}")
+    return ", ".join(placeholders) or "NULL"
+
+
 def _clip_probabilities(probabilities: np.ndarray) -> np.ndarray:
     return np.clip(np.asarray(probabilities, dtype=float), 1e-6, 1.0 - 1e-6)
 
@@ -54,8 +63,10 @@ def _fair_american(probability: float | None) -> int | None:
 
 
 def _fetch_market_map(target_date: date) -> dict[tuple[int, int], int | None]:
+    params: dict[str, object] = {"target_date": target_date}
+    market_type_placeholders = _bind_list("market_type", list(HITTER_MARKET_TYPES), params)
     frame = query_df(
-        """
+        f"""
         WITH ranked AS (
             SELECT
                 ppm.game_id,
@@ -71,14 +82,14 @@ def _fetch_market_map(target_date: date) -> dict[tuple[int, int], int | None]:
                 ) AS row_rank
             FROM player_prop_markets ppm
             WHERE ppm.game_date = :target_date
-              AND ppm.market_type = ANY(:market_types)
+                            AND ppm.market_type IN ({market_type_placeholders})
         )
         SELECT game_id, player_id, line_value, over_price
         FROM ranked
         WHERE row_rank = 1
           AND (line_value IS NULL OR line_value <= 0.5)
         """,
-        {"target_date": target_date, "market_types": list(HITTER_MARKET_TYPES)},
+                params,
     )
     if frame.empty:
         return {}
