@@ -12,6 +12,12 @@ INSTALLER_DIR = ROOT / "installer" / "windows"
 DEFAULT_APP_NAME = "MLBPredictor"
 DEFAULT_DIST_DIR = ROOT / "dist" / DEFAULT_APP_NAME
 DEFAULT_RELEASE_DIR = ROOT / "release"
+PORTABLE_INSTALLER_FILES = [
+    "install_mlb_predictor.cmd",
+    "install_mlb_predictor.ps1",
+    "uninstall_mlb_predictor.cmd",
+    "uninstall_mlb_predictor.ps1",
+]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,8 +63,8 @@ def build_portable_installer_bundle(dist_dir: Path, release_dir: Path) -> Path:
         shutil.rmtree(bundle_dir)
     (bundle_dir / "MLBPredictor").parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(dist_dir, bundle_dir / "MLBPredictor")
-    shutil.copy2(INSTALLER_DIR / "install_mlb_predictor.ps1", bundle_dir / "install_mlb_predictor.ps1")
-    shutil.copy2(INSTALLER_DIR / "uninstall_mlb_predictor.ps1", bundle_dir / "uninstall_mlb_predictor.ps1")
+    for installer_name in PORTABLE_INSTALLER_FILES:
+        shutil.copy2(INSTALLER_DIR / installer_name, bundle_dir / installer_name)
 
     zip_path = release_dir / "MLBPredictor-Windows-PortableInstaller.zip"
     if zip_path.exists():

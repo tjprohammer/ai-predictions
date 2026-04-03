@@ -159,7 +159,7 @@ Current Windows release flow:
 
 1. Open the latest GitHub Release.
 2. Download `MLBPredictor-Windows-PortableInstaller.zip` or `MLBPredictorSetup.exe` if an Inno Setup installer was published for that release.
-3. If you downloaded the portable ZIP, extract it and run `install_mlb_predictor.ps1`.
+3. If you downloaded the portable ZIP, extract it and double-click `install_mlb_predictor.cmd`. `install_mlb_predictor.ps1` is still included, but some Windows setups open `.ps1` files in an editor instead of executing them.
 4. Launch `MLBPredictor` from the shortcut or install folder.
 
 What happens on first launch:
@@ -218,6 +218,8 @@ make build-release
 ```
 
 If Inno Setup is installed, this produces a standard Windows installer. If not, the build falls back to a portable installer bundle with `install_mlb_predictor.ps1` and `uninstall_mlb_predictor.ps1` plus the packaged app folder.
+
+The portable bundle also includes `install_mlb_predictor.cmd` and `uninstall_mlb_predictor.cmd` so testers can launch install or uninstall by double-clicking on a typical Windows machine.
 
 The desktop runtime now defaults to a per-user SQLite file under `%LOCALAPPDATA%\MLBPredictor\db\mlb_predictor.sqlite3` when no custom `DATABASE_URL` is configured. Explicit `DATABASE_URL` overrides are still respected for Postgres-based workflows.
 
