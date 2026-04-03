@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 
 from src.ingestors.common import player_dimension_row
+from src.ingestors.prepare_slate_inputs import LINEUP_COLUMNS, build_lineup_input_frame
+from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df, upsert_rows
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
@@ -31,27 +34,74 @@ def _as_bool(value: object) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
-def _load_games() -> pd.DataFrame:
+def _load_games_for_range(start_date, end_date) -> pd.DataFrame:
     return query_df(
         """
         SELECT game_id, game_date, home_team, away_team
         FROM games
-        """
+        WHERE game_date BETWEEN :start_date AND :end_date
+        """,
+        {"start_date": start_date, "end_date": end_date},
     )
 
 
+def _coerce_lineup_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    normalized = frame.copy()
+    for column in LINEUP_COLUMNS:
+        if column not in normalized.columns:
+            normalized[column] = None
+    return normalized[LINEUP_COLUMNS].copy()
+
+
+def _filter_lineup_date_range(frame: pd.DataFrame, start_date, end_date) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    resolved_start_date = pd.to_datetime(start_date, errors="coerce").date()
+    resolved_end_date = pd.to_datetime(end_date, errors="coerce").date()
+    filtered = frame.copy()
+    filtered["game_date"] = pd.to_datetime(filtered["game_date"], errors="coerce").dt.date
+    filtered = filtered[filtered["game_date"].notna()].copy()
+    return filtered[
+        (filtered["game_date"] >= resolved_start_date) & (filtered["game_date"] <= resolved_end_date)
+    ].copy()
+
+
+def _build_lineup_import_frame(csv_path: Path, start_date, end_date) -> pd.DataFrame:
+    games = _load_games_for_range(start_date, end_date)
+    if games.empty:
+        return pd.DataFrame(columns=LINEUP_COLUMNS)
+    games = games.copy()
+    games["game_date"] = pd.to_datetime(games["game_date"], errors="coerce").dt.date
+
+    existing = pd.DataFrame(columns=LINEUP_COLUMNS)
+    if csv_path.exists():
+        existing = _filter_lineup_date_range(_coerce_lineup_columns(pd.read_csv(csv_path)), start_date, end_date)
+    else:
+        log.info(
+            "No manual lineup CSV found at %s; using projected lineup inference for %s to %s",
+            csv_path,
+            start_date,
+            end_date,
+        )
+
+    snapshot_ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return build_lineup_input_frame(games, existing=existing, snapshot_ts=snapshot_ts)
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Import manual lineup CSV into canonical lineups table")
+    parser = argparse.ArgumentParser(description="Import lineup inputs into the canonical lineups table")
     parser.add_argument("--csv", help="Override manual lineups csv path")
+    add_date_range_args(parser)
     args = parser.parse_args()
     settings = get_settings()
     csv_path = Path(args.csv) if args.csv else settings.manual_lineups_csv
+    start_date, end_date = resolve_date_range(args)
 
-    if not csv_path.exists():
-        log.info("No manual lineup CSV found at %s; skipping", csv_path)
+    frame = _build_lineup_import_frame(csv_path, start_date, end_date)
+    if frame.empty:
+        log.info("No lineup rows available for %s to %s", start_date, end_date)
         return 0
 
-    frame = pd.read_csv(csv_path)
     missing = REQUIRED_COLUMNS - set(frame.columns)
     if missing:
         raise ValueError(f"Missing lineup columns: {sorted(missing)}")
@@ -61,7 +111,7 @@ def main() -> int:
     frame["player_id"] = frame["player_id"].astype(int)
     frame["lineup_slot"] = frame["lineup_slot"].astype(int)
 
-    games = _load_games()
+    games = _load_games_for_range(start_date, end_date)
     games["game_date"] = pd.to_datetime(games["game_date"]).dt.date
     if "game_id" in frame.columns:
         merged = frame.merge(
@@ -117,7 +167,7 @@ def main() -> int:
 
     upsert_rows("dim_players", player_rows, ["player_id"])
     inserted = upsert_rows("lineups", lineup_rows, ["game_id", "player_id", "source_name", "snapshot_ts"])
-    log.info("Imported %s lineup rows from %s", inserted, csv_path)
+    log.info("Imported %s lineup rows for %s to %s", inserted, start_date, end_date)
     return 0
 
 

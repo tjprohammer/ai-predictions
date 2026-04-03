@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import contextlib
+import importlib
+import io
 import json
 import subprocess
 import sys
 import threading
+import traceback
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -17,6 +21,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from src.features.first5_totals_builder import main as build_first5_totals_features_main
+from src.features.hits_builder import main as build_hits_features_main
+from src.features.strikeouts_builder import main as build_strikeouts_features_main
+from src.features.totals_builder import main as build_totals_features_main
+from src.ingestors.boxscores import main as ingest_boxscores_main
+from src.ingestors.games import main as ingest_games_main
+from src.ingestors.lineups import main as import_lineups_main
+from src.ingestors.market_totals import main as import_market_totals_main
+from src.ingestors.player_batting import main as ingest_player_batting_main
+from src.ingestors.prepare_slate_inputs import main as prepare_slate_inputs_main
+from src.ingestors.starters import main as ingest_starters_main
+from src.models.predict_first5_totals import main as predict_first5_totals_main
+from src.models.predict_hits import main as predict_hits_main
+from src.models.predict_strikeouts import main as predict_strikeouts_main
+from src.models.predict_totals import main as predict_totals_main
+from src.transforms.bullpens_daily import main as refresh_bullpens_daily_main
+from src.transforms.offense_daily import main as refresh_offense_daily_main
+from src.transforms.product_surfaces import main as refresh_product_surfaces_main
 from src.utils.db import get_dialect_name, query_df, table_exists
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
@@ -32,6 +54,26 @@ PITCHERS_FILE = STATIC_DIR / "pitchers.html"
 RESULTS_FILE = STATIC_DIR / "results.html"
 TOTALS_FILE = STATIC_DIR / "totals.html"
 FAVICON_FILE = STATIC_DIR / "favicon.svg"
+UPDATE_MODULE_MAINS = {
+    "src.ingestors.games": ingest_games_main,
+    "src.ingestors.starters": ingest_starters_main,
+    "src.ingestors.prepare_slate_inputs": prepare_slate_inputs_main,
+    "src.ingestors.lineups": import_lineups_main,
+    "src.ingestors.market_totals": import_market_totals_main,
+    "src.ingestors.boxscores": ingest_boxscores_main,
+    "src.ingestors.player_batting": ingest_player_batting_main,
+    "src.transforms.offense_daily": refresh_offense_daily_main,
+    "src.transforms.bullpens_daily": refresh_bullpens_daily_main,
+    "src.transforms.product_surfaces": refresh_product_surfaces_main,
+    "src.features.totals_builder": build_totals_features_main,
+    "src.features.first5_totals_builder": build_first5_totals_features_main,
+    "src.features.hits_builder": build_hits_features_main,
+    "src.features.strikeouts_builder": build_strikeouts_features_main,
+    "src.models.predict_totals": predict_totals_main,
+    "src.models.predict_first5_totals": predict_first5_totals_main,
+    "src.models.predict_hits": predict_hits_main,
+    "src.models.predict_strikeouts": predict_strikeouts_main,
+}
 
 app = FastAPI(title="MLB Predictor", version="0.1.0")
 app.add_middleware(
@@ -3397,6 +3439,9 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
 
 
 def _run_module(module_name: str, *args: str) -> dict[str, Any]:
+    if getattr(sys, "frozen", False):
+        return _run_module_in_process(module_name, *args)
+
     command = [sys.executable, "-m", module_name, *args]
     completed = subprocess.run(
         command,
@@ -3410,6 +3455,52 @@ def _run_module(module_name: str, *args: str) -> dict[str, Any]:
         "returncode": completed.returncode,
         "stdout": completed.stdout.strip(),
         "stderr": completed.stderr.strip(),
+    }
+
+
+def _resolve_module_main(module_name: str):
+    module_main = UPDATE_MODULE_MAINS.get(module_name)
+    if module_main is not None:
+        return module_main
+
+    module = importlib.import_module(module_name)
+    module_main = getattr(module, "main", None)
+    if not callable(module_main):
+        raise AttributeError(f"{module_name} does not define a callable main()")
+    return module_main
+
+
+def _run_module_in_process(module_name: str, *args: str) -> dict[str, Any]:
+    command = [sys.executable, "-m", module_name, *args]
+    stdout_buffer = io.StringIO()
+    stderr_buffer = io.StringIO()
+    original_argv = list(sys.argv)
+
+    try:
+        module_main = _resolve_module_main(module_name)
+
+        sys.argv = [module_name, *args]
+        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+            try:
+                result = module_main()
+                returncode = 0 if result is None else int(result)
+            except SystemExit as exc:
+                if isinstance(exc.code, int):
+                    returncode = exc.code
+                else:
+                    returncode = 0 if exc.code in {None, ""} else 1
+    except Exception:  # noqa: BLE001
+        traceback.print_exc(file=stderr_buffer)
+        returncode = 1
+    finally:
+        sys.argv = original_argv
+
+    return {
+        "module": module_name,
+        "command": command,
+        "returncode": returncode,
+        "stdout": stdout_buffer.getvalue().strip(),
+        "stderr": stderr_buffer.getvalue().strip(),
     }
 
 
@@ -3700,7 +3791,7 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
         ]
     if action == "import_manual_inputs":
         return [
-            ("src.ingestors.lineups", []),
+            ("src.ingestors.lineups", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
         ]
     if action == "refresh_results":
@@ -3717,7 +3808,7 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
 def _update_job_label(action: UpdateAction) -> str:
     return {
         "prepare_slate": "Prepare slate",
-        "import_manual_inputs": "Import manual inputs",
+        "import_manual_inputs": "Import inputs",
         "refresh_results": "Refresh results and stats",
         "rebuild_predictions": "Rebuild predictions",
     }[action]

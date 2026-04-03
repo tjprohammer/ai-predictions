@@ -9,6 +9,32 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ADD_DATA_SEPARATOR = ";" if os.name == "nt" else ":"
+DYNAMIC_PACKAGES = [
+    "src.ingestors",
+    "src.features",
+    "src.models",
+    "src.transforms",
+]
+DYNAMIC_MODULES = [
+    "src.ingestors.games",
+    "src.ingestors.starters",
+    "src.ingestors.prepare_slate_inputs",
+    "src.ingestors.lineups",
+    "src.ingestors.market_totals",
+    "src.ingestors.boxscores",
+    "src.ingestors.player_batting",
+    "src.transforms.offense_daily",
+    "src.transforms.bullpens_daily",
+    "src.transforms.product_surfaces",
+    "src.features.totals_builder",
+    "src.features.first5_totals_builder",
+    "src.features.hits_builder",
+    "src.features.strikeouts_builder",
+    "src.models.predict_totals",
+    "src.models.predict_first5_totals",
+    "src.models.predict_hits",
+    "src.models.predict_strikeouts",
+]
 
 
 def add_data_argument(source: Path, destination: str) -> str:
@@ -49,8 +75,12 @@ def main() -> int:
         "--add-data",
         add_data_argument(ROOT / "db", "db"),
         "--add-data",
-        add_data_argument(ROOT / "src" / "api" / "static", "src/api/static"),
+        add_data_argument(ROOT / "src", "src"),
     ]
+    for package_name in DYNAMIC_PACKAGES:
+        command.extend(["--collect-submodules", package_name])
+    for module_name in DYNAMIC_MODULES:
+        command.extend(["--hidden-import", module_name])
     if args.onefile:
         command.append("--onefile")
     command.append(str(launcher_path))

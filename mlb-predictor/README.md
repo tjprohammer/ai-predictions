@@ -97,7 +97,7 @@ ingest raw -> refresh daily aggregates -> build feature snapshots -> train or sc
 Recommended order:
 
 1. `make prepare-slate-inputs`
-2. Fill or confirm the generated lineup and market CSVs in `data/raw/` as needed. `manual_market_totals.csv` now seeds full-game totals, first-five totals via `first_five_total`, and player prop templates. For strikeouts, populate or delete the generated `pitcher_strikeouts` template rows before running ingest; `make ingest-today` now fails if those required strikeout prop rows are still blank.
+2. Fill or confirm the generated lineup and market CSVs in `data/raw/` as needed. `manual_market_totals.csv` now seeds full-game totals, first-five totals via `first_five_total`, and player prop templates. For strikeouts, use the generated `pitcher_strikeouts` rows as optional overrides when you have better numbers. `make ingest-today` only fails when those blank strikeout templates still have no matching live or manual market line.
 3. `make ingest-today`
 4. `make refresh-aggregates`
 5. `make features-today`

@@ -1406,6 +1406,11 @@
             prediction refreshes. Only download a new GitHub release when the
             desktop app itself has been updated.
           </p>
+          <p class="hero-note">
+            Desktop launches now try to fill today's slate automatically when
+            predictions are missing. Use Update Center to force a rerun or to
+            apply manual overrides.
+          </p>
           <div class="hero-metrics" id="heroMetrics">
             <div class="mini-stat">
               <span class="label">Games On Board</span>
@@ -1451,7 +1456,7 @@
                   Prepare slate
                 </button>
                 <button class="secondary" data-update-action="import_manual_inputs">
-                  Import manual inputs
+                  Import inputs
                 </button>
                 <button class="secondary" data-update-action="refresh_results">
                   Refresh results
@@ -1461,10 +1466,10 @@
                 </button>
               </div>
               <p class="hint control-note">
-                Prepare slate refreshes schedule, starters, and editable CSV templates. Import manual inputs reads your edited lineup and market files. Refresh results pulls boxscores and batting logs, then updates team form tables. Rebuild predictions refreshes full-game totals, first-five totals, hitter cards, strikeout cards, and published product surfaces.
+                Prepare slate refreshes schedule, starters, and editable CSV templates. Import inputs reads projected or edited lineup data plus live and fallback market inputs. Refresh results pulls boxscores and batting logs, then updates team form tables. Rebuild predictions refreshes full-game totals, first-five totals, hitter cards, strikeout cards, and published product surfaces.
               </p>
               <p class="hint control-note">
-                Daily workflow: 1. Prepare slate for the target date. 2. Edit lineup and market templates if needed. 3. Import manual inputs. 4. Rebuild predictions. 5. After games finish, run Refresh results to load final stats and outcomes.
+                Daily workflow: on desktop launch the app will try the standard refresh automatically when today's predictions are missing. If you want tighter control, run: 1. Prepare slate. 2. Review or edit lineup and market templates if needed. 3. Import inputs. 4. Rebuild predictions. 5. After games finish, run Refresh results.
               </p>
               <div class="update-job-status" id="updateJobStatus">
                 No update job running.
@@ -1806,8 +1811,8 @@
           pending: "Refreshing schedule, probable starters, and slate templates",
         },
         import_manual_inputs: {
-          label: "Import manual inputs",
-          pending: "Importing edited lineup and market files",
+          label: "Import inputs",
+          pending: "Importing projected or edited lineup data plus market inputs",
         },
         refresh_results: {
           label: "Refresh results",
@@ -3656,7 +3661,7 @@
       function renderGames() {
         const games = state.games || [];
         if (!games.length) {
-          gamesBoard.innerHTML = `<div class="empty-state">No game sections are available for ${targetDateInput.value}. On a fresh install, use Update Center in this order: Prepare slate, Import manual inputs, then Rebuild predictions. If you have not filled lineup or market templates yet, the board can stay empty or partially populated.</div>`;
+          gamesBoard.innerHTML = `<div class="empty-state">No game sections are available for ${targetDateInput.value}. On desktop startup the app now tries to refresh the standard slate automatically, but a fresh install can still be catching up. You can also run Update Center in this order: Prepare slate, Import inputs, then Rebuild predictions. If live coverage is incomplete, the board can stay empty or partially populated until more data arrives.</div>`;
           return;
         }
         gamesBoard.innerHTML = games.map(safeRenderGameSection).join("");

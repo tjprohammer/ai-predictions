@@ -212,3 +212,113 @@ def test_launch_window_returns_false_when_pywebview_missing(monkeypatch, tmp_pat
 
     assert launched is False
     assert "pywebview unavailable; falling back to browser launch" in log_path.read_text(encoding="utf-8")
+
+
+def test_auto_refresh_enabled_defaults_to_non_headless(monkeypatch):
+    monkeypatch.delenv("MLB_PREDICTOR_AUTO_REFRESH", raising=False)
+
+    assert launcher_module.auto_refresh_enabled(headless=False) is True
+    assert launcher_module.auto_refresh_enabled(headless=True) is False
+
+
+def test_auto_refresh_enabled_honors_explicit_env(monkeypatch):
+    monkeypatch.setenv("MLB_PREDICTOR_AUTO_REFRESH", "true")
+    assert launcher_module.auto_refresh_enabled(headless=True) is True
+
+    monkeypatch.setenv("MLB_PREDICTOR_AUTO_REFRESH", "off")
+    assert launcher_module.auto_refresh_enabled(headless=False) is False
+
+
+def test_should_run_startup_refresh_requires_missing_predictions():
+    assert launcher_module.should_run_startup_refresh({"db_connected": False}) is False
+    assert (
+        launcher_module.should_run_startup_refresh(
+            {
+                "db_connected": True,
+                "totals_predictions": 3,
+                "hits_predictions": 12,
+                "strikeouts_predictions": 4,
+            }
+        )
+        is False
+    )
+    assert (
+        launcher_module.should_run_startup_refresh(
+            {
+                "db_connected": True,
+                "totals_predictions": 0,
+                "hits_predictions": 12,
+                "strikeouts_predictions": 4,
+            }
+        )
+        is True
+    )
+
+
+def test_run_startup_refresh_runs_update_sequence(monkeypatch, tmp_path):
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    get_payloads = [
+        {"db_connected": True, "totals_predictions": 0, "hits_predictions": 0, "strikeouts_predictions": 0},
+        {"db_connected": True, "totals_predictions": 3, "hits_predictions": 12, "strikeouts_predictions": 4},
+    ]
+    post_calls: list[dict[str, object]] = []
+
+    def fake_get(url, timeout):
+        return FakeResponse(get_payloads.pop(0))
+
+    def fake_post(url, json, timeout):
+        post_calls.append({"url": url, "json": json, "timeout": timeout})
+        return FakeResponse({"ok": True})
+
+    monkeypatch.setattr(launcher_module.requests, "get", fake_get)
+    monkeypatch.setattr(launcher_module.requests, "post", fake_post)
+
+    log_path = tmp_path / "launcher.log"
+    launcher_module.run_startup_refresh("http://127.0.0.1:8126/", log_path, target_date="2026-04-02")
+
+    assert [call["json"]["action"] for call in post_calls] == list(launcher_module.AUTO_REFRESH_ACTIONS)
+    assert all(call["json"]["target_date"] == "2026-04-02" for call in post_calls)
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "Startup auto-refresh started for 2026-04-02" in log_text
+    assert "Startup auto-refresh finished for 2026-04-02" in log_text
+
+
+def test_run_startup_refresh_skips_when_predictions_exist(monkeypatch, tmp_path):
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    post_calls: list[dict[str, object]] = []
+
+    def fake_get(url, timeout):
+        return FakeResponse(
+            {"db_connected": True, "totals_predictions": 3, "hits_predictions": 12, "strikeouts_predictions": 4}
+        )
+
+    def fake_post(url, json, timeout):
+        post_calls.append({"url": url, "json": json, "timeout": timeout})
+        return FakeResponse({"ok": True})
+
+    monkeypatch.setattr(launcher_module.requests, "get", fake_get)
+    monkeypatch.setattr(launcher_module.requests, "post", fake_post)
+
+    log_path = tmp_path / "launcher.log"
+    launcher_module.run_startup_refresh("http://127.0.0.1:8126/", log_path, target_date="2026-04-02")
+
+    assert post_calls == []
+    assert "Startup auto-refresh skipped for 2026-04-02" in log_path.read_text(encoding="utf-8")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import unicodedata
 from datetime import date, datetime, time, timedelta, timezone
 from html import unescape
 from pathlib import Path
@@ -47,6 +48,7 @@ COVERS_PLAYER_PROP_MARKETS = {
 }
 
 TEAM_ABBR_ALIASES = {
+    "AZ": "ARI",
     "WAS": "WSH",
     "CHW": "CWS",
 }
@@ -116,7 +118,7 @@ def _ensure_player_prop_markets_table() -> None:
 
 
 def _normalize_name(value: str | None) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+    cleaned = re.sub(r"[^a-z0-9]+", " ", _fold_text(value)).strip()
     aliases = {
         "la angels": "los angeles angels",
         "la dodgers": "los angeles dodgers",
@@ -129,7 +131,13 @@ def _normalize_name(value: str | None) -> str:
 
 
 def _normalize_player_name(value: str | None) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+    return re.sub(r"[^a-z0-9]+", " ", _fold_text(value)).strip()
+
+
+def _fold_text(value: str | None) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    return ascii_text.lower()
 
 
 def _normalize_team_abbr(value: str | None) -> str | None:
@@ -207,6 +215,70 @@ def _coerce_optional_int(value: object) -> int | None:
         return None
 
 
+def _record_value(record: object, field: str) -> object:
+    getter = getattr(record, "get", None)
+    if callable(getter):
+        return getter(field)
+    return getattr(record, field, None)
+
+
+def _player_prop_coverage_key(record: object) -> tuple[object, ...] | None:
+    market_type = str(_record_value(record, "market_type") or "").strip().lower()
+    if not market_type:
+        return None
+
+    game_id = _record_value(record, "game_id")
+    player_id = _record_value(record, "player_id")
+    if pd.notna(game_id) and pd.notna(player_id):
+        return (int(game_id), market_type, int(player_id))
+
+    game_date = pd.to_datetime(_record_value(record, "game_date"), errors="coerce")
+    player_name = _normalize_player_name(_record_value(record, "player_name"))
+    if pd.notna(game_date) and player_name:
+        return (
+            game_date.date(),
+            market_type,
+            _normalize_team_abbr(_record_value(record, "team")),
+            player_name,
+        )
+    return None
+
+
+def _build_player_prop_coverage_keys(frame: pd.DataFrame) -> set[tuple[object, ...]]:
+    if frame.empty:
+        return set()
+    keys = set()
+    for record in frame.to_dict(orient="records"):
+        key = _player_prop_coverage_key(record)
+        if key is not None:
+            keys.add(key)
+    return keys
+
+
+def _load_existing_player_prop_coverage(start_date, end_date, market_types: set[str]) -> set[tuple[object, ...]]:
+    if not market_types:
+        return set()
+
+    params: dict[str, object] = {"start_date": start_date, "end_date": end_date}
+    placeholders: list[str] = []
+    for index, market_type in enumerate(sorted(market_types)):
+        key = f"market_type_{index}"
+        params[key] = market_type
+        placeholders.append(f":{key}")
+
+    frame = query_df(
+        f"""
+        SELECT game_id, game_date, market_type, player_id, player_name, team
+        FROM player_prop_markets
+        WHERE game_date BETWEEN :start_date AND :end_date
+          AND market_type IN ({', '.join(placeholders)})
+          AND (line_value IS NOT NULL OR over_price IS NOT NULL OR under_price IS NOT NULL)
+        """,
+        params,
+    )
+    return _build_player_prop_coverage_keys(frame)
+
+
 def _extract_covers_player_prop_matchup_ids(
     page_html: str,
     start_date: date,
@@ -233,7 +305,10 @@ def _extract_covers_player_prop_matchup_ids(
 def _build_game_lookup(games: pd.DataFrame) -> dict[tuple[date, str, str], dict[str, object]]:
     lookup: dict[tuple[date, str, str], dict[str, object]] = {}
     for row in games.itertuples(index=False):
-        lookup[(row.game_date, row.home_team, row.away_team)] = row._asdict()
+        payload = row._asdict()
+        payload["home_team"] = _normalize_team_abbr(row.home_team)
+        payload["away_team"] = _normalize_team_abbr(row.away_team)
+        lookup[(row.game_date, payload["home_team"], payload["away_team"])] = payload
     return lookup
 
 
@@ -241,8 +316,10 @@ def _build_game_lookup_by_team_opponent(games: pd.DataFrame) -> dict[tuple[date,
     lookup: dict[tuple[date, str, str], dict[str, object]] = {}
     for row in games.itertuples(index=False):
         payload = row._asdict()
-        lookup[(row.game_date, row.away_team, row.home_team)] = payload
-        lookup[(row.game_date, row.home_team, row.away_team)] = payload
+        payload["home_team"] = _normalize_team_abbr(row.home_team)
+        payload["away_team"] = _normalize_team_abbr(row.away_team)
+        lookup[(row.game_date, payload["away_team"], payload["home_team"])] = payload
+        lookup[(row.game_date, payload["home_team"], payload["away_team"])] = payload
     return lookup
 
 
@@ -720,7 +797,7 @@ def _load_slate_player_lookup(start_date, end_date) -> dict[tuple[int, str], lis
         lookup.setdefault((int(row.game_id), name_key), []).append(
             {
                 "player_id": int(row.player_id),
-                "team": getattr(row, "team", None),
+                "team": _normalize_team_abbr(getattr(row, "team", None)),
                 "player_name": getattr(row, "player_name", None),
             }
         )
@@ -898,16 +975,22 @@ def _load_manual_csv(csv_path: Path) -> pd.DataFrame:
 def _required_player_prop_coverage_gaps(
     frame: pd.DataFrame,
     required_market_types: set[str],
+    covered_keys: set[tuple[object, ...]] | None = None,
 ) -> list[dict[str, object]]:
     if frame.empty or not required_market_types:
         return []
 
+    resolved_covered_keys = covered_keys or set()
     required = frame[frame["market_type"].isin(required_market_types)].copy()
     if required.empty:
         return []
 
+    required["coverage_key"] = [_player_prop_coverage_key(record) for record in required.to_dict(orient="records")]
     required["has_market_data"] = required[MARKET_DATA_COLUMNS].notna().any(axis=1)
-    gaps = required.loc[~required["has_market_data"]].copy()
+    required["has_existing_coverage"] = required["coverage_key"].map(
+        lambda key: key in resolved_covered_keys if key is not None else False
+    )
+    gaps = required.loc[~required["has_market_data"] & ~required["has_existing_coverage"]].copy()
     if gaps.empty:
         return []
 
@@ -950,7 +1033,7 @@ def main() -> int:
         nargs="+",
         choices=sorted(PLAYER_PROP_MARKET_TYPES),
         default=[],
-        help="Fail if generated manual player prop template rows for these markets are still blank",
+        help="Fail if blank template rows in these markets do not already have matching live or manual coverage",
     )
     add_date_range_args(parser)
     args = parser.parse_args()
@@ -1086,12 +1169,18 @@ def main() -> int:
             if missing_names.any():
                 merged.loc[unresolved_prop_mask & missing_names, "player_name"] = resolver["full_name"].values
 
-    required_prop_gaps = _required_player_prop_coverage_gaps(merged, required_player_prop_markets)
     populated = merged[merged[MARKET_DATA_COLUMNS].notna().any(axis=1)].copy()
+    existing_prop_coverage = _load_existing_player_prop_coverage(start_date, end_date, required_player_prop_markets)
+    manual_prop_coverage = _build_player_prop_coverage_keys(populated)
+    required_prop_gaps = _required_player_prop_coverage_gaps(
+        merged,
+        required_player_prop_markets,
+        covered_keys=existing_prop_coverage | manual_prop_coverage,
+    )
     skipped_blank = len(merged) - len(populated)
     if required_prop_gaps:
         log.error(
-            "Missing required player prop coverage in %s. Fill or delete these template rows before rerunning: %s",
+            "Missing required player prop coverage in %s. No live or manual market lines were available for these blank template rows: %s",
             csv_path,
             _format_required_player_prop_gap_summary(required_prop_gaps),
         )

@@ -3,6 +3,8 @@ from datetime import date
 import pandas as pd
 
 from src.ingestors.market_totals import (
+    _build_game_lookup,
+    _build_game_lookup_by_team_opponent,
     _extract_covers_player_prop_matchup_ids,
     _extract_covers_player_prop_rows,
     _extract_odds_api_event_prop_rows,
@@ -36,16 +38,22 @@ def test_required_player_prop_coverage_gaps_reports_blank_templates():
     frame = pd.DataFrame(
         [
             {
+                "game_id": 10,
                 "game_date": "2026-04-01",
                 "market_type": "pitcher_strikeouts",
+                "player_id": 101,
+                "team": "ATL",
                 "player_name": "Pitcher A",
                 "line_value": None,
                 "over_price": None,
                 "under_price": None,
             },
             {
+                "game_id": 10,
                 "game_date": "2026-04-01",
                 "market_type": "pitcher_strikeouts",
+                "player_id": 102,
+                "team": "ATL",
                 "player_name": "Pitcher B",
                 "line_value": None,
                 "over_price": None,
@@ -65,6 +73,32 @@ def test_required_player_prop_coverage_gaps_reports_blank_templates():
         }
     ]
     assert "2026-04-01 pitcher_strikeouts (2 blank rows): Pitcher A, Pitcher B" == _format_required_player_prop_gap_summary(gaps)
+
+
+def test_required_player_prop_coverage_gaps_ignores_blank_templates_with_existing_coverage():
+    frame = pd.DataFrame(
+        [
+            {
+                "game_id": 10,
+                "game_date": "2026-04-01",
+                "market_type": "pitcher_strikeouts",
+                "player_id": 101,
+                "team": "ATL",
+                "player_name": "Pitcher A",
+                "line_value": None,
+                "over_price": None,
+                "under_price": None,
+            }
+        ]
+    )
+
+    gaps = _required_player_prop_coverage_gaps(
+        frame,
+        {"pitcher_strikeouts"},
+        covered_keys={(10, "pitcher_strikeouts", 101)},
+    )
+
+    assert gaps == []
 
 
 def test_extract_odds_api_event_prop_rows_maps_batter_hits_and_pitcher_strikeouts():
@@ -338,3 +372,77 @@ def test_extract_rotowire_strikeout_rows_maps_books_and_opponent_notation():
             "source_name": "rotowire_player_props",
         },
     ]
+
+
+def test_extract_rotowire_strikeout_rows_matches_unaccented_live_name_to_accented_player():
+    page_html = """
+    <script>
+    const settings = {
+        data: [{"name":"Eury Perez","team":"MIA","opp":"@NYY","fanduel_strikeouts":"6.5","fanduel_strikeoutsUnder":"-110","fanduel_strikeoutsOver":"-120"}],
+        theme: 'table-theme-odds'
+    };
+    </script>
+    """
+    game_lookup = {
+        (date(2026, 4, 3), "MIA", "NYY"): {
+            "game_id": 823568,
+            "game_date": date(2026, 4, 3),
+            "home_team": "NYY",
+            "away_team": "MIA",
+        }
+    }
+    slate_player_lookup = {
+        (823568, "eury perez"): [
+            {"player_id": 691587, "team": "MIA", "player_name": "Eury P\u00e9rez"}
+        ]
+    }
+    snapshot_ts = pd.Timestamp("2026-04-03T07:13:37Z").to_pydatetime()
+
+    rows = _extract_rotowire_strikeout_rows(
+        page_html,
+        date(2026, 4, 3),
+        game_lookup,
+        slate_player_lookup,
+        snapshot_ts=snapshot_ts,
+    )
+
+    assert rows == [
+        {
+            "game_id": 823568,
+            "game_date": date(2026, 4, 3),
+            "player_id": 691587,
+            "player_name": "Eury P\u00e9rez",
+            "team": "MIA",
+            "sportsbook": "fanduel",
+            "market_type": "pitcher_strikeouts",
+            "line_value": 6.5,
+            "over_price": -120,
+            "under_price": -110,
+            "snapshot_ts": snapshot_ts,
+            "is_opening": False,
+            "is_closing": False,
+            "source_name": "rotowire_player_props",
+        }
+    ]
+
+
+def test_game_lookup_builders_normalize_az_team_aliases():
+    games = pd.DataFrame(
+        [
+            {
+                "game_id": 825103,
+                "game_date": date(2026, 4, 3),
+                "home_team": "AZ",
+                "away_team": "ATL",
+                "home_team_name": "Arizona Diamondbacks",
+                "away_team_name": "Atlanta Braves",
+            }
+        ]
+    )
+
+    exact_lookup = _build_game_lookup(games)
+    team_lookup = _build_game_lookup_by_team_opponent(games)
+
+    assert exact_lookup[(date(2026, 4, 3), "ARI", "ATL")]["home_team"] == "ARI"
+    assert team_lookup[(date(2026, 4, 3), "ARI", "ATL")]["home_team"] == "ARI"
+    assert team_lookup[(date(2026, 4, 3), "ATL", "ARI")]["away_team"] == "ATL"

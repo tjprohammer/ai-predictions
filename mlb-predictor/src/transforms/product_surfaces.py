@@ -136,7 +136,7 @@ def _build_pitcher_trends(start_date, end_date) -> int:
             ON g.game_id = ps.game_id
            AND g.game_date = ps.game_date
         WHERE ps.game_date BETWEEN :history_start AND :end_date
-        ORDER BY pitcher_id, game_date, game_id
+        ORDER BY ps.pitcher_id, ps.game_date, ps.game_id
         """,
         {"history_start": history_start.date(), "end_date": end_date},
     )
@@ -254,7 +254,7 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
                 brier_score = (float(probability) - actual_over) ** 2
         rows.append(
             {
-                "game_date": record["game_date"],
+                "game_date": pd.to_datetime(record["game_date"]).date(),
                 "market": "totals",
                 "entity_type": "game",
                 "entity_id": int(record["game_id"]),
@@ -311,7 +311,7 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
         probability = record.get("predicted_hit_probability")
         rows.append(
             {
-                "game_date": record["game_date"],
+                "game_date": pd.to_datetime(record["game_date"]).date(),
                 "market": "hits",
                 "entity_type": "player",
                 "entity_id": _composite_entity_id(record["game_id"], record["player_id"]),
@@ -389,7 +389,7 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
                 success = recommended_side == actual_side
         rows.append(
             {
-                "game_date": record["game_date"],
+                "game_date": pd.to_datetime(record["game_date"]).date(),
                 "market": "pitcher_strikeouts",
                 "entity_type": "pitcher",
                 "entity_id": _composite_entity_id(record["game_id"], record["pitcher_id"]),
@@ -445,7 +445,7 @@ def _build_model_scorecards(start_date, end_date) -> int:
         beat_market_sample = graded[graded["beat_market"].notna()]
         rows.append(
             {
-                "score_date": game_date,
+                "score_date": pd.to_datetime(game_date).date(),
                 "market": market,
                 "model_name": model_name,
                 "model_version": model_version,

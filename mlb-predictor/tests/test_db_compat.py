@@ -43,3 +43,29 @@ def test_table_exists_returns_false_for_missing_table(tmp_path):
     engine = create_engine(f"sqlite:///{db_path}", future=True, connect_args={"check_same_thread": False})
 
     assert table_exists("does_not_exist", engine=engine) is False
+
+
+def test_sqlite_upsert_rows_serializes_dict_payloads(tmp_path):
+    db_path = tmp_path / "json.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}", future=True, connect_args={"check_same_thread": False})
+
+    run_sql(
+        """
+        CREATE TABLE feature_rows (
+            game_id INTEGER PRIMARY KEY,
+            feature_payload TEXT NOT NULL
+        )
+        """,
+        engine=engine,
+    )
+
+    upsert_rows(
+        "feature_rows",
+        [{"game_id": 1, "feature_payload": {"market_total": 8.5, "confirmed": True}}],
+        ["game_id"],
+        engine=engine,
+    )
+
+    frame = query_df("SELECT game_id, feature_payload FROM feature_rows", engine=engine)
+
+    assert frame.to_dict(orient="records") == [{"game_id": 1, "feature_payload": '{"market_total": 8.5, "confirmed": true}'}]

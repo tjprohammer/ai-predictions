@@ -9,6 +9,7 @@ import threading
 import time
 import traceback
 import webbrowser
+from datetime import date
 from pathlib import Path
 
 import requests
@@ -18,10 +19,14 @@ from dotenv import dotenv_values, load_dotenv
 
 APP_TITLE = "MLB Predictor"
 RUNTIME_DIRNAME = "MLBPredictor"
-DEFAULT_HOST = "127.0.0.1"
+DEFAULT_HOST = "127.0.0.1"  
 DEFAULT_WIDTH = 1480
 DEFAULT_HEIGHT = 980
 SERVER_BOOT_TIMEOUT_SECONDS = 30.0
+AUTO_REFRESH_ENV_VAR = "MLB_PREDICTOR_AUTO_REFRESH"
+AUTO_REFRESH_REQUEST_TIMEOUT_SECONDS = 10.0
+AUTO_REFRESH_JOB_TIMEOUT_SECONDS = 600.0
+AUTO_REFRESH_ACTIONS = ("prepare_slate", "import_manual_inputs", "rebuild_predictions")
 _STDOUT_FALLBACK = None
 _STDERR_FALLBACK = None
 LEGACY_DEFAULT_DATABASE_URL = "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"
@@ -41,6 +46,12 @@ def runtime_root() -> Path:
     if local_app_data:
         return Path(local_app_data) / RUNTIME_DIRNAME
     return Path.home() / ".mlb-predictor"
+
+
+def ensure_bundle_on_sys_path(bundle_dir: Path) -> None:
+    bundle_str = str(bundle_dir)
+    if bundle_str not in sys.path:
+        sys.path.insert(0, bundle_str)
 
 
 def runtime_log_path(user_dir: Path) -> Path:
@@ -290,6 +301,97 @@ def hold_browser_session(url: str) -> None:
         return
 
 
+def auto_refresh_enabled(headless: bool) -> bool:
+    raw = os.environ.get(AUTO_REFRESH_ENV_VAR)
+    if raw is None:
+        return not headless
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def should_run_startup_refresh(status: dict[str, object]) -> bool:
+    if not bool(status.get("db_connected")):
+        return False
+    prediction_counts = [
+        int(status.get("totals_predictions") or 0),
+        int(status.get("hits_predictions") or 0),
+        int(status.get("strikeouts_predictions") or 0),
+    ]
+    return any(count <= 0 for count in prediction_counts)
+
+
+def _app_url(base_url: str, path: str) -> str:
+    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def _status_summary(status: dict[str, object]) -> str:
+    return (
+        f"totals={int(status.get('totals_predictions') or 0)} "
+        f"hits={int(status.get('hits_predictions') or 0)} "
+        f"strikeouts={int(status.get('strikeouts_predictions') or 0)}"
+    )
+
+
+def run_startup_refresh(base_url: str, log_path: Path, target_date: str | None = None) -> None:
+    resolved_target_date = target_date or date.today().isoformat()
+    response = requests.get(
+        _app_url(base_url, "api/health"),
+        timeout=AUTO_REFRESH_REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    status = response.json()
+    if not should_run_startup_refresh(status):
+        append_runtime_log(
+            log_path,
+            f"Startup auto-refresh skipped for {resolved_target_date}: {_status_summary(status)}",
+        )
+        return
+
+    append_runtime_log(
+        log_path,
+        f"Startup auto-refresh started for {resolved_target_date}: {_status_summary(status)}",
+    )
+
+    for action in AUTO_REFRESH_ACTIONS:
+        append_runtime_log(log_path, f"Startup auto-refresh running {action} for {resolved_target_date}")
+        action_response = requests.post(
+            _app_url(base_url, "api/update-jobs/run"),
+            json={"action": action, "target_date": resolved_target_date},
+            timeout=AUTO_REFRESH_JOB_TIMEOUT_SECONDS,
+        )
+        action_response.raise_for_status()
+        payload = action_response.json()
+        if not bool(payload.get("ok")):
+            raise RuntimeError(f"Startup auto-refresh action failed: {action}")
+
+    final_response = requests.get(
+        _app_url(base_url, "api/health"),
+        timeout=AUTO_REFRESH_REQUEST_TIMEOUT_SECONDS,
+    )
+    final_response.raise_for_status()
+    final_status = final_response.json()
+    append_runtime_log(
+        log_path,
+        f"Startup auto-refresh finished for {resolved_target_date}: {_status_summary(final_status)}",
+    )
+
+
+def launch_startup_refresh(base_url: str, log_path: Path, headless: bool) -> threading.Thread | None:
+    if not auto_refresh_enabled(headless):
+        append_runtime_log(log_path, "Startup auto-refresh disabled")
+        return None
+
+    def runner() -> None:
+        try:
+            run_startup_refresh(base_url, log_path)
+        except Exception as exc:  # noqa: BLE001
+            append_runtime_log(log_path, f"Startup auto-refresh failed: {exc}")
+            append_runtime_log(log_path, traceback.format_exc())
+
+    thread = threading.Thread(target=runner, name="mlb-predictor-auto-refresh", daemon=True)
+    thread.start()
+    return thread
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Launch MLB Predictor as a desktop app shell")
     parser.add_argument("--host", default=DEFAULT_HOST, help="Host interface for the embedded API server")
@@ -305,6 +407,7 @@ def main() -> int:
     user_dir = runtime_root()
     log_path = runtime_log_path(user_dir)
     bundled_root = bundle_root()
+    ensure_bundle_on_sys_path(bundled_root)
     append_runtime_log(log_path, f"Launcher starting from {bundled_root}")
     bootstrap_runtime_environment(bundled_root, user_dir)
     ensure_standard_streams()
@@ -320,6 +423,7 @@ def main() -> int:
         server.start()
         server.wait_until_ready()
         append_runtime_log(log_path, f"Server ready at {server.url}")
+        launch_startup_refresh(server.url, log_path, headless=args.headless)
         if args.headless:
             print(server.url)
             try:

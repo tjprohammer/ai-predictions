@@ -164,6 +164,16 @@ def _build_lineup_templates(games: pd.DataFrame, existing: pd.DataFrame, snapsho
     return pd.concat([existing[LINEUP_COLUMNS], generated], ignore_index=True)
 
 
+def build_lineup_input_frame(
+    games: pd.DataFrame,
+    existing: pd.DataFrame | None = None,
+    snapshot_ts: str | None = None,
+) -> pd.DataFrame:
+    existing_frame = pd.DataFrame(columns=LINEUP_COLUMNS) if existing is None else existing.copy()
+    resolved_snapshot_ts = snapshot_ts or datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return _build_lineup_templates(games, existing_frame, resolved_snapshot_ts)
+
+
 def _build_market_templates(
     games: pd.DataFrame,
     starters: pd.DataFrame,
@@ -323,7 +333,7 @@ def main() -> int:
     markets_existing = _read_csv(settings.manual_markets_csv, MARKET_COLUMNS)
     starters = _load_starting_pitchers(start_date, end_date)
 
-    lineup_frame = _build_lineup_templates(games, lineups_existing, snapshot_ts)
+    lineup_frame = build_lineup_input_frame(games, lineups_existing, snapshot_ts)
     market_frame = _build_market_templates(games, starters, lineup_frame, markets_existing, snapshot_ts)
 
     _write_csv(lineup_frame, settings.manual_lineups_csv)

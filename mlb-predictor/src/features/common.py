@@ -58,6 +58,14 @@ def outs_to_baseball_ip(outs: int) -> float:
     return float(f"{whole}.{remainder}")
 
 
+def _coerce_game_date_column(frame: pd.DataFrame) -> pd.DataFrame:
+    if "game_date" not in frame.columns:
+        return frame
+    normalized = frame.copy()
+    normalized["game_date"] = pd.to_datetime(normalized["game_date"], errors="coerce")
+    return normalized
+
+
 def build_team_priors(team_offense: pd.DataFrame, prior_season: int) -> pd.DataFrame:
     prior = team_offense[team_offense["season"] == prior_season].copy()
     if prior.empty:
@@ -141,6 +149,9 @@ def offense_snapshot(
 
 
 def build_pitcher_priors(pitcher_starts: pd.DataFrame, prior_season: int) -> pd.DataFrame:
+    if pitcher_starts.empty:
+        return pd.DataFrame()
+    pitcher_starts = _coerce_game_date_column(pitcher_starts)
     prior = pitcher_starts[pitcher_starts["game_date"].dt.year == prior_season].copy()
     if prior.empty:
         return pd.DataFrame()
@@ -162,6 +173,7 @@ def pitcher_snapshot(
 ) -> dict[str, float | None]:
     if pitcher_id is None:
         return {"xwoba": None, "csw": None, "avg_fb_velo": None, "days_rest": None}
+    pitcher_starts = _coerce_game_date_column(pitcher_starts)
     history = pitcher_starts[
         (pitcher_starts["pitcher_id"] == pitcher_id) & (pitcher_starts["game_date"].dt.date < game_date)
     ].copy()
@@ -201,6 +213,9 @@ def pitcher_snapshot(
 
 
 def build_hitter_priors(player_batting: pd.DataFrame, prior_season: int) -> pd.DataFrame:
+    if player_batting.empty:
+        return pd.DataFrame()
+    player_batting = _coerce_game_date_column(player_batting)
     prior = player_batting[player_batting["game_date"].dt.year == prior_season].copy()
     if prior.empty:
         return pd.DataFrame()
@@ -320,6 +335,7 @@ def hitter_snapshot(
     prior_blend_mode: str = "standard",
     prior_weight_multiplier: float = 1.0,
 ) -> dict[str, float | None]:
+    player_batting = _coerce_game_date_column(player_batting)
     history = player_batting[
         (player_batting["player_id"] == player_id) & (player_batting["game_date"].dt.date < game_date)
     ].copy()

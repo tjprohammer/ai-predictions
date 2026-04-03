@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 import math
 from typing import Any, Iterable
 
@@ -75,6 +76,16 @@ def _normalize_db_value(value: Any) -> Any:
         return value
 
 
+def _serialize_sqlite_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return json.dumps({key: _serialize_sqlite_value(inner_value) for key, inner_value in value.items()}, default=str)
+    if isinstance(value, list):
+        return json.dumps([_serialize_sqlite_value(inner_value) for inner_value in value], default=str)
+    if isinstance(value, tuple):
+        return json.dumps([_serialize_sqlite_value(inner_value) for inner_value in value], default=str)
+    return value
+
+
 def upsert_rows(
     table_name: str,
     rows: Iterable[dict[str, Any]],
@@ -96,6 +107,8 @@ def upsert_rows(
     metadata = MetaData()
     table = Table(table_name, metadata, autoload_with=active_engine)
     dialect_name = get_dialect_name(active_engine)
+    if dialect_name == "sqlite":
+        row_list = [{key: _serialize_sqlite_value(value) for key, value in row.items()} for row in row_list]
     if dialect_name == "postgresql":
         insert_stmt = pg_insert(table).values(row_list)
     elif dialect_name == "sqlite":

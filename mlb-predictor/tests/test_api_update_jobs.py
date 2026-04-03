@@ -1,5 +1,6 @@
 import json
 import importlib
+import types
 
 
 app_module = importlib.import_module("src.api.app")
@@ -244,3 +245,41 @@ def test_load_persisted_update_jobs_recovers_history_and_marks_interrupted_faile
     assert "restarted" in str(history[0]["error"]).lower()
     assert history[1]["job_id"] == "finished-job"
     assert app_module._active_update_job_payload() is None
+
+
+def test_run_module_uses_in_process_runner_when_frozen(monkeypatch):
+    events: list[tuple[str, list[str]]] = []
+
+    def fake_main():
+        import sys
+
+        events.append(("argv", list(sys.argv)))
+        print("stdout ok")
+        return 0
+
+    fake_module = types.SimpleNamespace(main=fake_main)
+
+    monkeypatch.setattr(app_module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(app_module.importlib, "import_module", lambda name: fake_module)
+
+    result = app_module._run_module("fake.module", "--target-date", "2026-04-02")
+
+    assert result["returncode"] == 0
+    assert result["stdout"] == "stdout ok"
+    assert result["stderr"] == ""
+    assert events == [("argv", ["fake.module", "--target-date", "2026-04-02"])]
+
+
+def test_run_module_in_process_reports_exceptions(monkeypatch):
+    def fake_main():
+        raise RuntimeError("boom")
+
+    fake_module = types.SimpleNamespace(main=fake_main)
+
+    monkeypatch.setattr(app_module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(app_module.importlib, "import_module", lambda name: fake_module)
+
+    result = app_module._run_module("fake.module")
+
+    assert result["returncode"] == 1
+    assert "RuntimeError: boom" in result["stderr"]
