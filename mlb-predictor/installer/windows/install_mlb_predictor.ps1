@@ -39,5 +39,10 @@ Copy-Item -Path (Join-Path $PSScriptRoot 'uninstall_mlb_predictor.ps1') -Destina
 Write-Host "Installed MLB Predictor to $InstallDir"
 
 if (-not $NoLaunch) {
-    Start-Process -FilePath (Join-Path $InstallDir 'MLBPredictor.exe') -WorkingDirectory $InstallDir
+    try {
+        Start-Process -FilePath (Join-Path $InstallDir 'MLBPredictor.exe') -WorkingDirectory $InstallDir
+    }
+    catch {
+        Write-Warning "MLB Predictor was installed, but Windows blocked or canceled the first launch. You can start it manually from the installed EXE or shortcut."
+    }
 }
