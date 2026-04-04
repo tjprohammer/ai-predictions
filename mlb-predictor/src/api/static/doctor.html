@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MLB Predictor Doctor</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bg: #f6f0e8;
+        --panel: rgba(255, 251, 246, 0.92);
+        --line: rgba(20, 33, 25, 0.12);
+        --ink: #142119;
+        --muted: #5f6e65;
+        --accent: #0b6a58;
+        --accent-deep: #0a4a3f;
+        --good: #166534;
+        --warn: #92400e;
+        --bad: #991b1b;
+        --shadow: 0 22px 64px rgba(20, 33, 25, 0.09);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(11, 106, 88, 0.15), transparent 32%),
+          radial-gradient(circle at 85% 14%, rgba(183, 121, 31, 0.12), transparent 20%),
+          linear-gradient(180deg, #fcf9f4 0%, var(--bg) 100%);
+        font-family: "Bahnschrift", "Aptos", "Segoe UI Variable", sans-serif;
+      }
+
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px 20px 44px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 22px;
+        padding: 12px 14px;
+        border-radius: 999px;
+        background: rgba(255, 251, 246, 0.82);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+      }
+
+      .brand-link,
+      .nav-link {
+        text-decoration: none;
+      }
+
+      .brand-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink);
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .brand-mark {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+        color: white;
+        font-size: 0.78rem;
+        letter-spacing: 0.16em;
+      }
+
+      .nav-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .nav-link {
+        display: inline-flex;
+        align-items: center;
+        min-height: 42px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(20, 33, 25, 0.08);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .nav-link.active {
+        background: rgba(11, 106, 88, 0.12);
+        color: var(--accent-deep);
+        border-color: rgba(11, 106, 88, 0.22);
+      }
+
+      .hero,
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+      }
+
+      .hero {
+        padding: 22px 24px;
+        margin-bottom: 18px;
+      }
+
+      .hero h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.8rem, 4vw, 3rem);
+      }
+
+      .hero p {
+        margin: 0;
+        color: var(--muted);
+        max-width: 60ch;
+      }
+
+      .summary-grid,
+      .check-grid,
+      .detail-grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        margin-bottom: 18px;
+      }
+
+      .check-grid {
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        margin-bottom: 18px;
+      }
+
+      .detail-grid {
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+
+      .card {
+        padding: 18px;
+        border-radius: 20px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.72);
+      }
+
+      .card h2,
+      .card h3 {
+        margin: 0 0 10px;
+      }
+
+      .label {
+        color: var(--muted);
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .metric {
+        font-size: 1.8rem;
+        font-weight: 800;
+      }
+
+      .status-ok {
+        color: var(--good);
+      }
+
+      .status-warn {
+        color: var(--warn);
+      }
+
+      .status-error {
+        color: var(--bad);
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      li + li {
+        margin-top: 8px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav class="topbar">
+        <a class="brand-link" href="/">
+          <span class="brand-mark">MP</span>
+          <span>MLB Predictor</span>
+        </a>
+        <div class="nav-links">
+          <a class="nav-link" href="/">Game Board</a>
+          <a class="nav-link active" href="/doctor" aria-current="page">Doctor</a>
+        </div>
+      </nav>
+
+      <section class="hero">
+        <h1>Runtime Doctor</h1>
+        <p>
+          Aggregated runtime checks for the local database, model artifacts, readiness,
+          source health, and recent pipeline activity.
+        </p>
+      </section>
+
+      <section class="summary-grid" id="summaryGrid"></section>
+      <section class="check-grid" id="checksGrid"></section>
+      <section class="detail-grid" id="detailsGrid"></section>
+    </main>
+
+    <script>
+      function statusClass(value) {
+        if (value === "ok") return "status-ok";
+        if (value === "warn") return "status-warn";
+        return "status-error";
+      }
+
+      function card(title, body) {
+        return `<article class="card"><h3>${title}</h3>${body}</article>`;
+      }
+
+      async function loadDoctor() {
+        const response = await fetch("/api/doctor");
+        const payload = await response.json();
+        const overall = payload.overall || {};
+        const readiness = (payload.game_readiness || {}).summary || {};
+        const sourceHealth = (payload.source_health || {}).summary || {};
+        const recentJobs = (payload.update_jobs || {}).recent_jobs || [];
+        const pipelineRuns = (payload.pipeline_runs || {}).runs || [];
+
+        document.getElementById("summaryGrid").innerHTML = [
+          card(
+            "Overall",
+            `<div class="label">Status</div><div class="metric ${statusClass(overall.status)}">${String(overall.status || "unknown").toUpperCase()}</div><div class="muted">${overall.critical_failures || 0} critical, ${overall.warning_failures || 0} warning</div>`
+          ),
+          card(
+            "Target Date",
+            `<div class="label">Slate</div><div class="metric">${payload.target_date || "-"}</div><div class="muted">DB: ${(payload.runtime || {}).db_dialect || "unknown"}</div>`
+          ),
+          card(
+            "Readiness",
+            `<div class="label">Games</div><div class="metric">${readiness.total || 0}</div><div class="muted">Green ${readiness.green || 0} | Yellow ${readiness.yellow || 0} | Red ${readiness.red || 0}</div>`
+          ),
+          card(
+            "Source Health",
+            `<div class="label">Recent Failures</div><div class="metric">${sourceHealth.sources_with_failures || 0}</div><div class="muted">Across ${sourceHealth.total_sources || 0} tracked sources</div>`
+          ),
+        ].join("");
+
+        document.getElementById("checksGrid").innerHTML = (payload.checks || [])
+          .map(
+            (check) =>
+              card(
+                check.label,
+                `<div class="label">${check.severity}</div><div class="metric ${check.ok ? "status-ok" : "status-error"}">${check.ok ? "PASS" : "FAIL"}</div><div class="muted">${check.detail}</div>`
+              )
+          )
+          .join("");
+
+        document.getElementById("detailsGrid").innerHTML = [
+          card(
+            "Recent Pipeline Runs",
+            pipelineRuns.length
+              ? `<ul>${pipelineRuns
+                  .map((run) => `<li>${run.label || run.action || run.job_id}: ${run.status || "unknown"}</li>`)
+                  .join("")}</ul>`
+              : '<div class="muted">No recent pipeline runs recorded.</div>'
+          ),
+          card(
+            "Recent Update Jobs",
+            recentJobs.length
+              ? `<ul>${recentJobs
+                  .map((job) => `<li>${job.label || job.action || job.job_id}: ${job.status || "unknown"}</li>`)
+                  .join("")}</ul>`
+              : '<div class="muted">No recent update jobs recorded.</div>'
+          ),
+          card(
+            "Runtime Paths",
+            `<ul><li>DB: ${(payload.runtime || {}).database_url || "-"}</li><li>Data: ${(payload.runtime || {}).data_dir || "-"}</li><li>Models: ${(payload.runtime || {}).model_dir || "-"}</li></ul>`
+          ),
+        ].join("");
+      }
+
+      loadDoctor().catch((error) => {
+        document.getElementById("detailsGrid").innerHTML = card(
+          "Doctor Load Failed",
+          `<div class="muted">${error}</div>`
+        );
+      });
+    </script>
+  </body>
+</html>

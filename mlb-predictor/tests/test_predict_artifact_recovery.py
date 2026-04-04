@@ -107,3 +107,21 @@ def test_predict_strikeouts_retries_with_retrained_artifact(monkeypatch, tmp_pat
     assert reload_calls == ["stale artifact"]
     assert len(saved_rows) == 1
     assert saved_rows[0]["model_version"] == "strikeouts_test"
+
+
+def test_predict_strikeouts_market_expectation_skips_opener_like_rows():
+    opener_row = SimpleNamespace(
+        projected_innings=1.0,
+        recent_avg_ip_3=1.0,
+        recent_avg_ip_5=1.0,
+        baseline_strikeouts=1.0,
+    )
+    starter_row = SimpleNamespace(
+        projected_innings=5.4,
+        recent_avg_ip_3=5.7,
+        recent_avg_ip_5=5.4,
+        baseline_strikeouts=5.8,
+    )
+
+    assert predict_strikeouts._expects_market_line(opener_row) is False
+    assert predict_strikeouts._expects_market_line(starter_row) is True

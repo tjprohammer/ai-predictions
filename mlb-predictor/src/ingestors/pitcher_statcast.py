@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date, datetime, timezone
 
 import pandas as pd
 from pybaseball import statcast_pitcher
@@ -17,6 +18,19 @@ log = get_logger(__name__)
 SWINGING_DESCRIPTIONS = {"swinging_strike", "swinging_strike_blocked"}
 CALLED_DESCRIPTIONS = {"called_strike"}
 FASTBALL_TYPES = {"FF", "FA", "FC", "SI"}
+
+
+def _coerce_date(value: object) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        raise TypeError("game_date is required")
+    if "T" in text or " " in text:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    return date.fromisoformat(text)
 
 
 def _safe_mean(series: pd.Series) -> float | None:
@@ -51,8 +65,10 @@ def main() -> int:
         return 0
 
     update_rows = []
+    updated_at = datetime.now(timezone.utc)
     for row in starts.itertuples(index=False):
-        frame = statcast_pitcher(start_dt=row.game_date.isoformat(), end_dt=row.game_date.isoformat(), player_id=int(row.pitcher_id))
+        game_date = _coerce_date(row.game_date)
+        frame = statcast_pitcher(start_dt=game_date.isoformat(), end_dt=game_date.isoformat(), player_id=int(row.pitcher_id))
         if frame is None or frame.empty:
             continue
         descriptions = frame.get("description", pd.Series(dtype=str)).fillna("")
@@ -72,6 +88,7 @@ def main() -> int:
                 "barrel_pct": _fraction(launch_speed_angle == 6),
                 "hard_hit_pct": _fraction(pd.to_numeric(batted.get("launch_speed"), errors="coerce") >= 95),
                 "whiff_pct": _fraction(swinging),
+                "updated_at": updated_at,
             }
         )
 
@@ -89,7 +106,7 @@ def main() -> int:
             barrel_pct = :barrel_pct,
             hard_hit_pct = :hard_hit_pct,
             whiff_pct = :whiff_pct,
-            updated_at = now()
+                        updated_at = :updated_at
         WHERE game_id = :game_id
           AND pitcher_id = :pitcher_id
         """

@@ -19,6 +19,24 @@ def _sigmoid(value: float) -> float:
     return 1.0 / (1.0 + math.exp(-value))
 
 
+def _coerce_float(value: object) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _expects_market_line(row: object) -> bool:
+    for field_name in ("projected_innings", "recent_avg_ip_3", "recent_avg_ip_5"):
+        value = _coerce_float(getattr(row, field_name, None))
+        if value is not None and value >= 2.0:
+            return True
+    baseline = _coerce_float(getattr(row, "baseline_strikeouts", None))
+    return baseline is not None and baseline >= 2.0
+
+
 def _load_or_train_artifact() -> dict | None:
     try:
         return load_latest_artifact("strikeouts")
@@ -125,7 +143,7 @@ def main() -> int:
             over_probability = _sigmoid((float(predicted_strikeouts) - float(market_line)) / residual_std)
             under_probability = 1.0 - over_probability
             edge = abs(over_probability - 0.5)
-        else:
+        elif _expects_market_line(row):
             missing_market_lines += 1
         rows.append(
             {

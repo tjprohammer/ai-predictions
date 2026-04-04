@@ -203,6 +203,8 @@ cd S:\Projects\AI_Predictions\mlb-predictor
 make build-desktop
 ```
 
+The desktop packaging step now validates that `db\mlb_predictor.sqlite3` contains the bundled historical SQLite seed required for rebuild flows. If those history tables are empty, the build fails fast instead of silently shipping a stale desktop runtime. For intentional UI-only packaging during local debugging, you can override that guard with `python scripts\build_windows_app.py --allow-incomplete-sqlite-seed`.
+
 Build an installer on top of the desktop bundle:
 
 ```powershell
@@ -233,6 +235,33 @@ python scripts\build_windows_release.py --app-version 0.1.0-beta1 --require-inno
 
 If Inno Setup is installed, this produces a versioned standard Windows installer such as `MLBPredictor-Windows-v0.1.0-beta1-Setup.exe`. If not, the build falls back to a versioned portable installer bundle such as `MLBPredictor-Windows-v0.1.0-beta1-PortableInstaller.zip` with `install_mlb_predictor.ps1` and `uninstall_mlb_predictor.ps1` plus the packaged app folder.
 
+The full release build now also writes sidecar release metadata for the selected app version:
+
+- `MLBPredictor-Windows-v0.1.0-beta1-manifest.json`
+- `MLBPredictor-Windows-v0.1.0-beta1-checksums.txt`
+- `MLBPredictor-Windows-v0.1.0-beta1-release-notes.md`
+
+For a local runtime/operator check before or after packaging, you can inspect the aggregated health payload directly:
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+python -m src.utils.doctor --json
+```
+
+For a local desktop smoke run that checks health, doctor, board, scorecards, top-miss review, and CLV review against either a running app or a booted local server:
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+python scripts\run_desktop_smoke.py --json
+```
+
+To exercise every main Update Center action against the running app as part of release validation, add `--exercise-update-actions`. You can narrow the run with repeated `--update-action` flags if you only want specific actions.
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+python scripts\run_desktop_smoke.py --json --exercise-update-actions
+```
+
 The portable bundle also includes `install_mlb_predictor.cmd` and `uninstall_mlb_predictor.cmd` so testers can launch install or uninstall by double-clicking on a typical Windows machine.
 
 For a repeatable beta ship flow, see `BETA_RELEASE_CHECKLIST.md`.
@@ -242,6 +271,8 @@ The desktop runtime now defaults to a per-user SQLite file under `%LOCALAPPDATA%
 On desktop SQLite startups, the launcher now applies the bundled migrations automatically before the API comes up, so a first-run local database file is initialized with the app schema.
 
 On top of schema creation, the desktop runtime now seeds bundled park-factor reference data automatically on SQLite first-run startup, so local installs come up with baseline reference rows without manual bootstrap commands.
+
+Desktop startup also now repairs an older default local SQLite runtime when its historical seed is incomplete but the bundled app database is healthier. That keeps upgraded local installs from getting stuck on stale desktop-history blockers after the packaged seed has improved.
 
 Current limitation: this removes the external database requirement for startup and base schema creation, but it is not the full embedded-database cutover yet. The remaining migration work is porting the broader ingestion and training queries that still rely on Postgres-specific SQL semantics.
 

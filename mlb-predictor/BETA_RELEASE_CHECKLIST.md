@@ -10,6 +10,8 @@
 
 - [ ] Run the full test suite
 - [ ] Run a local API smoke test for board, scorecards, review, and CLV
+- [ ] Run `python scripts\run_desktop_smoke.py --json` and confirm the doctor status is not `error`
+- [ ] Run `python scripts\run_desktop_smoke.py --json --exercise-update-actions` and confirm all six Update Center actions return `ok: true`
 - [ ] Run `Refresh Everything` once against a realistic target date
 - [ ] Confirm the desktop bundle still launches on a clean runtime
 
@@ -18,6 +20,9 @@ Suggested commands:
 ```powershell
 cd S:\Projects\AI_Predictions\mlb-predictor
 python -m pytest tests/ -q
+python -m src.utils.doctor --json
+python scripts\run_desktop_smoke.py --json
+python scripts\run_desktop_smoke.py --json --exercise-update-actions
 python scripts\build_windows_release.py --app-version 0.1.0-beta1
 ```
 
@@ -41,24 +46,31 @@ Expected artifact patterns:
 
 - `release\MLBPredictor-Windows-v0.1.0-beta1-Setup.exe`
 - `release\MLBPredictor-Windows-v0.1.0-beta1-PortableInstaller.zip`
+- `release\MLBPredictor-Windows-v0.1.0-beta1-manifest.json`
+- `release\MLBPredictor-Windows-v0.1.0-beta1-checksums.txt`
+- `release\MLBPredictor-Windows-v0.1.0-beta1-release-notes.md`
 
 ### 4. Smoke-test the packaged output
 
 - [ ] Install or extract the built artifact
 - [ ] Launch the packaged app on a clean `%LOCALAPPDATA%` runtime
+- [ ] Open `/doctor` and confirm runtime checks, recent jobs, and readiness render
 - [ ] Verify the board loads real games
 - [ ] Verify scorecards, top misses, and CLV review load
+- [ ] Verify the in-app loading bar advances while an Update Center action runs
 - [ ] Verify `Refresh Everything` completes successfully in-app
 
 ### 5. Publish the beta
 
 - [ ] Create or update the GitHub Release draft
 - [ ] Upload the versioned Windows asset(s)
+- [ ] Upload or paste the generated checksums and manifest details
 - [ ] Add release notes with:
   - [ ] highlights
   - [ ] tester instructions
   - [ ] known limitations
   - [ ] whether the asset is portable ZIP or full `Setup.exe`
+  - [ ] update the generated release-notes draft instead of writing from scratch
 
 ### 6. Post-publish follow-up
 

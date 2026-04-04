@@ -64,6 +64,8 @@ def _coerce_game_date_column(frame: pd.DataFrame) -> pd.DataFrame:
     normalized = frame.copy()
     normalized["game_date"] = pd.to_datetime(normalized["game_date"], errors="coerce")
     return normalized
+def coerce_utc_timestamp_series(series: pd.Series) -> pd.Series:
+    return pd.to_datetime(series, utc=True, format="mixed", errors="coerce")
 
 
 def build_team_priors(team_offense: pd.DataFrame, prior_season: int) -> pd.DataFrame:
@@ -514,11 +516,34 @@ def to_native(value: Any) -> Any:
     return value
 
 
+def _feature_snapshot_range(path: Path) -> tuple[date, date] | None:
+    parts = path.stem.split("_", 1)
+    if len(parts) != 2:
+        return None
+    try:
+        return date.fromisoformat(parts[0]), date.fromisoformat(parts[1])
+    except ValueError:
+        return None
+
+
+def _ranges_overlap(left_start: date, left_end: date, right_start: date, right_end: date) -> bool:
+    return left_start <= right_end and right_start <= left_end
+
+
 def write_feature_snapshot(frame: pd.DataFrame, lane: str, start_date: date, end_date: date) -> Path:
     settings = get_settings()
     output_dir = settings.feature_dir / lane
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{start_date.isoformat()}_{end_date.isoformat()}.parquet"
+    for existing_path in output_dir.glob("*.parquet"):
+        if existing_path == output_path:
+            continue
+        snapshot_range = _feature_snapshot_range(existing_path)
+        if snapshot_range is None:
+            continue
+        existing_start, existing_end = snapshot_range
+        if _ranges_overlap(existing_start, existing_end, start_date, end_date):
+            existing_path.unlink()
     frame.to_parquet(output_path, index=False)
     return output_path
 

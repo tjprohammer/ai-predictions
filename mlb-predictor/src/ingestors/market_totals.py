@@ -325,6 +325,69 @@ def _build_game_lookup_by_team_opponent(games: pd.DataFrame) -> dict[tuple[date,
     return lookup
 
 
+def _build_prop_game_lookup(
+    games: pd.DataFrame,
+    *,
+    include_reverse: bool,
+) -> dict[tuple[date, str, str], list[dict[str, object]]]:
+    lookup: dict[tuple[date, str, str], list[dict[str, object]]] = {}
+    for row in games.itertuples(index=False):
+        payload = row._asdict()
+        payload["home_team"] = _normalize_team_abbr(row.home_team)
+        payload["away_team"] = _normalize_team_abbr(row.away_team)
+        keys = [(row.game_date, payload["home_team"], payload["away_team"])]
+        if include_reverse:
+            keys.append((row.game_date, payload["away_team"], payload["home_team"]))
+        for key in keys:
+            lookup.setdefault(key, []).append(payload)
+    return lookup
+
+
+def _game_candidates_for_key(
+    game_lookup: dict[tuple[date, str, str], dict[str, object] | list[dict[str, object]]],
+    key: tuple[date, str, str],
+) -> list[dict[str, object]]:
+    value = game_lookup.get(key)
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return list(value)
+    return [value]
+
+
+def _game_candidate_sort_key(game: dict[str, object]) -> tuple[str, int]:
+    raw_start = pd.to_datetime(game.get("game_start_ts"), utc=True, errors="coerce")
+    start_key = "" if pd.isna(raw_start) else raw_start.isoformat()
+    return (start_key, int(game.get("game_id") or 0))
+
+
+def _resolve_player_prop_game(
+    game_lookup: dict[tuple[date, str, str], dict[str, object] | list[dict[str, object]]],
+    key: tuple[date, str, str],
+    player_name: str | None,
+    slate_player_lookup: dict[tuple[int, str], list[dict[str, object]]],
+) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+    candidates = sorted(_game_candidates_for_key(game_lookup, key), key=_game_candidate_sort_key)
+    if not candidates:
+        return None, None
+
+    matched_candidates: list[tuple[dict[str, object], dict[str, object]]] = []
+    for candidate in candidates:
+        resolved_player = _resolve_slate_player(int(candidate["game_id"]), player_name, slate_player_lookup)
+        if resolved_player is not None:
+            matched_candidates.append((candidate, resolved_player))
+
+    if len(matched_candidates) == 1:
+        return matched_candidates[0]
+    if matched_candidates:
+        return matched_candidates[0]
+
+    if len(candidates) == 1:
+        candidate = candidates[0]
+        return candidate, _resolve_slate_player(int(candidate["game_id"]), player_name, slate_player_lookup)
+    return None, None
+
+
 def _extract_rotowire_data_arrays(page_html: str) -> list[list[dict[str, object]]]:
     datasets: list[list[dict[str, object]]] = []
     for raw in re.findall(r"data:\s*(\[\{.*?\}\]),\s*theme:", page_html, re.S):
@@ -340,7 +403,7 @@ def _extract_rotowire_data_arrays(page_html: str) -> list[list[dict[str, object]
 def _extract_rotowire_strikeout_rows(
     page_html: str,
     game_date: date,
-    game_lookup: dict[tuple[date, str, str], dict[str, object]],
+    game_lookup: dict[tuple[date, str, str], dict[str, object] | list[dict[str, object]]],
     slate_player_lookup: dict[tuple[int, str], list[dict[str, object]]],
     *,
     snapshot_ts: datetime,
@@ -362,13 +425,15 @@ def _extract_rotowire_strikeout_rows(
             opponent = _normalize_team_abbr(str(entry.get("opp") or "").strip().lstrip("@"))
             if not player_name or not team or not opponent:
                 continue
-            matched_game = game_lookup.get((game_date, team, opponent))
-            if matched_game is None:
+            matched_game, resolved_player = _resolve_player_prop_game(
+                game_lookup,
+                (game_date, team, opponent),
+                player_name,
+                slate_player_lookup,
+            )
+            if matched_game is None or resolved_player is None:
                 continue
             game_id = int(matched_game["game_id"])
-            resolved_player = _resolve_slate_player(game_id, player_name, slate_player_lookup)
-            if resolved_player is None:
-                continue
 
             for key in strikeout_keys:
                 sportsbook = _normalize_sportsbook_key(key[: -len("_strikeouts")])
@@ -417,7 +482,7 @@ def _fetch_rotowire_player_prop_rows(start_date, end_date) -> list[dict[str, obj
     )
     response.raise_for_status()
 
-    game_lookup = _build_game_lookup_by_team_opponent(games)
+    game_lookup = _build_prop_game_lookup(games, include_reverse=True)
     slate_player_lookup = _load_slate_player_lookup(start_date, end_date)
     return _extract_rotowire_strikeout_rows(
         response.text,
@@ -443,7 +508,7 @@ def _extract_covers_player_prop_rows(
     partial_html: str,
     game_date: date,
     market_type: str,
-    game_lookup: dict[tuple[date, str, str], dict[str, object]],
+    game_lookup: dict[tuple[date, str, str], dict[str, object] | list[dict[str, object]]],
     slate_player_lookup: dict[tuple[int, str], list[dict[str, object]]],
     *,
     snapshot_ts: datetime,
@@ -466,13 +531,15 @@ def _extract_covers_player_prop_rows(
         home_team = _normalize_team_abbr(teams_match.group(2))
         if not away_team or not home_team:
             continue
-        matched_game = game_lookup.get((game_date, home_team, away_team))
-        if matched_game is None:
+        matched_game, resolved_player = _resolve_player_prop_game(
+            game_lookup,
+            (game_date, home_team, away_team),
+            player_name,
+            slate_player_lookup,
+        )
+        if matched_game is None or resolved_player is None:
             continue
         game_id = int(matched_game["game_id"])
-        resolved_player = _resolve_slate_player(game_id, player_name, slate_player_lookup)
-        if resolved_player is None:
-            continue
 
         prop_match = re.search(
             r'<div class="other-over-odds"[^>]*data-num-col="2">\s*([0-9]+(?:\.[0-9]+)?)\s*<div class="player-event">',
@@ -530,7 +597,7 @@ def _fetch_covers_player_prop_rows(start_date, end_date) -> list[dict[str, objec
         log.info("No Covers player prop matchups were available for %s to %s", start_date, end_date)
         return []
 
-    game_lookup = _build_game_lookup(games)
+    game_lookup = _build_prop_game_lookup(games, include_reverse=False)
     slate_player_lookup = _load_slate_player_lookup(start_date, end_date)
     rows: list[dict[str, object]] = []
     for game_date, matchup_ids in sorted(matchup_groups.items()):

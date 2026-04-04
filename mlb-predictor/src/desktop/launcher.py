@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import sqlite3
 import socket
 import sys
 import threading
@@ -30,6 +31,13 @@ AUTO_REFRESH_ACTIONS = ("refresh_everything",)
 _STDOUT_FALLBACK = None
 _STDERR_FALLBACK = None
 LEGACY_DEFAULT_DATABASE_URL = "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"
+DESKTOP_HISTORY_REQUIRED_TABLES = (
+    "team_offense_daily",
+    "bullpens_daily",
+    "player_game_batting",
+    "player_trend_daily",
+    "pitcher_starts",
+)
 
 
 def bundle_root() -> Path:
@@ -133,7 +141,58 @@ def ensure_runtime_database_url(user_env: Path, user_dir: Path) -> str:
     return current_database_url
 
 
-def bootstrap_runtime_environment(bundle_dir: Path, user_dir: Path) -> Path | None:
+def _sqlite_seed_row_counts(database_path: Path) -> dict[str, int]:
+    counts = {table_name: 0 for table_name in DESKTOP_HISTORY_REQUIRED_TABLES}
+    if not database_path.exists():
+        return counts
+    connection = sqlite3.connect(database_path)
+    try:
+        existing_tables = {
+            str(name)
+            for (name,) in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        for table_name in DESKTOP_HISTORY_REQUIRED_TABLES:
+            if table_name not in existing_tables:
+                continue
+            counts[table_name] = int(connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
+    except sqlite3.DatabaseError:
+        return counts
+    finally:
+        connection.close()
+    return counts
+
+
+def maybe_refresh_runtime_sqlite_seed(bundle_dir: Path, user_dir: Path, log_path: Path | None = None) -> bool:
+    runtime_database_path = default_runtime_database_path(user_dir)
+    bundled_database_path = bundle_dir / "db" / "mlb_predictor.sqlite3"
+    if not runtime_database_path.exists() or not bundled_database_path.exists():
+        return False
+
+    bundled_counts = _sqlite_seed_row_counts(bundled_database_path)
+    if any(bundled_counts.get(table_name, 0) <= 0 for table_name in DESKTOP_HISTORY_REQUIRED_TABLES):
+        return False
+
+    runtime_counts = _sqlite_seed_row_counts(runtime_database_path)
+    missing_runtime_history = any(
+        runtime_counts.get(table_name, 0) <= 0 and bundled_counts.get(table_name, 0) > 0
+        for table_name in DESKTOP_HISTORY_REQUIRED_TABLES
+    )
+    if not missing_runtime_history:
+        return False
+
+    backup_path = runtime_database_path.with_name(f"{runtime_database_path.stem}.pre_refresh.sqlite3")
+    shutil.copy2(runtime_database_path, backup_path)
+    shutil.copy2(bundled_database_path, runtime_database_path)
+    if log_path is not None:
+        append_runtime_log(
+            log_path,
+            "Refreshed runtime SQLite seed from bundled database because local history tables were incomplete: "
+            f"runtime={runtime_counts} bundled={bundled_counts}",
+        )
+    return True
+
+
+def bootstrap_runtime_environment(bundle_dir: Path, user_dir: Path, log_path: Path | None = None) -> Path | None:
     user_dir.mkdir(parents=True, exist_ok=True)
 
     data_source = bundle_dir / "data"
@@ -157,7 +216,9 @@ def bootstrap_runtime_environment(bundle_dir: Path, user_dir: Path) -> Path | No
         _copy_if_missing(config_source / ".env", user_env)
         _copy_if_missing(config_source / ".env.example", user_env)
 
-    ensure_runtime_database_url(user_env, user_dir)
+    current_database_url = ensure_runtime_database_url(user_env, user_dir)
+    if current_database_url == default_runtime_database_url(user_dir):
+        maybe_refresh_runtime_sqlite_seed(bundle_dir, user_dir, log_path=log_path)
 
     if user_env.exists():
         load_dotenv(user_env, override=False)
@@ -419,7 +480,7 @@ def main() -> int:
     bundled_root = bundle_root()
     ensure_bundle_on_sys_path(bundled_root)
     append_runtime_log(log_path, f"Launcher starting from {bundled_root}")
-    bootstrap_runtime_environment(bundled_root, user_dir)
+    bootstrap_runtime_environment(bundled_root, user_dir, log_path=log_path)
     ensure_standard_streams()
 
     server: AppServer | None = None

@@ -1,9 +1,26 @@
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
 import src.desktop.launcher as launcher_module
 from src.desktop.launcher import bootstrap_runtime_environment
+
+
+def _write_history_seed(database_path: Path, row_count: int) -> None:
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(database_path)
+    try:
+        for table_name in launcher_module.DESKTOP_HISTORY_REQUIRED_TABLES:
+            connection.execute(f"CREATE TABLE {table_name} (game_date TEXT)")
+            for index in range(row_count):
+                connection.execute(
+                    f"INSERT INTO {table_name} (game_date) VALUES (?)",
+                    (f"2026-04-{index + 1:02d}",),
+                )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def test_bootstrap_runtime_environment_seeds_data_and_config(tmp_path, monkeypatch):
@@ -70,6 +87,52 @@ def test_bootstrap_runtime_environment_preserves_explicit_database_url(tmp_path,
     assert user_env is not None
     assert os.environ["DATABASE_URL"] == custom_database_url
     assert "mlb_predictor.sqlite3" in user_env.read_text(encoding="utf-8")
+
+
+def test_bootstrap_runtime_environment_refreshes_incomplete_default_runtime_seed(tmp_path, monkeypatch):
+    bundle_root = tmp_path / "bundle"
+    user_root = tmp_path / "user"
+
+    (bundle_root / "data" / "raw").mkdir(parents=True)
+    (bundle_root / "db" / "seeds").mkdir(parents=True)
+    (bundle_root / "config").mkdir(parents=True)
+    (user_root / "db").mkdir(parents=True)
+
+    (bundle_root / "data" / "raw" / "manual_lineups.csv").write_text("game_id\n", encoding="utf-8")
+    (bundle_root / "data" / "raw" / "manual_market_totals.csv").write_text("game_id\n", encoding="utf-8")
+    (bundle_root / "config" / ".env.example").write_text(
+        "DATABASE_URL=postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb\n",
+        encoding="utf-8",
+    )
+    (bundle_root / "db" / "seeds" / "park_factors.csv").write_text("venue_id\n", encoding="utf-8")
+    _write_history_seed(bundle_root / "db" / "mlb_predictor.sqlite3", row_count=2)
+    _write_history_seed(user_root / "db" / "mlb_predictor.sqlite3", row_count=0)
+
+    for key in (
+        "DATABASE_URL",
+        "DATA_DIR",
+        "MODEL_DIR",
+        "REPORT_DIR",
+        "FEATURE_DIR",
+        "MANUAL_LINEUPS_CSV",
+        "MANUAL_MARKETS_CSV",
+        "PARK_FACTORS_CSV",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    bootstrap_runtime_environment(bundle_root, user_root, log_path=user_root / "logs" / "launcher.log")
+
+    connection = sqlite3.connect(user_root / "db" / "mlb_predictor.sqlite3")
+    try:
+        counts = {
+            table_name: int(connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
+            for table_name in launcher_module.DESKTOP_HISTORY_REQUIRED_TABLES
+        }
+    finally:
+        connection.close()
+
+    assert all(count == 2 for count in counts.values())
+    assert (user_root / "db" / "mlb_predictor.pre_refresh.sqlite3").exists()
 
 
 def test_ensure_standard_streams_supplies_devnull_fallbacks(monkeypatch):

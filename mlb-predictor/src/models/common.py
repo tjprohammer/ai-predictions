@@ -3,11 +3,48 @@ from __future__ import annotations
 import json
 import pickle
 from pathlib import Path
+import sys
 from typing import Any
 
 import pandas as pd
 
 from src.utils.settings import get_settings
+
+
+class ArtifactRuntimeMismatchError(FileNotFoundError):
+    pass
+
+
+def _artifact_metadata_path(artifact_path: Path) -> Path:
+    return artifact_path.with_suffix(".meta.json")
+
+
+def _current_sklearn_version() -> str | None:
+    try:
+        import sklearn
+    except ImportError:
+        return None
+    return str(sklearn.__version__)
+
+
+def _build_artifact_metadata(lane: str, artifact_name: str, artifact: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "lane": lane,
+        "artifact_name": artifact_name,
+        "model_name": artifact.get("model_name"),
+        "model_version": artifact.get("model_version") or artifact_name,
+        "trained_at": artifact.get("trained_at"),
+        "python_version": sys.version.split()[0],
+        "pandas_version": pd.__version__,
+        "sklearn_version": _current_sklearn_version(),
+    }
+
+
+def _read_artifact_metadata(artifact_path: Path) -> dict[str, Any] | None:
+    metadata_path = _artifact_metadata_path(artifact_path)
+    if not metadata_path.exists():
+        return None
+    return json.loads(metadata_path.read_text(encoding="utf-8"))
 
 
 def load_feature_snapshots(lane: str) -> pd.DataFrame:
@@ -69,16 +106,38 @@ def save_artifact(lane: str, artifact_name: str, artifact: dict[str, Any]) -> Pa
     output_path = output_dir / f"{artifact_name}.pkl"
     with output_path.open("wb") as handle:
         pickle.dump(artifact, handle)
+    metadata = _build_artifact_metadata(lane, artifact_name, artifact)
+    _artifact_metadata_path(output_path).write_text(json.dumps(metadata, indent=2, default=str), encoding="utf-8")
     return output_path
 
 
 def load_latest_artifact(lane: str) -> dict[str, Any]:
     settings = get_settings()
-    files = sorted((settings.model_dir / lane).glob("*.pkl"), key=lambda path: path.stat().st_mtime)
+    files = sorted((settings.model_dir / lane).glob("*.pkl"), key=lambda path: path.stat().st_mtime, reverse=True)
     if not files:
         raise FileNotFoundError(f"No model artifacts found for {lane}")
-    with files[-1].open("rb") as handle:
-        return pickle.load(handle)
+    runtime_sklearn_version = _current_sklearn_version()
+    mismatch_reasons: list[str] = []
+    for artifact_path in files:
+        metadata = _read_artifact_metadata(artifact_path)
+        if runtime_sklearn_version is not None:
+            if metadata is None:
+                mismatch_reasons.append(f"{artifact_path.name} has no artifact metadata")
+                continue
+            artifact_sklearn_version = metadata.get("sklearn_version")
+            if artifact_sklearn_version != runtime_sklearn_version:
+                mismatch_reasons.append(
+                    f"{artifact_path.name} was trained with sklearn {artifact_sklearn_version or 'unknown'}"
+                )
+                continue
+        with artifact_path.open("rb") as handle:
+            return pickle.load(handle)
+    if mismatch_reasons:
+        raise ArtifactRuntimeMismatchError(
+            f"No compatible {lane} model artifact is available for sklearn {runtime_sklearn_version}: "
+            + "; ".join(mismatch_reasons)
+        )
+    raise FileNotFoundError(f"No model artifacts found for {lane}")
 
 
 def save_report(lane: str, report_name: str, payload: dict[str, Any]) -> Path:

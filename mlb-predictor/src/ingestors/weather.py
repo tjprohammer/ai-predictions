@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import time as timer
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timezone
 
 import requests
 
@@ -13,6 +13,30 @@ from src.utils.logging import get_logger
 
 
 log = get_logger(__name__)
+
+
+def _coerce_date(value: object) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        raise TypeError("game_date is required")
+    if "T" in text or " " in text:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    return date.fromisoformat(text)
+
+
+def _coerce_datetime(value: object | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
 def _weather_endpoint(game_date, *, force_mode: str | None = None) -> tuple[str, str]:
@@ -86,12 +110,14 @@ def main() -> int:
     snapshot_ts = datetime.now(timezone.utc)
     rows = []
     for game in games.itertuples(index=False):
-        endpoint, weather_type = _weather_endpoint(game.game_date, force_mode=force_mode)
+        game_date = _coerce_date(game.game_date)
+        game_start_ts = _coerce_datetime(game.game_start_ts)
+        endpoint, weather_type = _weather_endpoint(game_date, force_mode=force_mode)
         params = {
             "latitude": float(game.latitude),
             "longitude": float(game.longitude),
-            "start_date": game.game_date.isoformat(),
-            "end_date": game.game_date.isoformat(),
+            "start_date": game_date.isoformat(),
+            "end_date": game_date.isoformat(),
             "hourly": "temperature_2m,relative_humidity_2m,precipitation_probability,pressure_msl,wind_speed_10m,wind_direction_10m",
             "temperature_unit": "fahrenheit",
             "wind_speed_unit": "mph",
@@ -115,14 +141,14 @@ def main() -> int:
             response_time_ms=int((timer.perf_counter() - started) * 1000),
         )
         payload = response.json()
-        selected = _pick_hour(payload, _target_local_dt(game.game_date, game.game_start_ts))
+        selected = _pick_hour(payload, _target_local_dt(game_date, game_start_ts))
         if not selected:
             continue
         roof_type = (game.roof_type or "").lower() if game.roof_type else None
         rows.append(
             {
                 "game_id": int(game.game_id),
-                "game_date": game.game_date,
+                "game_date": game_date,
                 "snapshot_ts": snapshot_ts,
                 "source_name": "open-meteo",
                 "weather_type": weather_type,

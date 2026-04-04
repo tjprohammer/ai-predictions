@@ -1,7 +1,11 @@
+from src.features.common import build_hitter_priors, build_pitcher_priors, coerce_utc_timestamp_series, hitter_snapshot, latest_market_snapshot, pitcher_snapshot
 from datetime import date, datetime, timezone
 
 import pandas as pd
 
+from types import SimpleNamespace
+
+from src.features import common as feature_common
 from src.features.common import build_hitter_priors, build_pitcher_priors, hitter_snapshot, latest_market_snapshot, pitcher_snapshot
 
 
@@ -75,3 +79,37 @@ def test_latest_market_snapshot_returns_selected_sportsbook():
 
     assert result["market_total"] == 9.0
     assert result["market_sportsbook"] == "FanDuel"
+
+
+def test_write_feature_snapshot_replaces_overlapping_ranges(monkeypatch, tmp_path):
+    monkeypatch.setattr(feature_common, "get_settings", lambda: SimpleNamespace(feature_dir=tmp_path))
+    lane_dir = tmp_path / "strikeouts"
+    lane_dir.mkdir(parents=True, exist_ok=True)
+
+    overlapping = lane_dir / "2026-04-03_2026-04-04.parquet"
+    non_overlapping = lane_dir / "2026-04-01_2026-04-02.parquet"
+    pd.DataFrame([{"game_id": 1}]).to_parquet(overlapping, index=False)
+    pd.DataFrame([{"game_id": 2}]).to_parquet(non_overlapping, index=False)
+
+    output_path = feature_common.write_feature_snapshot(
+        pd.DataFrame([{"game_id": 3}]),
+        "strikeouts",
+        date(2026, 4, 4),
+        date(2026, 4, 4),
+    )
+
+    assert output_path.exists()
+    assert not overlapping.exists()
+    assert non_overlapping.exists()
+
+
+def test_coerce_utc_timestamp_series_handles_mixed_iso_formats():
+    series = pd.Series([
+        "2026-04-01 20:23:48.174274+00:00",
+        "2026-04-01 20:23:48+0000",
+    ])
+
+    result = coerce_utc_timestamp_series(series)
+
+    assert result.notna().all()
+    assert str(result.iloc[0].tz) == "UTC"

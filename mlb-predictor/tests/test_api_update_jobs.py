@@ -2,6 +2,8 @@ import json
 import importlib
 import types
 
+import pytest
+
 
 app_module = importlib.import_module("src.api.app")
 
@@ -90,6 +92,122 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
         "src.models.predict_strikeouts",
         "src.transforms.product_surfaces",
     ]
+
+
+@pytest.mark.parametrize(
+    ("action", "target_date", "expected_label", "expected_modules"),
+    [
+        (
+            "refresh_everything",
+            "2026-04-02",
+            "Refresh Everything",
+            [
+                "src.ingestors.games",
+                "src.ingestors.starters",
+                "src.ingestors.prepare_slate_inputs",
+                "src.ingestors.lineups",
+                "src.ingestors.market_totals",
+                "src.transforms.freeze_markets",
+                "src.ingestors.validator",
+                "src.transforms.offense_daily",
+                "src.transforms.bullpens_daily",
+                "src.features.totals_builder",
+                "src.features.first5_totals_builder",
+                "src.features.hits_builder",
+                "src.features.strikeouts_builder",
+                "src.models.predict_totals",
+                "src.models.predict_first5_totals",
+                "src.models.predict_hits",
+                "src.models.predict_strikeouts",
+                "src.transforms.product_surfaces",
+            ],
+        ),
+        (
+            "prepare_slate",
+            "2026-04-02",
+            "Prepare slate",
+            [
+                "src.ingestors.games",
+                "src.ingestors.starters",
+                "src.ingestors.prepare_slate_inputs",
+                "src.ingestors.validator",
+            ],
+        ),
+        (
+            "import_manual_inputs",
+            "2026-04-02",
+            "Import inputs",
+            [
+                "src.ingestors.lineups",
+                "src.ingestors.market_totals",
+                "src.transforms.freeze_markets",
+                "src.ingestors.validator",
+            ],
+        ),
+        (
+            "refresh_results",
+            "2026-04-02",
+            "Refresh results and stats",
+            [
+                "src.ingestors.boxscores",
+                "src.ingestors.player_batting",
+                "src.transforms.offense_daily",
+                "src.transforms.bullpens_daily",
+                "src.transforms.product_surfaces",
+            ],
+        ),
+        (
+            "rebuild_predictions",
+            "2026-04-02",
+            "Rebuild predictions",
+            [
+                "src.transforms.freeze_markets",
+                "src.features.totals_builder",
+                "src.features.first5_totals_builder",
+                "src.features.hits_builder",
+                "src.features.strikeouts_builder",
+                "src.models.predict_totals",
+                "src.models.predict_first5_totals",
+                "src.models.predict_hits",
+                "src.models.predict_strikeouts",
+                "src.transforms.product_surfaces",
+            ],
+        ),
+        (
+            "grade_predictions",
+            "2026-04-03",
+            "Grade recent predictions",
+            [
+                "src.ingestors.boxscores",
+                "src.ingestors.player_batting",
+                "src.ingestors.weather",
+                "src.transforms.offense_daily",
+                "src.transforms.bullpens_daily",
+                "src.transforms.product_surfaces",
+            ],
+        ),
+    ],
+)
+def test_update_job_sequences_cover_every_dashboard_action(
+    monkeypatch,
+    action,
+    target_date,
+    expected_label,
+    expected_modules,
+):
+    calls = _install_success_stubs(monkeypatch)
+
+    response = app_module.run_update_job(
+        app_module.UpdateJobRunRequest(
+            action=action,
+            target_date=target_date,
+        )
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["label"] == expected_label
+    assert [module for module, _ in calls] == expected_modules
 
 
 def test_update_job_grade_predictions_targets_yesterday(monkeypatch):

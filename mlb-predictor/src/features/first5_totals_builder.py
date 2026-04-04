@@ -9,6 +9,7 @@ from src.features.common import (
     build_hitter_priors,
     build_pitcher_priors,
     build_team_priors,
+    coerce_utc_timestamp_series,
     default_cutoff,
     latest_market_snapshot,
     latest_weather_snapshot,
@@ -121,7 +122,7 @@ def main() -> int:
             frames[frame_name]["game_date"] = pd.to_datetime(frames[frame_name]["game_date"])
     for frame_name in ("lineups", "weather", "markets"):
         if not frames[frame_name].empty and "snapshot_ts" in frames[frame_name].columns:
-            frames[frame_name]["snapshot_ts"] = pd.to_datetime(frames[frame_name]["snapshot_ts"], utc=True)
+            frames[frame_name]["snapshot_ts"] = coerce_utc_timestamp_series(frames[frame_name]["snapshot_ts"])
     games["game_date"] = pd.to_datetime(games["game_date"]).dt.date
     games["game_start_ts"] = pd.to_datetime(games["game_start_ts"], utc=True)
 

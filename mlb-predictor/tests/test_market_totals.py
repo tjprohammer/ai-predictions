@@ -426,6 +426,80 @@ def test_extract_rotowire_strikeout_rows_matches_unaccented_live_name_to_accente
     ]
 
 
+def test_extract_rotowire_strikeout_rows_resolves_doubleheader_to_matching_pitcher_game():
+    page_html = """
+    <script>
+    const settings = {
+        data: [{"name":"Chad Patrick","team":"MIL","opp":"@KC","fanduel_strikeouts":"3.5","fanduel_strikeoutsUnder":"-110","fanduel_strikeoutsOver":"-120"}],
+        theme: 'table-theme-odds'
+    };
+    </script>
+    """
+    game_lookup = {
+        (date(2026, 4, 4), "MIL", "KC"): [
+            {"game_id": 824132, "game_date": date(2026, 4, 4), "home_team": "KC", "away_team": "MIL", "game_start_ts": "2026-04-04T18:10:00Z"},
+            {"game_id": 824134, "game_date": date(2026, 4, 4), "home_team": "KC", "away_team": "MIL", "game_start_ts": "2026-04-04T23:10:00Z"},
+        ]
+    }
+    slate_player_lookup = {
+        (824134, "chad patrick"): [{"player_id": 694477, "team": "MIL", "player_name": "Chad Patrick"}],
+    }
+    snapshot_ts = pd.Timestamp("2026-04-04T12:13:37Z").to_pydatetime()
+
+    rows = _extract_rotowire_strikeout_rows(
+        page_html,
+        date(2026, 4, 4),
+        game_lookup,
+        slate_player_lookup,
+        snapshot_ts=snapshot_ts,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["game_id"] == 824134
+    assert rows[0]["player_id"] == 694477
+
+
+def test_extract_covers_player_prop_rows_resolves_doubleheader_to_matching_pitcher_game():
+    partial_html = """
+    <article class="player-prop-article">
+      <div class="picture-div"><img alt="Chad Patrick" /></div>
+      <span class="away-shortname">MIL</span>
+      <span class="home-shortname">KC</span>
+      <div class="other-over-odds" data-num-col="2">3.5<div class="player-event"></div></div>
+      <div class="player-compareOdds-div">
+        <div class="other-odds-row">
+          <img src="/sportsbooks/fanduel.svg" />
+          <div class="other-over-odds" data-num-col="2">o 3.5 <span class="oddtype">-120</span></div>
+          <div class="other-under-odds" data-num-col="3">u 3.5 <span class="oddtype">-110</span></div>
+        </div>
+      </div>
+    </article>
+    """
+    game_lookup = {
+        (date(2026, 4, 4), "KC", "MIL"): [
+            {"game_id": 824132, "game_date": date(2026, 4, 4), "home_team": "KC", "away_team": "MIL", "game_start_ts": "2026-04-04T18:10:00Z"},
+            {"game_id": 824134, "game_date": date(2026, 4, 4), "home_team": "KC", "away_team": "MIL", "game_start_ts": "2026-04-04T23:10:00Z"},
+        ]
+    }
+    slate_player_lookup = {
+        (824134, "chad patrick"): [{"player_id": 694477, "team": "MIL", "player_name": "Chad Patrick"}],
+    }
+    snapshot_ts = pd.Timestamp("2026-04-04T12:13:37Z").to_pydatetime()
+
+    rows = _extract_covers_player_prop_rows(
+        partial_html,
+        date(2026, 4, 4),
+        "pitcher_strikeouts",
+        game_lookup,
+        slate_player_lookup,
+        snapshot_ts=snapshot_ts,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["game_id"] == 824134
+    assert rows[0]["player_id"] == 694477
+
+
 def test_game_lookup_builders_normalize_az_team_aliases():
     games = pd.DataFrame(
         [

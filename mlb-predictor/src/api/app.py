@@ -54,6 +54,7 @@ HOT_HITTERS_FILE = STATIC_DIR / "hot-hitters.html"
 PITCHERS_FILE = STATIC_DIR / "pitchers.html"
 RESULTS_FILE = STATIC_DIR / "results.html"
 TOTALS_FILE = STATIC_DIR / "totals.html"
+DOCTOR_FILE = STATIC_DIR / "doctor.html"
 FAVICON_FILE = STATIC_DIR / "favicon.svg"
 UPDATE_MODULE_MAINS = {
     "src.ingestors.games": ingest_games_main,
@@ -1054,6 +1055,238 @@ def _fetch_status(target_date: date) -> dict[str, Any]:
             "pitcher_trend_daily": _table_exists("pitcher_trend_daily"),
             "model_scorecards_daily": _table_exists("model_scorecards_daily"),
         },
+    }
+
+
+def _redact_database_url(database_url: str) -> str:
+    if not database_url:
+        return ""
+    if database_url.startswith("sqlite"):
+        return database_url
+    if "://" not in database_url or "@" not in database_url:
+        return database_url
+    scheme, remainder = database_url.split("://", 1)
+    credentials, suffix = remainder.split("@", 1)
+    if not credentials:
+        return database_url
+    if ":" in credentials:
+        username, _password = credentials.split(":", 1)
+        credentials = f"{username}:***"
+    else:
+        credentials = "***"
+    return f"{scheme}://{credentials}@{suffix}"
+
+
+def _fetch_pipeline_runs(limit: int = 20) -> list[dict[str, Any]]:
+    if not _table_exists("pipeline_runs"):
+        return []
+    runs_frame = _safe_frame(
+        """
+        SELECT job_id, action, label, target_date, status,
+               total_steps, completed_steps, error,
+               created_at, started_at, finished_at
+        FROM pipeline_runs
+        ORDER BY created_at DESC
+        LIMIT :lim
+        """,
+        {"lim": max(1, min(limit, 100))},
+    )
+    return _frame_records(runs_frame)
+
+
+def _fetch_game_readiness_payload(target_date: date | None = None) -> dict[str, Any]:
+    td = target_date or date.today()
+    if not _table_exists("game_readiness"):
+        return {"games": [], "summary": {"green": 0, "yellow": 0, "red": 0, "total": 0}}
+    frame = _safe_frame(
+        """
+        SELECT game_id, game_date, away_team, home_team,
+               has_away_starter, has_home_starter, has_market, has_venue,
+               has_away_lineup, has_home_lineup, has_weather,
+               checks_passed, checks_total, warnings, badge
+        FROM game_readiness
+        WHERE game_date = :target_date
+        ORDER BY game_id
+        """,
+        {"target_date": str(td)},
+    )
+    records = _frame_records(frame)
+    summary = {
+        "green": sum(1 for r in records if r.get("badge") == "green"),
+        "yellow": sum(1 for r in records if r.get("badge") == "yellow"),
+        "red": sum(1 for r in records if r.get("badge") == "red"),
+        "total": len(records),
+    }
+    return {"games": records, "summary": summary}
+
+
+def _fetch_source_health_payload(hours: int = 24) -> dict[str, Any]:
+    capped_hours = max(1, min(hours, 168))
+    if not _table_exists("source_health"):
+        return {
+            "sources": [],
+            "hours": capped_hours,
+            "summary": {"total_sources": 0, "healthy_sources": 0, "sources_with_failures": 0},
+        }
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=capped_hours)
+    frame = _safe_frame(
+        """
+        SELECT source_name, checked_at, is_available, response_time_ms, error_message
+        FROM source_health
+        ORDER BY checked_at DESC
+        """
+    )
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        raw_ts = str(row.get("checked_at") or "").replace("Z", "+00:00")
+        try:
+            checked_at = datetime.fromisoformat(raw_ts)
+        except ValueError:
+            continue
+        if checked_at.tzinfo is None:
+            checked_at = checked_at.replace(tzinfo=timezone.utc)
+        if checked_at < cutoff:
+            continue
+        source_name = str(row.get("source_name") or "unknown")
+        entry = grouped.setdefault(
+            source_name,
+            {
+                "source_name": source_name,
+                "latest_checked_at": checked_at.isoformat(),
+                "success_count": 0,
+                "failure_count": 0,
+                "avg_response_time_ms": None,
+                "latest_error": None,
+                "_response_times": [],
+            },
+        )
+        if row.get("is_available"):
+            entry["success_count"] += 1
+        else:
+            entry["failure_count"] += 1
+            if not entry["latest_error"] and row.get("error_message"):
+                entry["latest_error"] = row.get("error_message")
+        if row.get("response_time_ms") is not None:
+            entry["_response_times"].append(float(row["response_time_ms"]))
+    sources = []
+    for entry in grouped.values():
+        times = entry.pop("_response_times")
+        entry["avg_response_time_ms"] = round(sum(times) / len(times), 1) if times else None
+        sources.append(entry)
+    sources.sort(key=lambda item: item["source_name"])
+    summary = {
+        "total_sources": len(sources),
+        "healthy_sources": sum(1 for item in sources if int(item.get("failure_count") or 0) == 0),
+        "sources_with_failures": sum(1 for item in sources if int(item.get("failure_count") or 0) > 0),
+    }
+    return {"sources": sources, "hours": capped_hours, "summary": summary}
+
+
+def _doctor_check(name: str, label: str, ok: bool, severity: str, detail: str) -> dict[str, Any]:
+    return {
+        "name": name,
+        "label": label,
+        "ok": ok,
+        "severity": severity,
+        "detail": detail,
+    }
+
+
+def _doctor_payload(
+    target_date: date,
+    source_health_hours: int = 24,
+    pipeline_limit: int = 5,
+    update_history_limit: int = 5,
+) -> dict[str, Any]:
+    status = _fetch_status(target_date)
+    readiness = _fetch_game_readiness_payload(target_date)
+    source_health = _fetch_source_health_payload(source_health_hours)
+    pipeline_runs = _fetch_pipeline_runs(pipeline_limit)
+    active_job = _active_update_job_payload()
+    recent_jobs = _update_job_history_payload()[: max(1, min(update_history_limit, 20))]
+
+    artifacts_ready = all(
+        bool(status.get(key))
+        for key in ("totals_artifact_ready", "hits_artifact_ready", "strikeouts_artifact_ready")
+    )
+    prediction_rows = int(status.get("totals_predictions") or 0) + int(status.get("hits_predictions") or 0) + int(status.get("strikeouts_predictions") or 0)
+    readiness_summary = readiness.get("summary", {})
+    readiness_total = int(readiness_summary.get("total") or 0)
+    readiness_red = int(readiness_summary.get("red") or 0)
+    source_summary = source_health.get("summary", {})
+    source_failures = int(source_summary.get("sources_with_failures") or 0)
+    blocker = status.get("rebuild_blocker")
+
+    checks = [
+        _doctor_check(
+            "database_connection",
+            "Database connection",
+            bool(status.get("db_connected")),
+            "critical",
+            "Local runtime database is reachable." if status.get("db_connected") else "The current runtime database is not reachable.",
+        ),
+        _doctor_check(
+            "model_artifacts",
+            "Model artifacts ready",
+            artifacts_ready,
+            "warning",
+            "Totals, hits, and strikeout artifacts are available." if artifacts_ready else "One or more model artifacts are missing from the local runtime.",
+        ),
+        _doctor_check(
+            "prediction_outputs",
+            "Prediction outputs present",
+            prediction_rows > 0,
+            "warning",
+            f"Found {prediction_rows} prediction rows for {target_date.isoformat()}." if prediction_rows > 0 else f"No prediction rows are present for {target_date.isoformat()}.",
+        ),
+        _doctor_check(
+            "desktop_history_seed",
+            "Desktop history seed",
+            blocker is None,
+            "critical",
+            "Historical SQLite seed looks complete for rebuild flows." if blocker is None else str(blocker.get("message") or "Desktop history is incomplete."),
+        ),
+        _doctor_check(
+            "game_readiness",
+            "Game readiness",
+            readiness_total == 0 or readiness_red == 0,
+            "warning",
+            "No readiness rows are available yet." if readiness_total == 0 else f"Readiness rows: green={readiness_summary.get('green', 0)} yellow={readiness_summary.get('yellow', 0)} red={readiness_red}.",
+        ),
+        _doctor_check(
+            "source_health",
+            "Source health",
+            source_failures == 0,
+            "warning",
+            "No recent source failures recorded." if source_failures == 0 else f"Recent source failures recorded for {source_failures} source(s).",
+        ),
+    ]
+    critical_failures = sum(1 for item in checks if not item["ok"] and item["severity"] == "critical")
+    warning_failures = sum(1 for item in checks if not item["ok"] and item["severity"] != "critical")
+    overall_status = "error" if critical_failures else ("warn" if warning_failures else "ok")
+
+    return {
+        "target_date": target_date.isoformat(),
+        "overall": {
+            "status": overall_status,
+            "critical_failures": critical_failures,
+            "warning_failures": warning_failures,
+            "checks_total": len(checks),
+        },
+        "runtime": {
+            "db_dialect": DB_DIALECT,
+            "database_url": _redact_database_url(settings.database_url),
+            "data_dir": str(settings.data_dir),
+            "model_dir": str(settings.model_dir),
+            "report_dir": str(settings.report_dir),
+            "feature_dir": str(settings.feature_dir),
+        },
+        "checks": checks,
+        "status": status,
+        "game_readiness": readiness,
+        "source_health": source_health,
+        "pipeline_runs": {"runs": pipeline_runs},
+        "update_jobs": {"active_job": active_job, "recent_jobs": recent_jobs},
     }
 
 
@@ -4592,6 +4825,12 @@ def results_page() -> FileResponse:
     return FileResponse(RESULTS_FILE)
 
 
+@app.get("/doctor/")
+@app.get("/doctor")
+def doctor_page() -> FileResponse:
+    return FileResponse(DOCTOR_FILE)
+
+
 @app.get("/totals/")
 @app.get("/totals")
 def totals_page() -> FileResponse:
@@ -4607,6 +4846,23 @@ def pitchers_page() -> FileResponse:
 @app.get("/api/status")
 def status(target_date: date = Query(default_factory=date.today)) -> JSONResponse:
     return _json_response(_fetch_status(target_date))
+
+
+@app.get("/api/doctor")
+def doctor_status(
+    target_date: date = Query(default_factory=date.today),
+    source_health_hours: int = Query(default=24, ge=1, le=168),
+    pipeline_limit: int = Query(default=5, ge=1, le=20),
+    update_history_limit: int = Query(default=5, ge=1, le=20),
+) -> JSONResponse:
+    return _json_response(
+        _doctor_payload(
+            target_date,
+            source_health_hours=source_health_hours,
+            pipeline_limit=pipeline_limit,
+            update_history_limit=update_history_limit,
+        )
+    )
 
 
 @app.get("/api/predictions/totals")
@@ -4797,20 +5053,7 @@ def update_job_status(job_id: str) -> JSONResponse:
 @app.get("/api/pipeline-runs")
 def pipeline_run_history(limit: int = 20) -> JSONResponse:
     """Return recent pipeline runs from the DB (not in-memory)."""
-    if not _table_exists("pipeline_runs"):
-        return _json_response({"runs": []})
-    runs_frame = _safe_frame(
-        """
-        SELECT job_id, action, label, target_date, status,
-               total_steps, completed_steps, error,
-               created_at, started_at, finished_at
-        FROM pipeline_runs
-        ORDER BY created_at DESC
-        LIMIT :lim
-        """,
-        {"lim": max(1, min(limit, 100))},
-    )
-    return _json_response({"runs": _frame_records(runs_frame)})
+    return _json_response({"runs": _fetch_pipeline_runs(limit)})
 
 
 @app.get("/api/pipeline-runs/{job_id}/steps")
@@ -4834,30 +5077,7 @@ def pipeline_run_steps(job_id: str) -> JSONResponse:
 @app.get("/api/game-readiness")
 def game_readiness(target_date: date | None = None) -> JSONResponse:
     """Return the latest validation readiness for each game on the target date."""
-    td = target_date or date.today()
-    td_str = str(td)
-    if not _table_exists("game_readiness"):
-        return _json_response({"games": [], "summary": {}})
-    frame = _safe_frame(
-        """
-        SELECT game_id, game_date, away_team, home_team,
-               has_away_starter, has_home_starter, has_market, has_venue,
-               has_away_lineup, has_home_lineup, has_weather,
-               checks_passed, checks_total, warnings, badge
-        FROM game_readiness
-        WHERE game_date = :target_date
-        ORDER BY game_id
-        """,
-        {"target_date": td_str},
-    )
-    records = _frame_records(frame)
-    summary = {
-        "green": sum(1 for r in records if r.get("badge") == "green"),
-        "yellow": sum(1 for r in records if r.get("badge") == "yellow"),
-        "red": sum(1 for r in records if r.get("badge") == "red"),
-        "total": len(records),
-    }
-    return _json_response({"games": records, "summary": summary})
+    return _json_response(_fetch_game_readiness_payload(target_date))
 
 
 @app.get("/api/review/top-misses")
@@ -4886,56 +5106,7 @@ def review_clv(
 @app.get("/api/source-health")
 def source_health(hours: int = 24) -> JSONResponse:
     """Return recent source health checks grouped by source."""
-    if not _table_exists("source_health"):
-        return _json_response({"sources": []})
-    capped_hours = max(1, min(hours, 168))
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=capped_hours)
-    frame = _safe_frame(
-        """
-        SELECT source_name, checked_at, is_available, response_time_ms, error_message
-        FROM source_health
-        ORDER BY checked_at DESC
-        """
-    )
-    grouped: dict[str, dict[str, Any]] = {}
-    for row in _frame_records(frame):
-        raw_ts = str(row.get("checked_at") or "").replace("Z", "+00:00")
-        try:
-            checked_at = datetime.fromisoformat(raw_ts)
-        except ValueError:
-            continue
-        if checked_at.tzinfo is None:
-            checked_at = checked_at.replace(tzinfo=timezone.utc)
-        if checked_at < cutoff:
-            continue
-        source_name = str(row.get("source_name") or "unknown")
-        entry = grouped.setdefault(
-            source_name,
-            {
-                "source_name": source_name,
-                "latest_checked_at": checked_at.isoformat(),
-                "success_count": 0,
-                "failure_count": 0,
-                "avg_response_time_ms": None,
-                "latest_error": None,
-                "_response_times": [],
-            },
-        )
-        if row.get("is_available"):
-            entry["success_count"] += 1
-        else:
-            entry["failure_count"] += 1
-            if not entry["latest_error"] and row.get("error_message"):
-                entry["latest_error"] = row.get("error_message")
-        if row.get("response_time_ms") is not None:
-            entry["_response_times"].append(float(row["response_time_ms"]))
-    sources = []
-    for entry in grouped.values():
-        times = entry.pop("_response_times")
-        entry["avg_response_time_ms"] = round(sum(times) / len(times), 1) if times else None
-        sources.append(entry)
-    sources.sort(key=lambda item: item["source_name"])
-    return _json_response({"sources": sources, "hours": capped_hours})
+    return _json_response(_fetch_source_health_payload(hours))
 
 
 @app.get("/api/calibration")

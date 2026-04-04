@@ -1,6 +1,8 @@
 build/
 dist/
 release/
+packaged-smoke/
+.tmp/
 *.spec
 __pycache__/
 *.pyc

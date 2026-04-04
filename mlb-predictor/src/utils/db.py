@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date as date_cls, datetime as datetime_cls
 from functools import lru_cache
 import json
 import math
@@ -11,8 +12,12 @@ from sqlalchemy import MetaData, Table, create_engine, delete, inspect, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
+from sqlalchemy.sql.sqltypes import Date, DateTime
 
 from .settings import get_settings
+
+
+SQLITE_SAFE_MAX_VARIABLES = 900
 
 
 @lru_cache(maxsize=1)
@@ -86,15 +91,60 @@ def _serialize_sqlite_value(value: Any) -> Any:
     return value
 
 
+def _parse_temporal_string(value: str) -> pd.Timestamp | None:
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return None
+    return None if pd.isna(parsed) else parsed
+
+
+def _coerce_value_for_column(value: Any, column: Any | None) -> Any:
+    normalized = _normalize_db_value(value)
+    if normalized is None or column is None:
+        return normalized
+
+    column_type = getattr(column, "type", None)
+    if isinstance(column_type, DateTime):
+        if isinstance(normalized, datetime_cls):
+            return normalized
+        if isinstance(normalized, date_cls):
+            return datetime_cls.combine(normalized, datetime_cls.min.time())
+        if isinstance(normalized, str):
+            parsed = _parse_temporal_string(normalized)
+            return parsed.to_pydatetime() if parsed is not None else normalized
+        return normalized
+
+    if isinstance(column_type, Date):
+        if isinstance(normalized, datetime_cls):
+            return normalized.date()
+        if isinstance(normalized, date_cls):
+            return normalized
+        if isinstance(normalized, str):
+            parsed = _parse_temporal_string(normalized)
+            return parsed.date() if parsed is not None else normalized
+
+    return normalized
+
+
 def upsert_rows(
     table_name: str,
     rows: Iterable[dict[str, Any]],
     conflict_columns: list[str],
     engine: Engine | None = None,
 ) -> int:
-    row_list = [{key: _normalize_db_value(value) for key, value in row.items()} for row in rows]
+    row_list = [dict(row) for row in rows]
     if not row_list:
         return 0
+
+    active_engine = engine or get_engine()
+    metadata = MetaData()
+    table = Table(table_name, metadata, autoload_with=active_engine)
+    column_map = {column.name: column for column in table.columns}
+    row_list = [
+        {key: _coerce_value_for_column(value, column_map.get(key)) for key, value in row.items()}
+        for row in row_list
+    ]
 
     # PostgreSQL rejects a single ON CONFLICT batch when the same key appears
     # multiple times inside the insert payload, so collapse to the last row.
@@ -103,27 +153,34 @@ def upsert_rows(
         deduped_rows[tuple(row.get(column) for column in conflict_columns)] = row
     row_list = list(deduped_rows.values())
 
-    active_engine = engine or get_engine()
-    metadata = MetaData()
-    table = Table(table_name, metadata, autoload_with=active_engine)
     dialect_name = get_dialect_name(active_engine)
     if dialect_name == "sqlite":
         row_list = [{key: _serialize_sqlite_value(value) for key, value in row.items()} for row in row_list]
-    if dialect_name == "postgresql":
-        insert_stmt = pg_insert(table).values(row_list)
-    elif dialect_name == "sqlite":
-        insert_stmt = sqlite_insert(table).values(row_list)
-    else:
-        raise NotImplementedError(f"upsert_rows does not support dialect '{dialect_name}' yet")
-    provided_columns = {column_name for row in row_list for column_name in row.keys()}
-    update_columns = {
-        column.name: insert_stmt.excluded[column.name]
-        for column in table.columns
-        if column.name in provided_columns and column.name not in set(conflict_columns) and column.name != "created_at"
-    }
-    statement = insert_stmt.on_conflict_do_update(index_elements=conflict_columns, set_=update_columns)
-    with active_engine.begin() as connection:
+
+    def _execute_batch(connection, batch_rows: list[dict[str, Any]]) -> None:
+        if dialect_name == "postgresql":
+            insert_stmt = pg_insert(table).values(batch_rows)
+        elif dialect_name == "sqlite":
+            insert_stmt = sqlite_insert(table).values(batch_rows)
+        else:
+            raise NotImplementedError(f"upsert_rows does not support dialect '{dialect_name}' yet")
+        provided_columns = {column_name for row in batch_rows for column_name in row.keys()}
+        update_columns = {
+            column.name: insert_stmt.excluded[column.name]
+            for column in table.columns
+            if column.name in provided_columns and column.name not in set(conflict_columns) and column.name != "created_at"
+        }
+        statement = insert_stmt.on_conflict_do_update(index_elements=conflict_columns, set_=update_columns)
         connection.execute(statement)
+
+    with active_engine.begin() as connection:
+        if dialect_name == "sqlite":
+            max_columns = max(len(row.keys()) for row in row_list)
+            batch_size = max(1, SQLITE_SAFE_MAX_VARIABLES // max(1, max_columns))
+            for start in range(0, len(row_list), batch_size):
+                _execute_batch(connection, row_list[start : start + batch_size])
+        else:
+            _execute_batch(connection, row_list)
     return len(row_list)
 
 
