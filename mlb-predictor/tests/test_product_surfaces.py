@@ -31,9 +31,11 @@ def test_build_prediction_outcomes_normalizes_game_date(monkeypatch):
                 "model_name": "totals",
                 "model_version": "v1",
                 "prediction_ts": pd.Timestamp("2026-04-02T12:00:00Z"),
-                "predicted_total": 8.5,
-                "actual_total_runs": 9,
+                "predicted_total_runs": 8.5,
+                "total_runs": 9,
                 "market_total": 8.0,
+                "market_sportsbook": "FanDuel",
+                "market_snapshot_ts": pd.Timestamp("2026-04-02T11:45:00Z"),
                 "over_probability": 0.56,
                 "under_probability": 0.44,
                 "edge": 0.05,
@@ -49,6 +51,18 @@ def test_build_prediction_outcomes_normalizes_game_date(monkeypatch):
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(product_surfaces, "_latest_rows", fake_latest_rows)
+    monkeypatch.setattr(
+        product_surfaces,
+        "_fetch_closing_market_by_game",
+        lambda *args, **kwargs: {
+            1: {
+                "sportsbook": "FanDuel",
+                "line_value": 8.5,
+                "snapshot_ts": pd.Timestamp("2026-04-02T12:30:00Z"),
+                "same_sportsbook": True,
+            }
+        },
+    )
     monkeypatch.setattr(product_surfaces, "delete_for_date_range", lambda *args, **kwargs: None)
 
     def fake_upsert_rows(table_name, rows, conflict_columns):
@@ -63,6 +77,88 @@ def test_build_prediction_outcomes_normalizes_game_date(monkeypatch):
     assert result == 1
     assert captured["table_name"] == "prediction_outcomes_daily"
     assert captured["rows"][0]["game_date"] == date(2026, 4, 2)
+    assert captured["rows"][0]["entry_market_sportsbook"] == "FanDuel"
+    assert captured["rows"][0]["closing_market_same_sportsbook"] is True
+
+
+def test_fetch_closing_market_by_game_prefers_entry_sportsbook(monkeypatch):
+    frame = pd.DataFrame(
+        [
+            {
+                "game_id": 1,
+                "sportsbook": "DraftKings",
+                "line_value": 8.5,
+                "snapshot_ts": "2026-04-02T18:00:00Z",
+                "source_name": "oddsapi",
+                "over_price": -110,
+                "under_price": -110,
+                "game_start_ts": "2026-04-02T19:00:00Z",
+            },
+            {
+                "game_id": 1,
+                "sportsbook": "FanDuel",
+                "line_value": 9.0,
+                "snapshot_ts": "2026-04-02T17:30:00Z",
+                "source_name": "oddsapi",
+                "over_price": -108,
+                "under_price": -112,
+                "game_start_ts": "2026-04-02T19:00:00Z",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(product_surfaces, "table_exists", lambda _name: True)
+    monkeypatch.setattr(product_surfaces, "query_df", lambda *_args, **_kwargs: frame)
+
+    result = product_surfaces._fetch_closing_market_by_game(
+        date(2026, 4, 2),
+        date(2026, 4, 2),
+        preferred_sportsbook_by_game={1: "FanDuel"},
+    )
+
+    assert result[1]["sportsbook"] == "FanDuel"
+    assert result[1]["line_value"] == 9.0
+    assert result[1]["same_sportsbook"] is True
+
+
+def test_fetch_closing_market_by_game_falls_back_to_game_markets(monkeypatch):
+    frame = pd.DataFrame(
+        [
+            {
+                "game_id": 2,
+                "sportsbook": "DraftKings",
+                "line_value": 8.0,
+                "snapshot_ts": "2026-04-01T18:15:00Z",
+                "source_name": "covers_html",
+                "over_price": -110,
+                "under_price": -110,
+                "game_start_ts": "2026-04-01T19:00:00Z",
+            },
+            {
+                "game_id": 2,
+                "sportsbook": "FanDuel",
+                "line_value": 8.5,
+                "snapshot_ts": "2026-04-01T18:30:00Z",
+                "source_name": "covers_html",
+                "over_price": -108,
+                "under_price": -112,
+                "game_start_ts": "2026-04-01T19:00:00Z",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(product_surfaces, "table_exists", lambda name: name == "game_markets")
+    monkeypatch.setattr(product_surfaces, "query_df", lambda *_args, **_kwargs: frame)
+
+    result = product_surfaces._fetch_closing_market_by_game(
+        date(2026, 4, 1),
+        date(2026, 4, 1),
+        preferred_sportsbook_by_game={2: "FanDuel"},
+    )
+
+    assert result[2]["sportsbook"] == "FanDuel"
+    assert result[2]["line_value"] == 8.5
+    assert result[2]["same_sportsbook"] is True
 
 
 def test_build_model_scorecards_normalizes_score_date(monkeypatch):

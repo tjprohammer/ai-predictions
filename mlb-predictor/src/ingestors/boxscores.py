@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 
-from src.ingestors.common import statsapi_get
+from src.ingestors.common import record_ingest_event, statsapi_get
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df, upsert_rows
 from src.utils.logging import get_logger
@@ -245,6 +245,12 @@ def main() -> int:
     upsert_rows("player_game_pitching", pitcher_rows, ["game_id", "player_id"])
     upsert_rows("pitcher_starts", starter_rows, ["game_id", "pitcher_id"])
     log.info("Updated %s games and %s pitching rows", len(game_rows), len(pitcher_rows))
+    record_ingest_event(
+        source_name="mlb_statsapi",
+        ingestor_module="src.ingestors.boxscores",
+        target_date=start_date.isoformat(),
+        row_count=len(game_rows),
+    )
     return 0
 
 

@@ -9,7 +9,7 @@ import sys
 import threading
 import traceback
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -37,9 +37,10 @@ from src.models.predict_hits import main as predict_hits_main
 from src.models.predict_strikeouts import main as predict_strikeouts_main
 from src.models.predict_totals import main as predict_totals_main
 from src.transforms.bullpens_daily import main as refresh_bullpens_daily_main
+from src.transforms.freeze_markets import main as freeze_markets_main
 from src.transforms.offense_daily import main as refresh_offense_daily_main
 from src.transforms.product_surfaces import main as refresh_product_surfaces_main
-from src.utils.db import get_dialect_name, query_df, table_exists
+from src.utils.db import get_dialect_name, query_df, table_exists, upsert_rows
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -53,6 +54,7 @@ HOT_HITTERS_FILE = STATIC_DIR / "hot-hitters.html"
 PITCHERS_FILE = STATIC_DIR / "pitchers.html"
 RESULTS_FILE = STATIC_DIR / "results.html"
 TOTALS_FILE = STATIC_DIR / "totals.html"
+DOCTOR_FILE = STATIC_DIR / "doctor.html"
 FAVICON_FILE = STATIC_DIR / "favicon.svg"
 UPDATE_MODULE_MAINS = {
     "src.ingestors.games": ingest_games_main,
@@ -64,6 +66,7 @@ UPDATE_MODULE_MAINS = {
     "src.ingestors.player_batting": ingest_player_batting_main,
     "src.transforms.offense_daily": refresh_offense_daily_main,
     "src.transforms.bullpens_daily": refresh_bullpens_daily_main,
+    "src.transforms.freeze_markets": freeze_markets_main,
     "src.transforms.product_surfaces": refresh_product_surfaces_main,
     "src.features.totals_builder": build_totals_features_main,
     "src.features.first5_totals_builder": build_first5_totals_features_main,
@@ -91,10 +94,12 @@ class PipelineRunRequest(BaseModel):
 
 
 UpdateAction = Literal[
+    "refresh_everything",
     "prepare_slate",
     "import_manual_inputs",
     "refresh_results",
     "rebuild_predictions",
+    "grade_predictions",
 ]
 
 
@@ -110,6 +115,64 @@ UPDATE_JOB_LOCK = threading.Lock()
 UPDATE_JOBS: dict[str, dict[str, Any]] = {}
 UPDATE_JOB_HISTORY_LIMIT = 12
 UPDATE_JOB_STORE_PATH = settings.report_dir / "update_jobs" / "history.json"
+
+
+def _persist_pipeline_run(job: dict[str, Any]) -> None:
+    """Upsert the pipeline_runs row for this job."""
+    try:
+        if not _table_exists("pipeline_runs"):
+            return
+        upsert_rows(
+            "pipeline_runs",
+            [
+                {
+                    "job_id": job["job_id"],
+                    "action": job["action"],
+                    "label": job["label"],
+                    "target_date": str(job["target_date"]),
+                    "status": job["status"],
+                    "total_steps": job["total_steps"],
+                    "completed_steps": job.get("completed_steps", 0),
+                    "error": job.get("error"),
+                    "started_at": job.get("started_at"),
+                    "finished_at": job.get("finished_at"),
+                }
+            ],
+            ["job_id"],
+        )
+    except Exception as exc:
+        log.warning("Failed to persist pipeline_run for %s: %s", job["job_id"], exc)
+
+
+def _persist_pipeline_step(job_id: str, step_index: int, step: dict[str, Any]) -> None:
+    """Upsert the pipeline_run_steps row for this step."""
+    try:
+        if not _table_exists("pipeline_run_steps"):
+            return
+        upsert_rows(
+            "pipeline_run_steps",
+            [
+                {
+                    "job_id": job_id,
+                    "step_index": step_index,
+                    "module_name": step.get("module", ""),
+                    "returncode": step.get("returncode"),
+                    "stdout": (step.get("stdout") or "")[:4000],
+                    "stderr": (step.get("stderr") or "")[:4000],
+                    "finished_at": _utc_now_iso(),
+                }
+            ],
+            ["job_id", "step_index"],
+        )
+    except Exception as exc:
+        log.warning("Failed to persist pipeline_run_step for %s step %d: %s", job_id, step_index, exc)
+DESKTOP_HISTORY_REQUIREMENTS: tuple[tuple[str, str, str], ...] = (
+    ("team_offense_daily", "game_date", "team offense history"),
+    ("bullpens_daily", "game_date", "bullpen history"),
+    ("player_game_batting", "game_date", "hitter game logs"),
+    ("player_trend_daily", "game_date", "hot hitter trend history"),
+    ("pitcher_starts", "game_date", "pitcher start history"),
+)
 
 
 def _safe_frame(query: str, params: dict[str, Any] | None = None) -> pd.DataFrame:
@@ -200,6 +263,84 @@ def _sql_bind_list(prefix: str, values: list[Any], params: dict[str, Any]) -> st
 
 def _artifact_ready(lane: str) -> bool:
     return any((settings.model_dir / lane).glob("*.pkl"))
+
+
+def _desktop_history_row_counts(target_date: date) -> dict[str, int]:
+    row_counts: dict[str, int] = {}
+    if DB_DIALECT != "sqlite":
+        return row_counts
+
+    for table_name, date_column, _label in DESKTOP_HISTORY_REQUIREMENTS:
+        if not _table_exists(table_name):
+            row_counts[table_name] = 0
+            continue
+        frame = _safe_frame(
+            f"SELECT COUNT(*) AS row_count FROM {table_name} WHERE {date_column} < :target_date",
+            {"target_date": target_date},
+        )
+        row_counts[table_name] = int(frame.iloc[0]["row_count"]) if not frame.empty else 0
+    return row_counts
+
+
+def _desktop_rebuild_blocker(target_date: date) -> dict[str, Any] | None:
+    if DB_DIALECT != "sqlite":
+        return None
+
+    row_counts = _desktop_history_row_counts(target_date)
+    missing = [
+        {"table": table_name, "label": label, "row_count": row_counts.get(table_name, 0)}
+        for table_name, _date_column, label in DESKTOP_HISTORY_REQUIREMENTS
+        if row_counts.get(table_name, 0) <= 0
+    ]
+    if not missing:
+        return None
+
+    missing_labels = ", ".join(item["label"] for item in missing)
+    missing_tables = ", ".join(item["table"] for item in missing)
+    return {
+        "code": "desktop_history_missing",
+        "message": (
+            "Desktop historical data is incomplete. Rebuild predictions is blocked because the bundled "
+            f"SQLite seed has no prior rows in {missing_labels} ({missing_tables}). "
+            "Rebuild the desktop bundle with a populated SQLite seed exported from Postgres before running predictions."
+        ),
+        "missing": missing,
+        "row_counts": row_counts,
+    }
+
+
+def _action_blocker(action: UpdateAction, target_date: date) -> dict[str, Any] | None:
+    if action not in {"refresh_everything", "rebuild_predictions"}:
+        return None
+    return _desktop_rebuild_blocker(target_date)
+
+
+def _pipeline_blocker(target_date: date) -> dict[str, Any] | None:
+    return _desktop_rebuild_blocker(target_date)
+
+
+def _blocked_update_payload(action: UpdateAction, target_date: date, blocker: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "action": action,
+        "label": _update_job_label(action),
+        "target_date": target_date.isoformat(),
+        "steps": [],
+        "status": _fetch_status(target_date),
+        "message": blocker["message"],
+        "blocker": blocker,
+    }
+
+
+def _blocked_pipeline_payload(target_date: date, blocker: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "target_date": target_date.isoformat(),
+        "steps": [],
+        "status": _fetch_status(target_date),
+        "message": blocker["message"],
+        "blocker": blocker,
+    }
 
 
 def _fetch_lineup_snapshot_keys(target_date: date) -> set[tuple[int, int]]:
@@ -870,6 +1011,7 @@ def _fetch_status(target_date: date) -> dict[str, Any]:
     totals_count = 0
     hits_count = 0
     strikeouts_count = 0
+    rebuild_blocker = _desktop_rebuild_blocker(target_date)
     if _table_exists("predictions_totals"):
         totals = _safe_frame(
             "SELECT COUNT(*) AS row_count FROM predictions_totals WHERE game_date = :target_date",
@@ -900,6 +1042,7 @@ def _fetch_status(target_date: date) -> dict[str, Any]:
         "totals_predictions": totals_count,
         "hits_predictions": hits_count,
         "strikeouts_predictions": strikeouts_count,
+        "rebuild_blocker": rebuild_blocker,
         "tables": {
             "games": _table_exists("games"),
             "game_features_totals": _table_exists("game_features_totals"),
@@ -912,6 +1055,238 @@ def _fetch_status(target_date: date) -> dict[str, Any]:
             "pitcher_trend_daily": _table_exists("pitcher_trend_daily"),
             "model_scorecards_daily": _table_exists("model_scorecards_daily"),
         },
+    }
+
+
+def _redact_database_url(database_url: str) -> str:
+    if not database_url:
+        return ""
+    if database_url.startswith("sqlite"):
+        return database_url
+    if "://" not in database_url or "@" not in database_url:
+        return database_url
+    scheme, remainder = database_url.split("://", 1)
+    credentials, suffix = remainder.split("@", 1)
+    if not credentials:
+        return database_url
+    if ":" in credentials:
+        username, _password = credentials.split(":", 1)
+        credentials = f"{username}:***"
+    else:
+        credentials = "***"
+    return f"{scheme}://{credentials}@{suffix}"
+
+
+def _fetch_pipeline_runs(limit: int = 20) -> list[dict[str, Any]]:
+    if not _table_exists("pipeline_runs"):
+        return []
+    runs_frame = _safe_frame(
+        """
+        SELECT job_id, action, label, target_date, status,
+               total_steps, completed_steps, error,
+               created_at, started_at, finished_at
+        FROM pipeline_runs
+        ORDER BY created_at DESC
+        LIMIT :lim
+        """,
+        {"lim": max(1, min(limit, 100))},
+    )
+    return _frame_records(runs_frame)
+
+
+def _fetch_game_readiness_payload(target_date: date | None = None) -> dict[str, Any]:
+    td = target_date or date.today()
+    if not _table_exists("game_readiness"):
+        return {"games": [], "summary": {"green": 0, "yellow": 0, "red": 0, "total": 0}}
+    frame = _safe_frame(
+        """
+        SELECT game_id, game_date, away_team, home_team,
+               has_away_starter, has_home_starter, has_market, has_venue,
+               has_away_lineup, has_home_lineup, has_weather,
+               checks_passed, checks_total, warnings, badge
+        FROM game_readiness
+        WHERE game_date = :target_date
+        ORDER BY game_id
+        """,
+        {"target_date": str(td)},
+    )
+    records = _frame_records(frame)
+    summary = {
+        "green": sum(1 for r in records if r.get("badge") == "green"),
+        "yellow": sum(1 for r in records if r.get("badge") == "yellow"),
+        "red": sum(1 for r in records if r.get("badge") == "red"),
+        "total": len(records),
+    }
+    return {"games": records, "summary": summary}
+
+
+def _fetch_source_health_payload(hours: int = 24) -> dict[str, Any]:
+    capped_hours = max(1, min(hours, 168))
+    if not _table_exists("source_health"):
+        return {
+            "sources": [],
+            "hours": capped_hours,
+            "summary": {"total_sources": 0, "healthy_sources": 0, "sources_with_failures": 0},
+        }
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=capped_hours)
+    frame = _safe_frame(
+        """
+        SELECT source_name, checked_at, is_available, response_time_ms, error_message
+        FROM source_health
+        ORDER BY checked_at DESC
+        """
+    )
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        raw_ts = str(row.get("checked_at") or "").replace("Z", "+00:00")
+        try:
+            checked_at = datetime.fromisoformat(raw_ts)
+        except ValueError:
+            continue
+        if checked_at.tzinfo is None:
+            checked_at = checked_at.replace(tzinfo=timezone.utc)
+        if checked_at < cutoff:
+            continue
+        source_name = str(row.get("source_name") or "unknown")
+        entry = grouped.setdefault(
+            source_name,
+            {
+                "source_name": source_name,
+                "latest_checked_at": checked_at.isoformat(),
+                "success_count": 0,
+                "failure_count": 0,
+                "avg_response_time_ms": None,
+                "latest_error": None,
+                "_response_times": [],
+            },
+        )
+        if row.get("is_available"):
+            entry["success_count"] += 1
+        else:
+            entry["failure_count"] += 1
+            if not entry["latest_error"] and row.get("error_message"):
+                entry["latest_error"] = row.get("error_message")
+        if row.get("response_time_ms") is not None:
+            entry["_response_times"].append(float(row["response_time_ms"]))
+    sources = []
+    for entry in grouped.values():
+        times = entry.pop("_response_times")
+        entry["avg_response_time_ms"] = round(sum(times) / len(times), 1) if times else None
+        sources.append(entry)
+    sources.sort(key=lambda item: item["source_name"])
+    summary = {
+        "total_sources": len(sources),
+        "healthy_sources": sum(1 for item in sources if int(item.get("failure_count") or 0) == 0),
+        "sources_with_failures": sum(1 for item in sources if int(item.get("failure_count") or 0) > 0),
+    }
+    return {"sources": sources, "hours": capped_hours, "summary": summary}
+
+
+def _doctor_check(name: str, label: str, ok: bool, severity: str, detail: str) -> dict[str, Any]:
+    return {
+        "name": name,
+        "label": label,
+        "ok": ok,
+        "severity": severity,
+        "detail": detail,
+    }
+
+
+def _doctor_payload(
+    target_date: date,
+    source_health_hours: int = 24,
+    pipeline_limit: int = 5,
+    update_history_limit: int = 5,
+) -> dict[str, Any]:
+    status = _fetch_status(target_date)
+    readiness = _fetch_game_readiness_payload(target_date)
+    source_health = _fetch_source_health_payload(source_health_hours)
+    pipeline_runs = _fetch_pipeline_runs(pipeline_limit)
+    active_job = _active_update_job_payload()
+    recent_jobs = _update_job_history_payload()[: max(1, min(update_history_limit, 20))]
+
+    artifacts_ready = all(
+        bool(status.get(key))
+        for key in ("totals_artifact_ready", "hits_artifact_ready", "strikeouts_artifact_ready")
+    )
+    prediction_rows = int(status.get("totals_predictions") or 0) + int(status.get("hits_predictions") or 0) + int(status.get("strikeouts_predictions") or 0)
+    readiness_summary = readiness.get("summary", {})
+    readiness_total = int(readiness_summary.get("total") or 0)
+    readiness_red = int(readiness_summary.get("red") or 0)
+    source_summary = source_health.get("summary", {})
+    source_failures = int(source_summary.get("sources_with_failures") or 0)
+    blocker = status.get("rebuild_blocker")
+
+    checks = [
+        _doctor_check(
+            "database_connection",
+            "Database connection",
+            bool(status.get("db_connected")),
+            "critical",
+            "Local runtime database is reachable." if status.get("db_connected") else "The current runtime database is not reachable.",
+        ),
+        _doctor_check(
+            "model_artifacts",
+            "Model artifacts ready",
+            artifacts_ready,
+            "warning",
+            "Totals, hits, and strikeout artifacts are available." if artifacts_ready else "One or more model artifacts are missing from the local runtime.",
+        ),
+        _doctor_check(
+            "prediction_outputs",
+            "Prediction outputs present",
+            prediction_rows > 0,
+            "warning",
+            f"Found {prediction_rows} prediction rows for {target_date.isoformat()}." if prediction_rows > 0 else f"No prediction rows are present for {target_date.isoformat()}.",
+        ),
+        _doctor_check(
+            "desktop_history_seed",
+            "Desktop history seed",
+            blocker is None,
+            "critical",
+            "Historical SQLite seed looks complete for rebuild flows." if blocker is None else str(blocker.get("message") or "Desktop history is incomplete."),
+        ),
+        _doctor_check(
+            "game_readiness",
+            "Game readiness",
+            readiness_total == 0 or readiness_red == 0,
+            "warning",
+            "No readiness rows are available yet." if readiness_total == 0 else f"Readiness rows: green={readiness_summary.get('green', 0)} yellow={readiness_summary.get('yellow', 0)} red={readiness_red}.",
+        ),
+        _doctor_check(
+            "source_health",
+            "Source health",
+            source_failures == 0,
+            "warning",
+            "No recent source failures recorded." if source_failures == 0 else f"Recent source failures recorded for {source_failures} source(s).",
+        ),
+    ]
+    critical_failures = sum(1 for item in checks if not item["ok"] and item["severity"] == "critical")
+    warning_failures = sum(1 for item in checks if not item["ok"] and item["severity"] != "critical")
+    overall_status = "error" if critical_failures else ("warn" if warning_failures else "ok")
+
+    return {
+        "target_date": target_date.isoformat(),
+        "overall": {
+            "status": overall_status,
+            "critical_failures": critical_failures,
+            "warning_failures": warning_failures,
+            "checks_total": len(checks),
+        },
+        "runtime": {
+            "db_dialect": DB_DIALECT,
+            "database_url": _redact_database_url(settings.database_url),
+            "data_dir": str(settings.data_dir),
+            "model_dir": str(settings.model_dir),
+            "report_dir": str(settings.report_dir),
+            "feature_dir": str(settings.feature_dir),
+        },
+        "checks": checks,
+        "status": status,
+        "game_readiness": readiness,
+        "source_health": source_health,
+        "pipeline_runs": {"runs": pipeline_runs},
+        "update_jobs": {"active_job": active_job, "recent_jobs": recent_jobs},
     }
 
 
@@ -976,6 +1351,10 @@ def _fetch_model_scorecards(target_date: date, window_days: int = 14) -> dict[st
         ].copy()
         graded_weight = pd.to_numeric(trailing["graded_count"], errors="coerce").fillna(0)
         prediction_weight = pd.to_numeric(trailing["predictions_count"], errors="coerce").fillna(0)
+        clv_weight = pd.to_numeric(
+            trailing["clv_count"] if "clv_count" in trailing.columns else pd.Series([0] * len(trailing)),
+            errors="coerce",
+        ).fillna(0)
 
         def _weighted_average(column: str, weights: pd.Series) -> float | None:
             values = pd.to_numeric(trailing[column], errors="coerce")
@@ -991,10 +1370,13 @@ def _fetch_model_scorecards(target_date: date, window_days: int = 14) -> dict[st
                 "trailing_days": int(trailing["score_date"].nunique()),
                 "trailing_predictions": int(prediction_weight.sum()),
                 "trailing_graded": int(graded_weight.sum()),
+                "trailing_clv_count": int(clv_weight.sum()),
                 "trailing_success_rate": _weighted_average("success_rate", graded_weight),
                 "trailing_avg_absolute_error": _weighted_average("avg_absolute_error", graded_weight),
                 "trailing_brier_score": _weighted_average("brier_score", graded_weight),
                 "trailing_beat_market_rate": _weighted_average("beat_market_rate", graded_weight),
+                "trailing_avg_clv_side_value": _weighted_average("avg_clv_side_value", clv_weight),
+                "trailing_positive_clv_rate": _weighted_average("positive_clv_rate", clv_weight),
             }
         )
     latest_score_date = max(record["latest_score_date"] for record in rows if record.get("latest_score_date")) if rows else None
@@ -1675,7 +2057,530 @@ def _fetch_game_board(
             )
         )
 
+    # --- Freshness / confidence badges ---
+    ingest_freshness = _fetch_ingest_freshness(target_date)
+    market_freezes = _fetch_market_freeze_map(target_date)
+    readiness_map = _fetch_game_readiness_map(target_date)
+    for game in games_by_id.values():
+        total_freeze = market_freezes.get((int(game["game_id"]), "total"), {})
+        game["totals"]["market_locked"] = bool(total_freeze)
+        game["totals"]["locked_sportsbook"] = total_freeze.get("frozen_sportsbook")
+        game["totals"]["locked_snapshot_ts"] = total_freeze.get("frozen_snapshot_ts")
+        game["totals"]["locked_line_value"] = total_freeze.get("frozen_line_value")
+        game["data_quality"] = _compute_data_quality_badge(game, ingest_freshness, readiness_map)
+
     return [games_by_id[game_id] for game_id in games_by_id]
+
+
+def _fetch_ingest_freshness(target_date: date) -> dict[str, str | None]:
+    """Return the most recent ingested_at per source_name for target_date."""
+    if not _table_exists("raw_ingest_events"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT source_name, MAX(ingested_at) AS latest_ingested_at
+        FROM raw_ingest_events
+        WHERE target_date = :target_date
+        GROUP BY source_name
+        """,
+        {"target_date": target_date.isoformat()},
+    )
+    if frame.empty:
+        return {}
+    return {
+        str(row["source_name"]): str(row["latest_ingested_at"])
+        for row in _frame_records(frame)
+    }
+
+
+def _fetch_market_freeze_map(target_date: date) -> dict[tuple[int, str], dict[str, Any]]:
+    """Return {(game_id, market_type): freeze_row} for the target date."""
+    if not _table_exists("market_selection_freezes"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT msf.game_id, msf.market_type, msf.frozen_sportsbook,
+               msf.frozen_line_value, msf.frozen_snapshot_ts, msf.reason
+        FROM market_selection_freezes msf
+        JOIN games g ON g.game_id = msf.game_id
+        WHERE g.game_date = :target_date
+        """,
+        {"target_date": target_date},
+    )
+    if frame.empty:
+        return {}
+    return {
+        (int(row["game_id"]), str(row["market_type"])): row
+        for row in _frame_records(frame)
+    }
+
+
+def _fetch_game_readiness_map(target_date: date) -> dict[int, dict[str, Any]]:
+    """Return {game_id: readiness_row} from the validator's game_readiness table."""
+    if not _table_exists("game_readiness"):
+        return {}
+    target_date_str = str(target_date)
+    frame = _safe_frame(
+        "SELECT * FROM game_readiness WHERE game_date = :target_date",
+        {"target_date": target_date_str},
+    )
+    if frame.empty:
+        return {}
+    return {int(row["game_id"]): row for row in _frame_records(frame)}
+
+
+def _coerce_float(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _totals_lean_direction(totals: dict[str, Any]) -> str | None:
+    over_probability = _coerce_float(totals.get("over_probability"))
+    under_probability = _coerce_float(totals.get("under_probability"))
+    if over_probability is None or under_probability is None:
+        return None
+    return "over" if over_probability >= under_probability else "under"
+
+
+def _build_totals_rationale(detail: dict[str, Any]) -> dict[str, Any]:
+    totals = detail.get("totals") or {}
+    weather = detail.get("weather") or {}
+    starters = detail.get("starters") or {}
+    direction = _totals_lean_direction(totals)
+    confidence = max(
+        value
+        for value in [
+            _coerce_float(totals.get("over_probability")),
+            _coerce_float(totals.get("under_probability")),
+        ]
+        if value is not None
+    ) if any(
+        value is not None
+        for value in [
+            _coerce_float(totals.get("over_probability")),
+            _coerce_float(totals.get("under_probability")),
+        ]
+    ) else None
+    predicted_total = _coerce_float(totals.get("predicted_total_runs"))
+    market_total = _coerce_float(totals.get("market_total"))
+    edge_delta = None if predicted_total is None or market_total is None else predicted_total - market_total
+    away_expected = _coerce_float(totals.get("away_expected_runs"))
+    home_expected = _coerce_float(totals.get("home_expected_runs"))
+    venue_run_factor = _coerce_float(totals.get("venue_run_factor"))
+    temperature_f = _coerce_float(weather.get("temperature_f"))
+    line_movement = _coerce_float(totals.get("line_movement"))
+    away_top5 = _coerce_float(totals.get("away_lineup_top5_xwoba"))
+    home_top5 = _coerce_float(totals.get("home_lineup_top5_xwoba"))
+    away_lineup_k = _coerce_float(totals.get("away_lineup_k_pct"))
+    home_lineup_k = _coerce_float(totals.get("home_lineup_k_pct"))
+    bullpen_burden = sum(
+        value or 0.0
+        for value in [
+            _coerce_float(totals.get("away_bullpen_pitches_last3")),
+            _coerce_float(totals.get("home_bullpen_pitches_last3")),
+        ]
+    )
+    b2b_bullpens = sum(
+        int(value or 0)
+        for value in [
+            _coerce_float(totals.get("away_bullpen_b2b")),
+            _coerce_float(totals.get("home_bullpen_b2b")),
+        ]
+    )
+
+    signals: list[str] = []
+    risks: list[str] = []
+
+    if edge_delta is not None:
+        signals.append(f"Model total sits {abs(edge_delta):.1f} runs {direction or 'away from'} the market.")
+    if direction == "over":
+        if venue_run_factor is not None and venue_run_factor >= 1.03:
+            signals.append(f"Park factor {venue_run_factor:.2f} points to a friendlier run environment.")
+        if temperature_f is not None and temperature_f >= 78:
+            signals.append(f"Warm {temperature_f:.0f}° weather boosts carry and run scoring.")
+        if max(value or 0.0 for value in [away_top5, home_top5]) >= 0.34:
+            signals.append("At least one top-of-order group brings premium xwOBA form.")
+        if bullpen_burden >= 165 or b2b_bullpens >= 1:
+            signals.append("Recent bullpen workload suggests thinner late-inning coverage.")
+        if line_movement is not None and line_movement > 0.15:
+            signals.append("The market has already drifted upward toward the over.")
+    elif direction == "under":
+        if venue_run_factor is not None and venue_run_factor <= 0.97:
+            signals.append(f"Park factor {venue_run_factor:.2f} suppresses baseline scoring.")
+        if temperature_f is not None and temperature_f <= 60:
+            signals.append(f"Cooler {temperature_f:.0f}° weather leans run-suppressive.")
+        if max(value or 0.0 for value in [away_lineup_k, home_lineup_k]) >= 0.24:
+            signals.append("Strikeout-heavy lineup shape trims ball-in-play volume.")
+        if max(value or 0.0 for value in [away_top5, home_top5]) <= 0.315:
+            signals.append("Neither projected top-of-order group rates as especially dangerous.")
+        if line_movement is not None and line_movement < -0.15:
+            signals.append("The market has already drifted downward toward the under.")
+
+    if not totals.get("market_locked"):
+        risks.append("pregame line is not frozen yet")
+    if edge_delta is not None and abs(edge_delta) < 0.35:
+        risks.append("model edge over the market is thin")
+    if temperature_f is None:
+        risks.append("weather snapshot missing")
+    if not starters.get("away") or not starters.get("home"):
+        risks.append("starter mapping incomplete")
+    if line_movement is not None and direction == "over" and line_movement < -0.2:
+        risks.append("market moved against the over lean")
+    if line_movement is not None and direction == "under" and line_movement > 0.2:
+        risks.append("market moved against the under lean")
+
+    headline = signals[0] if signals else (
+        f"Core projection leans {direction}." if direction else "No strong totals rationale is available yet."
+    )
+    return {
+        "direction": direction,
+        "confidence": confidence,
+        "headline": headline,
+        "signals": signals[:4],
+        "risk_flags": risks[:3],
+    }
+
+
+def _fetch_totals_outcome_review(game_id: int, target_date: date) -> dict[str, Any] | None:
+    if not _table_exists("prediction_outcomes_daily"):
+        return None
+    frame = _safe_frame(
+        """
+        SELECT game_id, recommended_side, actual_side, graded, success, beat_market,
+               probability, predicted_value, market_line, actual_value, absolute_error,
+               forecast_temperature_f, observed_temperature_f, weather_delta_temperature_f,
+               entry_market_sportsbook, closing_market_sportsbook, closing_market_same_sportsbook,
+               closing_market_line, clv_line_delta, clv_side_value, beat_closing_line
+        FROM prediction_outcomes_daily
+        WHERE game_date = :target_date
+          AND game_id = :game_id
+          AND market = 'totals'
+        ORDER BY prediction_ts DESC
+        LIMIT 1
+        """,
+        {"target_date": str(target_date), "game_id": game_id},
+    )
+    records = _frame_records(frame)
+    return records[0] if records else None
+
+
+def _build_totals_review_block(detail: dict[str, Any], outcome: dict[str, Any] | None) -> dict[str, Any]:
+    rationale = _build_totals_rationale(detail)
+    actual = detail.get("actual_result") or {}
+    totals = detail.get("totals") or {}
+    market_total = _coerce_float(totals.get("market_total"))
+    actual_total = _coerce_float(actual.get("total_runs"))
+    grading = {
+        "graded": False,
+        "result": "pending" if not actual.get("is_final") else "missing",
+        "summary": "No graded totals result is available yet.",
+        "recommended_side": None,
+        "actual_side": None,
+        "model_error": None,
+        "market_error": None,
+        "beat_market": None,
+        "clv_side_value": None,
+        "beat_closing_line": None,
+        "entry_market_sportsbook": None,
+        "closing_market_sportsbook": None,
+        "closing_market_same_sportsbook": None,
+        "weather_shift": None,
+    }
+    if not outcome:
+        return {"rationale": rationale, "grading": grading}
+
+    recommended_side = outcome.get("recommended_side")
+    actual_side = outcome.get("actual_side")
+    result = _graded_pick_result(recommended_side, actual_side, bool(actual.get("is_final")))
+    model_error = _coerce_float(outcome.get("absolute_error"))
+    actual_total = actual_total if actual_total is not None else _coerce_float(outcome.get("actual_value"))
+    market_error = None if actual_total is None or market_total is None else abs(actual_total - market_total)
+    weather_delta = _coerce_float(outcome.get("weather_delta_temperature_f"))
+    clv_side_value = _coerce_float(outcome.get("clv_side_value"))
+    weather_shift = None
+    if weather_delta is not None:
+        weather_shift = f"Observed weather landed {weather_delta:+.1f}° versus forecast."
+    total_label = "?" if actual_total is None else f"{actual_total:.0f}"
+    market_label = "?" if market_total is None else f"{market_total:.1f}"
+    if result == "won":
+        summary = f"{str(recommended_side).title()} won against a final total of {total_label}."
+    elif result == "lost":
+        summary = f"{str(recommended_side).title()} lost; the game finished {str(actual_side).title()} at {total_label}."
+    elif result == "push":
+        summary = f"The market pushed at {market_label}; no decision on the totals pick."
+    elif result == "pending":
+        summary = "The game is not final yet, so the totals pick is still pending."
+    else:
+        summary = "No graded totals result is available yet."
+
+    grading.update(
+        {
+            "graded": bool(outcome.get("graded")),
+            "result": result,
+            "summary": summary,
+            "recommended_side": recommended_side,
+            "actual_side": actual_side,
+            "model_error": model_error,
+            "market_error": market_error,
+            "beat_market": outcome.get("beat_market"),
+            "clv_side_value": clv_side_value,
+            "beat_closing_line": outcome.get("beat_closing_line"),
+            "entry_market_sportsbook": outcome.get("entry_market_sportsbook"),
+            "closing_market_sportsbook": outcome.get("closing_market_sportsbook"),
+            "closing_market_same_sportsbook": outcome.get("closing_market_same_sportsbook"),
+            "weather_shift": weather_shift,
+        }
+    )
+    return {"rationale": rationale, "grading": grading}
+
+
+def _review_meta_payload(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value:
+        with contextlib.suppress(json.JSONDecodeError):
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+    return {}
+
+
+def _fetch_top_review_payload(target_date: date, market: str = "totals", limit: int = 6) -> dict[str, Any]:
+    if not _table_exists("prediction_outcomes_daily"):
+        return {"target_date": str(target_date), "market": market, "summary": {}, "misses": [], "best_calls": []}
+    frame = _safe_frame(
+        """
+        SELECT game_date, game_id, market, recommended_side, actual_side, graded, success,
+               beat_market, probability, predicted_value, market_line, actual_value,
+               absolute_error, weather_delta_temperature_f, entry_market_sportsbook,
+               closing_market_sportsbook, closing_market_same_sportsbook, closing_market_line,
+               clv_line_delta, clv_side_value, beat_closing_line, meta_payload
+        FROM prediction_outcomes_daily
+        WHERE game_date = :target_date
+          AND market = :market
+          AND entity_type = 'game'
+          AND graded = TRUE
+        ORDER BY game_id
+        """,
+        {"target_date": str(target_date), "market": market},
+    )
+    rows: list[dict[str, Any]] = []
+    for record in _frame_records(frame):
+        meta = _review_meta_payload(record.get("meta_payload"))
+        predicted_value = _coerce_float(record.get("predicted_value"))
+        market_line = _coerce_float(record.get("market_line"))
+        actual_value = _coerce_float(record.get("actual_value"))
+        miss_severity = None if predicted_value is None or actual_value is None else abs(predicted_value - actual_value)
+        edge_gap = None if predicted_value is None or market_line is None else abs(predicted_value - market_line)
+        rows.append(
+            {
+                "game_id": int(record["game_id"]),
+                "game_date": record.get("game_date"),
+                "away_team": meta.get("away_team"),
+                "home_team": meta.get("home_team"),
+                "recommended_side": record.get("recommended_side"),
+                "actual_side": record.get("actual_side"),
+                "result": _graded_pick_result(record.get("recommended_side"), record.get("actual_side"), True),
+                "success": record.get("success"),
+                "beat_market": record.get("beat_market"),
+                "probability": _coerce_float(record.get("probability")),
+                "predicted_value": predicted_value,
+                "market_line": market_line,
+                "actual_value": actual_value,
+                "absolute_error": _coerce_float(record.get("absolute_error")),
+                "weather_delta_temperature_f": _coerce_float(record.get("weather_delta_temperature_f")),
+                "entry_market_sportsbook": record.get("entry_market_sportsbook"),
+                "closing_market_sportsbook": record.get("closing_market_sportsbook"),
+                "closing_market_same_sportsbook": record.get("closing_market_same_sportsbook"),
+                "closing_market_line": _coerce_float(record.get("closing_market_line")),
+                "clv_line_delta": _coerce_float(record.get("clv_line_delta")),
+                "clv_side_value": _coerce_float(record.get("clv_side_value")),
+                "beat_closing_line": record.get("beat_closing_line"),
+                "miss_severity": miss_severity,
+                "edge_gap": edge_gap,
+            }
+        )
+
+    misses = sorted(
+        [row for row in rows if row.get("result") == "lost"],
+        key=lambda row: (-(row.get("miss_severity") or 0.0), -(row.get("edge_gap") or 0.0)),
+    )[:limit]
+    best_calls = sorted(
+        [row for row in rows if row.get("result") == "won"],
+        key=lambda row: (
+            0 if row.get("beat_market") else 1,
+            -(row.get("edge_gap") or 0.0),
+            row.get("miss_severity") or 999.0,
+        ),
+    )[:limit]
+    summary = {
+        "graded_games": len(rows),
+        "wins": sum(1 for row in rows if row.get("result") == "won"),
+        "losses": sum(1 for row in rows if row.get("result") == "lost"),
+        "pushes": sum(1 for row in rows if row.get("result") == "push"),
+    }
+    return {
+        "target_date": str(target_date),
+        "market": market,
+        "summary": summary,
+        "misses": misses,
+        "best_calls": best_calls,
+    }
+
+
+def _fetch_clv_review_payload(
+    start_date: date,
+    end_date: date,
+    *,
+    market: str = "totals",
+    limit: int = 8,
+) -> dict[str, Any]:
+    if not _table_exists("prediction_outcomes_daily"):
+        return {"start_date": str(start_date), "end_date": str(end_date), "market": market, "summary": {}, "best_clv": [], "worst_clv": []}
+    frame = _safe_frame(
+        """
+        SELECT game_date, game_id, recommended_side, actual_side, success, beat_market,
+               market_line, entry_market_sportsbook, closing_market_sportsbook,
+               closing_market_same_sportsbook, closing_market_line, clv_line_delta, clv_side_value,
+               beat_closing_line, meta_payload
+        FROM prediction_outcomes_daily
+        WHERE game_date BETWEEN :start_date AND :end_date
+          AND market = :market
+          AND entity_type = 'game'
+          AND recommended_side IS NOT NULL
+          AND clv_side_value IS NOT NULL
+        ORDER BY game_date DESC, game_id
+        """,
+        {"start_date": str(start_date), "end_date": str(end_date), "market": market},
+    )
+    rows: list[dict[str, Any]] = []
+    for record in _frame_records(frame):
+        meta = _review_meta_payload(record.get("meta_payload"))
+        rows.append(
+            {
+                "game_id": int(record["game_id"]),
+                "game_date": record.get("game_date"),
+                "away_team": meta.get("away_team"),
+                "home_team": meta.get("home_team"),
+                "recommended_side": record.get("recommended_side"),
+                "actual_side": record.get("actual_side"),
+                "success": record.get("success"),
+                "beat_market": record.get("beat_market"),
+                "market_line": _coerce_float(record.get("market_line")),
+                "entry_market_sportsbook": record.get("entry_market_sportsbook"),
+                "closing_market_sportsbook": record.get("closing_market_sportsbook"),
+                "closing_market_same_sportsbook": record.get("closing_market_same_sportsbook"),
+                "closing_market_line": _coerce_float(record.get("closing_market_line")),
+                "clv_line_delta": _coerce_float(record.get("clv_line_delta")),
+                "clv_side_value": _coerce_float(record.get("clv_side_value")),
+                "beat_closing_line": record.get("beat_closing_line"),
+            }
+        )
+    best_clv = sorted(rows, key=lambda row: (-(row.get("clv_side_value") or 0.0), row.get("game_date") or ""))[:limit]
+    worst_clv = sorted(rows, key=lambda row: ((row.get("clv_side_value") or 0.0), row.get("game_date") or ""))[:limit]
+    clv_values = [row["clv_side_value"] for row in rows if row.get("clv_side_value") is not None]
+    summary = {
+        "rows": len(rows),
+        "avg_clv_side_value": None if not clv_values else float(sum(clv_values) / len(clv_values)),
+        "positive_clv_rate": None if not rows else float(sum(1 for row in rows if row.get("beat_closing_line")) / len(rows)),
+    }
+    return {
+        "start_date": str(start_date),
+        "end_date": str(end_date),
+        "market": market,
+        "summary": summary,
+        "best_clv": best_clv,
+        "worst_clv": worst_clv,
+    }
+
+
+def _compute_data_quality_badge(
+    game: dict[str, Any],
+    ingest_freshness: dict[str, str | None],
+    readiness_map: dict[int, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Compute a confidence badge and freshness timestamps for a game card."""
+    readiness_map = readiness_map or {}
+    game_id = game.get("game_id")
+    readiness = readiness_map.get(game_id) if game_id else None
+
+    # Use validator results if available, else fall back to board-level checks
+    if readiness:
+        badge = readiness.get("badge", "yellow")
+        warnings_str = readiness.get("warnings") or ""
+        has_away_starter = bool(readiness.get("has_away_starter"))
+        has_home_starter = bool(readiness.get("has_home_starter"))
+        has_market = bool(readiness.get("has_market"))
+        has_weather = bool(readiness.get("has_weather"))
+        has_confirmed_lineup = bool(readiness.get("has_away_lineup")) and bool(readiness.get("has_home_lineup"))
+        checks_passed = readiness.get("checks_passed", 0)
+        checks_total = readiness.get("checks_total", 0)
+        badge_reason = warnings_str.replace(";", "; ") if warnings_str else "all checks passed"
+        badge_label = {"green": "Ready", "yellow": "Partial data", "red": "Missing data"}.get(badge, "Unknown")
+    else:
+        has_away_starter = game["starters"].get("away") is not None
+        has_home_starter = game["starters"].get("home") is not None
+        has_market = game["totals"].get("market_total") is not None
+        has_weather = game["weather"].get("temperature_f") is not None
+
+        has_confirmed_lineup = False
+        for team_hits in game.get("hit_targets", {}).values():
+            for hitter in team_hits:
+                if hitter.get("is_confirmed_lineup"):
+                    has_confirmed_lineup = True
+
+        if not has_away_starter or not has_home_starter or not has_market:
+            badge = "red"
+            badge_label = "Missing data"
+            reasons = []
+            if not has_away_starter:
+                reasons.append("away starter missing")
+            if not has_home_starter:
+                reasons.append("home starter missing")
+            if not has_market:
+                reasons.append("no market line")
+            badge_reason = "; ".join(reasons)
+        elif not has_confirmed_lineup or not has_weather:
+            badge = "yellow"
+            reasons = []
+            if not has_confirmed_lineup:
+                reasons.append("projected lineups")
+            if not has_weather:
+                reasons.append("no weather data")
+            badge_label = "Partial data"
+            badge_reason = "; ".join(reasons)
+        else:
+            badge = "green"
+            badge_label = "Ready"
+            badge_reason = "confirmed lineups, fresh market, starters mapped"
+        checks_passed = None
+        checks_total = None
+
+    has_prediction = game["totals"].get("predicted_total_runs") is not None
+
+    return {
+        "badge": badge,
+        "badge_label": badge_label,
+        "badge_reason": badge_reason,
+        "has_away_starter": has_away_starter,
+        "has_home_starter": has_home_starter,
+        "has_market": has_market,
+        "has_prediction": has_prediction,
+        "has_weather": has_weather,
+        "has_confirmed_lineup": has_confirmed_lineup,
+        "checks_passed": checks_passed,
+        "checks_total": checks_total,
+        "freshness": {
+            "schedule": ingest_freshness.get("mlb_statsapi"),
+            "weather": ingest_freshness.get("open_meteo"),
+            "market": ingest_freshness.get("market_totals"),
+            "lineup": ingest_freshness.get("lineup_csv"),
+        },
+    }
 
 
 def _fetch_full_hit_review(target_date: date) -> dict[str, Any]:
@@ -2657,6 +3562,8 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
     else:
         lineup_split_map = {}
 
+    total_freeze = _fetch_market_freeze_map(target_date).get((int(game_id), "total"), {})
+
     detail = {
         "game_id": int(game["game_id"]),
         "game_date": game["game_date"],
@@ -2689,6 +3596,10 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             "prediction_ts": game["prediction_ts"],
             "predicted_total_runs": game["predicted_total_runs"],
             "market_total": game["market_total"],
+            "market_locked": bool(total_freeze),
+            "locked_sportsbook": total_freeze.get("frozen_sportsbook"),
+            "locked_snapshot_ts": total_freeze.get("frozen_snapshot_ts"),
+            "locked_line_value": total_freeze.get("frozen_line_value"),
             "over_probability": game["over_probability"],
             "under_probability": game["under_probability"],
             "edge": game["edge"],
@@ -2776,6 +3687,11 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         detail["away_team"]: detail["teams"]["away"]["lineup_handedness"],
         detail["home_team"]: detail["teams"]["home"]["lineup_handedness"],
     }
+
+    detail["review"] = _build_totals_review_block(
+        detail,
+        _fetch_totals_outcome_review(int(game_id), target_date),
+    )
 
     if detail["starters"]["away"]:
         away_key = (detail["game_id"], int(detail["starters"]["away"]["pitcher_id"])) if detail["starters"]["away"].get("pitcher_id") is not None else None
@@ -3552,7 +4468,7 @@ def _persist_update_jobs() -> None:
         ]
     UPDATE_JOB_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp_path = UPDATE_JOB_STORE_PATH.with_suffix(".tmp")
-    temp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temp_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     temp_path.replace(UPDATE_JOB_STORE_PATH)
 
 
@@ -3561,7 +4477,7 @@ def _hydrate_persisted_job(payload: dict[str, Any]) -> dict[str, Any] | None:
     action = payload.get("action")
     target_date = str(payload.get("target_date") or "").strip()
     created_at = str(payload.get("created_at") or "").strip()
-    if not job_id or action not in {"prepare_slate", "import_manual_inputs", "refresh_results", "rebuild_predictions"}:
+    if not job_id or action not in {"refresh_everything", "prepare_slate", "import_manual_inputs", "refresh_results", "rebuild_predictions", "grade_predictions"}:
         return None
     if not target_date or not created_at:
         return None
@@ -3666,6 +4582,7 @@ def _create_update_job(action: UpdateAction, target_date: str) -> dict[str, Any]
     with UPDATE_JOB_LOCK:
         UPDATE_JOBS[job["job_id"]] = job
         _trim_finished_jobs_locked()
+    _persist_pipeline_run(job)
     _persist_update_jobs()
     return _public_update_job(job)
 
@@ -3683,6 +4600,7 @@ def _run_update_job_background(job_id: str) -> None:
             return
         job["status"] = "running"
         job["started_at"] = _utc_now_iso()
+        _persist_pipeline_run(job)
     _persist_update_jobs()
 
     target_date = None
@@ -3692,7 +4610,24 @@ def _run_update_job_background(job_id: str) -> None:
         if job is None:
             return
         target_date = str(job["target_date"])
+        action = job["action"]
         sequence = list(job["sequence"])
+
+    blocker = _action_blocker(action, date.fromisoformat(target_date))
+    if blocker is not None:
+        with UPDATE_JOB_LOCK:
+            job = UPDATE_JOBS.get(job_id)
+            if job is None:
+                return
+            job["status"] = "failed"
+            job["finished_at"] = _utc_now_iso()
+            job["current_step"] = None
+            job["error"] = blocker["message"]
+            job["status_snapshot"] = _safe_fetch_status(target_date)
+            _trim_finished_jobs_locked()
+            _persist_pipeline_run(job)
+        _persist_update_jobs()
+        return
 
     for index, (module_name, args) in enumerate(sequence, start=1):
         with UPDATE_JOB_LOCK:
@@ -3701,6 +4636,7 @@ def _run_update_job_background(job_id: str) -> None:
                 return
             job["current_step"] = module_name
         step = _run_module(module_name, *args)
+        _persist_pipeline_step(job_id, index, step)
         with UPDATE_JOB_LOCK:
             job = UPDATE_JOBS.get(job_id)
             if job is None:
@@ -3714,8 +4650,10 @@ def _run_update_job_background(job_id: str) -> None:
                 job["error"] = f"{module_name} exited with code {step['returncode']}"
                 job["status_snapshot"] = _safe_fetch_status(target_date)
                 _trim_finished_jobs_locked()
+                _persist_pipeline_run(job)
                 _persist_update_jobs()
                 return
+            _persist_pipeline_run(job)
         _persist_update_jobs()
 
     with UPDATE_JOB_LOCK:
@@ -3727,6 +4665,7 @@ def _run_update_job_background(job_id: str) -> None:
         job["current_step"] = None
         job["status_snapshot"] = _safe_fetch_status(target_date)
         _trim_finished_jobs_locked()
+        _persist_pipeline_run(job)
     _persist_update_jobs()
 
 
@@ -3764,6 +4703,7 @@ def _pipeline_sequence(target_date: str, refresh_aggregates: bool, rebuild_featu
     if rebuild_features:
         sequence.extend(
             [
+                ("src.transforms.freeze_markets", ["--target-date", target_date]),
                 ("src.features.totals_builder", ["--target-date", target_date]),
                 ("src.features.first5_totals_builder", ["--target-date", target_date]),
                 ("src.features.hits_builder", ["--target-date", target_date]),
@@ -3783,16 +4723,40 @@ def _pipeline_sequence(target_date: str, refresh_aggregates: bool, rebuild_featu
 
 
 def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[str, list[str]]]:
+    if action == "refresh_everything":
+        return [
+            ("src.ingestors.games", ["--target-date", target_date]),
+            ("src.ingestors.starters", ["--target-date", target_date]),
+            ("src.ingestors.prepare_slate_inputs", ["--target-date", target_date]),
+            ("src.ingestors.lineups", ["--target-date", target_date]),
+            ("src.ingestors.market_totals", ["--target-date", target_date]),
+            ("src.transforms.freeze_markets", ["--target-date", target_date]),
+            ("src.ingestors.validator", ["--target-date", target_date]),
+            ("src.transforms.offense_daily", []),
+            ("src.transforms.bullpens_daily", []),
+            ("src.features.totals_builder", ["--target-date", target_date]),
+            ("src.features.first5_totals_builder", ["--target-date", target_date]),
+            ("src.features.hits_builder", ["--target-date", target_date]),
+            ("src.features.strikeouts_builder", ["--target-date", target_date]),
+            ("src.models.predict_totals", ["--target-date", target_date]),
+            ("src.models.predict_first5_totals", ["--target-date", target_date]),
+            ("src.models.predict_hits", ["--target-date", target_date]),
+            ("src.models.predict_strikeouts", ["--target-date", target_date]),
+            ("src.transforms.product_surfaces", ["--target-date", target_date]),
+        ]
     if action == "prepare_slate":
         return [
             ("src.ingestors.games", ["--target-date", target_date]),
             ("src.ingestors.starters", ["--target-date", target_date]),
             ("src.ingestors.prepare_slate_inputs", ["--target-date", target_date]),
+            ("src.ingestors.validator", ["--target-date", target_date]),
         ]
     if action == "import_manual_inputs":
         return [
             ("src.ingestors.lineups", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
+            ("src.transforms.freeze_markets", ["--target-date", target_date]),
+            ("src.ingestors.validator", ["--target-date", target_date]),
         ]
     if action == "refresh_results":
         return [
@@ -3802,15 +4766,27 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.transforms.bullpens_daily", []),
             ("src.transforms.product_surfaces", ["--target-date", target_date]),
         ]
+    if action == "grade_predictions":
+        yesterday = (date.fromisoformat(target_date) - timedelta(days=1)).isoformat()
+        return [
+            ("src.ingestors.boxscores", ["--target-date", yesterday]),
+            ("src.ingestors.player_batting", ["--target-date", yesterday]),
+            ("src.ingestors.weather", ["--target-date", yesterday, "--mode", "observed"]),
+            ("src.transforms.offense_daily", ["--target-date", yesterday]),
+            ("src.transforms.bullpens_daily", ["--target-date", yesterday]),
+            ("src.transforms.product_surfaces", ["--target-date", yesterday]),
+        ]
     return _pipeline_sequence(target_date, refresh_aggregates=False, rebuild_features=True)
 
 
 def _update_job_label(action: UpdateAction) -> str:
     return {
+        "refresh_everything": "Refresh Everything",
         "prepare_slate": "Prepare slate",
         "import_manual_inputs": "Import inputs",
         "refresh_results": "Refresh results and stats",
         "rebuild_predictions": "Rebuild predictions",
+        "grade_predictions": "Grade recent predictions",
     }[action]
 
 
@@ -3849,6 +4825,12 @@ def results_page() -> FileResponse:
     return FileResponse(RESULTS_FILE)
 
 
+@app.get("/doctor/")
+@app.get("/doctor")
+def doctor_page() -> FileResponse:
+    return FileResponse(DOCTOR_FILE)
+
+
 @app.get("/totals/")
 @app.get("/totals")
 def totals_page() -> FileResponse:
@@ -3864,6 +4846,23 @@ def pitchers_page() -> FileResponse:
 @app.get("/api/status")
 def status(target_date: date = Query(default_factory=date.today)) -> JSONResponse:
     return _json_response(_fetch_status(target_date))
+
+
+@app.get("/api/doctor")
+def doctor_status(
+    target_date: date = Query(default_factory=date.today),
+    source_health_hours: int = Query(default=24, ge=1, le=168),
+    pipeline_limit: int = Query(default=5, ge=1, le=20),
+    update_history_limit: int = Query(default=5, ge=1, le=20),
+) -> JSONResponse:
+    return _json_response(
+        _doctor_payload(
+            target_date,
+            source_health_hours=source_health_hours,
+            pipeline_limit=pipeline_limit,
+            update_history_limit=update_history_limit,
+        )
+    )
 
 
 @app.get("/api/predictions/totals")
@@ -3961,6 +4960,10 @@ def game_detail(
 
 @app.post("/api/pipeline/run")
 def run_pipeline(request: PipelineRunRequest) -> JSONResponse:
+    blocker = _pipeline_blocker(request.target_date)
+    if blocker is not None:
+        return _json_response(_blocked_pipeline_payload(request.target_date, blocker), status_code=409)
+
     target_date = request.target_date.isoformat()
     steps, failed_step = _run_module_sequence(
         _pipeline_sequence(target_date, request.refresh_aggregates, request.rebuild_features)
@@ -3979,6 +4982,10 @@ def run_pipeline(request: PipelineRunRequest) -> JSONResponse:
 
 @app.post("/api/update-jobs/run")
 def run_update_job(request: UpdateJobRunRequest) -> JSONResponse:
+    blocker = _action_blocker(request.action, request.target_date)
+    if blocker is not None:
+        return _json_response(_blocked_update_payload(request.action, request.target_date, blocker), status_code=409)
+
     target_date = request.target_date.isoformat()
     steps, failed_step = _run_module_sequence(_update_job_sequence(request.action, target_date))
     payload = {
@@ -3996,6 +5003,18 @@ def run_update_job(request: UpdateJobRunRequest) -> JSONResponse:
 
 @app.post("/api/update-jobs/start")
 def start_update_job(request: UpdateJobRunRequest) -> JSONResponse:
+    blocker = _action_blocker(request.action, request.target_date)
+    if blocker is not None:
+        return _json_response(
+            {
+                "ok": False,
+                "message": blocker["message"],
+                "blocker": blocker,
+                "status": _fetch_status(request.target_date),
+            },
+            status_code=409,
+        )
+
     active_job = _active_update_job_payload()
     if active_job is not None:
         return _json_response(
@@ -4029,6 +5048,144 @@ def update_job_status(job_id: str) -> JSONResponse:
     if job is None:
         return _json_response({"job": None}, status_code=404)
     return _json_response({"job": job})
+
+
+@app.get("/api/pipeline-runs")
+def pipeline_run_history(limit: int = 20) -> JSONResponse:
+    """Return recent pipeline runs from the DB (not in-memory)."""
+    return _json_response({"runs": _fetch_pipeline_runs(limit)})
+
+
+@app.get("/api/pipeline-runs/{job_id}/steps")
+def pipeline_run_steps(job_id: str) -> JSONResponse:
+    """Return steps for a specific pipeline run from the DB."""
+    if not _table_exists("pipeline_run_steps"):
+        return _json_response({"steps": []})
+    steps_frame = _safe_frame(
+        """
+        SELECT step_index, module_name, returncode, stdout, stderr,
+               started_at, finished_at
+        FROM pipeline_run_steps
+        WHERE job_id = :job_id
+        ORDER BY step_index
+        """,
+        {"job_id": job_id},
+    )
+    return _json_response({"steps": _frame_records(steps_frame)})
+
+
+@app.get("/api/game-readiness")
+def game_readiness(target_date: date | None = None) -> JSONResponse:
+    """Return the latest validation readiness for each game on the target date."""
+    return _json_response(_fetch_game_readiness_payload(target_date))
+
+
+@app.get("/api/review/top-misses")
+def review_top_misses(
+    target_date: date = Query(default_factory=date.today),
+    market: str = "totals",
+    limit: int = Query(default=6, ge=1, le=20),
+) -> JSONResponse:
+    """Return the biggest misses and best calls for the selected date."""
+    return _json_response(_fetch_top_review_payload(target_date, market=market, limit=limit))
+
+
+@app.get("/api/review/clv")
+def review_clv(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    market: str = "totals",
+    limit: int = Query(default=8, ge=1, le=25),
+) -> JSONResponse:
+    """Return best and worst closing-line-value rows over a date range."""
+    sd = start_date or (date.today() - timedelta(days=7))
+    ed = end_date or date.today()
+    return _json_response(_fetch_clv_review_payload(sd, ed, market=market, limit=limit))
+
+
+@app.get("/api/source-health")
+def source_health(hours: int = 24) -> JSONResponse:
+    """Return recent source health checks grouped by source."""
+    return _json_response(_fetch_source_health_payload(hours))
+
+
+@app.get("/api/calibration")
+def calibration_bins(
+    market: str = "totals",
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> JSONResponse:
+    """Return calibration bins for a market over a date range."""
+    if not _table_exists("prediction_calibration_bins"):
+        return _json_response({"bins": []})
+    sd = str(start_date or (date.today() - timedelta(days=30)))
+    ed = str(end_date or date.today())
+    frame = _safe_frame(
+        """
+        SELECT bin_label, bin_lower, bin_upper,
+               SUM(count) AS count,
+               CASE WHEN SUM(count) > 0
+                    THEN CAST(SUM(actual_hit_rate * count) AS DOUBLE PRECISION) / SUM(count)
+                    ELSE NULL END AS actual_hit_rate,
+               CASE WHEN SUM(count) > 0
+                    THEN CAST(SUM(mean_predicted_prob * count) AS DOUBLE PRECISION) / SUM(count)
+                    ELSE NULL END AS mean_predicted_prob,
+               SUM(brier_score_sum) AS brier_score_sum
+        FROM prediction_calibration_bins
+        WHERE market = :market
+          AND score_date BETWEEN :start_date AND :end_date
+        GROUP BY bin_label, bin_lower, bin_upper
+        ORDER BY bin_lower
+        """,
+        {"market": market, "start_date": sd, "end_date": ed},
+    )
+    return _json_response({"bins": _frame_records(frame), "market": market, "start_date": sd, "end_date": ed})
+
+
+@app.get("/api/recommendations/history")
+def recommendation_history_endpoint(
+    market: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    graded_only: bool = False,
+    limit: int = 50,
+) -> JSONResponse:
+    """Return recommendation history with optional filters."""
+    if not _table_exists("recommendation_history"):
+        return _json_response({"recommendations": []})
+    sd = str(start_date or (date.today() - timedelta(days=7)))
+    ed = str(end_date or date.today())
+    conditions = ["game_date BETWEEN :start_date AND :end_date"]
+    params: dict[str, Any] = {"start_date": sd, "end_date": ed, "lim": max(1, min(limit, 200))}
+    if market:
+        conditions.append("market = :market")
+        params["market"] = market
+    if graded_only:
+        conditions.append("graded = TRUE")
+    where = " AND ".join(conditions)
+    frame = _safe_frame(
+        f"""
+        SELECT game_date, game_id, market, entity_type, entity_id, player_id,
+               team, away_team, home_team, model_name, model_version,
+               recommended_side, probability, market_line, predicted_value,
+               entry_market_sportsbook, closing_market_sportsbook, closing_market_same_sportsbook,
+               closing_market_line, clv_line_delta, clv_side_value, beat_closing_line,
+               actual_value, actual_side, graded, success, edge
+        FROM recommendation_history
+        WHERE {where}
+        ORDER BY game_date DESC, game_id
+        LIMIT :lim
+        """,
+        params,
+    )
+    records = _frame_records(frame)
+    summary = {
+        "total": len(records),
+        "graded": sum(1 for r in records if r.get("graded")),
+        "wins": sum(1 for r in records if r.get("success") is True),
+        "losses": sum(1 for r in records if r.get("success") is False),
+    }
+    return _json_response({"recommendations": records, "summary": summary})
 
 
 _load_persisted_update_jobs()

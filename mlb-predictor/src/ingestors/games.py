@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime
 
-from src.ingestors.common import iter_schedule_games, team_dimension_row, venue_dimension_row
+from src.ingestors.common import compute_payload_hash, iter_schedule_games, record_ingest_event, team_dimension_row, venue_dimension_row
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import upsert_rows
 from src.utils.logging import get_logger
@@ -106,6 +106,13 @@ def main() -> int:
     upsert_rows("dim_dates", date_rows, ["date_id"])
     inserted = upsert_rows("games", game_rows, ["game_id"])
     log.info("Upserted %s game rows for %s to %s", inserted, start_date, end_date)
+    record_ingest_event(
+        source_name="mlb_statsapi",
+        ingestor_module="src.ingestors.games",
+        target_date=start_date.isoformat(),
+        row_count=inserted,
+        payload_hash=compute_payload_hash(game_rows),
+    )
     return 0
 
 

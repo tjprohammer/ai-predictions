@@ -7,6 +7,8 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from src.features.contracts import HITS_META_COLUMNS, HITS_TARGET_COLUMN
 from src.models.common import chronological_split, encode_frame, load_feature_snapshots, save_artifact, save_report
@@ -15,6 +17,8 @@ from src.utils.settings import get_settings
 
 
 log = get_logger(__name__)
+
+LOGISTIC_MAX_ITER = 4000
 
 
 def _clip_probabilities(probabilities: np.ndarray) -> np.ndarray:
@@ -29,11 +33,18 @@ def _score_probabilities(y_true, probabilities: np.ndarray) -> dict[str, float]:
     }
 
 
+def _build_logistic_classifier():
+    return make_pipeline(
+        StandardScaler(),
+        LogisticRegression(max_iter=LOGISTIC_MAX_ITER, solver="lbfgs"),
+    )
+
+
 def _fit_sigmoid_calibrator(probabilities: np.ndarray, y_true) -> LogisticRegression | None:
     unique_targets = set(int(value) for value in y_true)
     if len(unique_targets) < 2:
         return None
-    calibrator = LogisticRegression(max_iter=1000)
+    calibrator = LogisticRegression(max_iter=LOGISTIC_MAX_ITER, solver="lbfgs")
     calibrator.fit(probabilities.reshape(-1, 1), y_true)
     return calibrator
 
@@ -99,7 +110,7 @@ def main() -> int:
     y_eval = eval_frame[HITS_TARGET_COLUMN].astype(int)
 
     candidates = {
-        "logistic": LogisticRegression(max_iter=1000),
+        "logistic": _build_logistic_classifier(),
         "hgb": HistGradientBoostingClassifier(random_state=42, max_depth=4),
     }
     metrics = {}

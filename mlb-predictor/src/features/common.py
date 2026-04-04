@@ -64,6 +64,8 @@ def _coerce_game_date_column(frame: pd.DataFrame) -> pd.DataFrame:
     normalized = frame.copy()
     normalized["game_date"] = pd.to_datetime(normalized["game_date"], errors="coerce")
     return normalized
+def coerce_utc_timestamp_series(series: pd.Series) -> pd.Series:
+    return pd.to_datetime(series, utc=True, format="mixed", errors="coerce")
 
 
 def build_team_priors(team_offense: pd.DataFrame, prior_season: int) -> pd.DataFrame:
@@ -432,15 +434,40 @@ def lineup_snapshot(
     }
 
 
-def latest_market_snapshot(game_id: int, cutoff_ts: datetime, markets: pd.DataFrame) -> dict[str, Any]:
+def latest_market_snapshot(
+    game_id: int,
+    cutoff_ts: datetime,
+    markets: pd.DataFrame,
+    freezes: pd.DataFrame | None = None,
+    market_type: str | None = None,
+) -> dict[str, Any]:
     frame = markets[(markets["game_id"] == game_id) & (markets["snapshot_ts"] <= cutoff_ts)].copy()
     if frame.empty:
-        return {"market_total": None, "market_over_price": None, "market_under_price": None, "line_snapshot_ts": None, "line_movement": None}
+        return {
+            "market_total": None,
+            "market_sportsbook": None,
+            "market_over_price": None,
+            "market_under_price": None,
+            "line_snapshot_ts": None,
+            "line_movement": None,
+        }
+    frozen_row = None
+    if freezes is not None and not freezes.empty and market_type:
+        frozen = freezes[(freezes["game_id"] == game_id) & (freezes["market_type"] == market_type)].copy()
+        if not frozen.empty:
+            frozen_row = frozen.sort_values("frozen_snapshot_ts").iloc[-1]
+            frozen_candidates = frame[
+                (frame["sportsbook"] == frozen_row.get("frozen_sportsbook"))
+                & (frame["snapshot_ts"] == frozen_row.get("frozen_snapshot_ts"))
+            ].copy()
+            if not frozen_candidates.empty:
+                frame = frozen_candidates
     frame = frame.sort_values("snapshot_ts")
     latest = frame.iloc[-1]
     opening = frame.iloc[0]
     return {
         "market_total": latest.get("line_value"),
+        "market_sportsbook": latest.get("sportsbook"),
         "market_over_price": latest.get("over_price"),
         "market_under_price": latest.get("under_price"),
         "line_snapshot_ts": latest.get("snapshot_ts"),
@@ -489,11 +516,34 @@ def to_native(value: Any) -> Any:
     return value
 
 
+def _feature_snapshot_range(path: Path) -> tuple[date, date] | None:
+    parts = path.stem.split("_", 1)
+    if len(parts) != 2:
+        return None
+    try:
+        return date.fromisoformat(parts[0]), date.fromisoformat(parts[1])
+    except ValueError:
+        return None
+
+
+def _ranges_overlap(left_start: date, left_end: date, right_start: date, right_end: date) -> bool:
+    return left_start <= right_end and right_start <= left_end
+
+
 def write_feature_snapshot(frame: pd.DataFrame, lane: str, start_date: date, end_date: date) -> Path:
     settings = get_settings()
     output_dir = settings.feature_dir / lane
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{start_date.isoformat()}_{end_date.isoformat()}.parquet"
+    for existing_path in output_dir.glob("*.parquet"):
+        if existing_path == output_path:
+            continue
+        snapshot_range = _feature_snapshot_range(existing_path)
+        if snapshot_range is None:
+            continue
+        existing_start, existing_end = snapshot_range
+        if _ranges_overlap(existing_start, existing_end, start_date, end_date):
+            existing_path.unlink()
     frame.to_parquet(output_path, index=False)
     return output_path
 
@@ -554,8 +604,20 @@ def persist_strikeout_features(frame: pd.DataFrame) -> int:
 
 
 def default_cutoff(game_date: date, game_start_ts: pd.Timestamp | datetime | None) -> datetime:
+    """Return the feature cutoff timestamp for a game.
+
+    For games that haven't started yet (start time in the future), we use the
+    game start time.  For games whose start time is in the past — which
+    includes postponed games whose ``game_start_ts`` may be stale — we cap the
+    cutoff at ``now`` so that market/weather snapshots captured *after* the
+    original start time are still included.
+    """
+    now = datetime.now(timezone.utc)
     if game_start_ts is not None and not pd.isna(game_start_ts):
         if isinstance(game_start_ts, pd.Timestamp):
             game_start_ts = game_start_ts.to_pydatetime()
-        return game_start_ts if game_start_ts.tzinfo else game_start_ts.replace(tzinfo=timezone.utc)
+        ts = game_start_ts if game_start_ts.tzinfo else game_start_ts.replace(tzinfo=timezone.utc)
+        # For unplayed / postponed games whose start time already passed,
+        # use 'now' so we still pick up the latest available snapshots.
+        return ts if ts > now else now
     return datetime.combine(game_date, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=16)

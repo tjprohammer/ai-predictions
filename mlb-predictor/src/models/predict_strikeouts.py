@@ -19,6 +19,51 @@ def _sigmoid(value: float) -> float:
     return 1.0 / (1.0 + math.exp(-value))
 
 
+def _coerce_float(value: object) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _expects_market_line(row: object) -> bool:
+    for field_name in ("projected_innings", "recent_avg_ip_3", "recent_avg_ip_5"):
+        value = _coerce_float(getattr(row, field_name, None))
+        if value is not None and value >= 2.0:
+            return True
+    baseline = _coerce_float(getattr(row, "baseline_strikeouts", None))
+    return baseline is not None and baseline >= 2.0
+
+
+def _load_or_train_artifact() -> dict | None:
+    try:
+        return load_latest_artifact("strikeouts")
+    except FileNotFoundError:
+        log.info("No strikeout artifact found; attempting a training pass")
+        from src.models.train_strikeouts import main as train_strikeouts_main
+
+        train_strikeouts_main()
+        try:
+            return load_latest_artifact("strikeouts")
+        except FileNotFoundError:
+            log.info("No strikeout artifact available after training attempt")
+            return None
+
+
+def _reload_artifact_after_failure(exc: Exception) -> dict | None:
+    log.warning("Latest strikeout artifact failed to score with the current runtime; retraining and retrying once: %s", exc)
+    from src.models.train_strikeouts import main as train_strikeouts_main
+
+    train_strikeouts_main()
+    try:
+        return load_latest_artifact("strikeouts")
+    except FileNotFoundError:
+        log.info("No strikeout artifact available after retry training")
+        return None
+
+
 def _fetch_market_map(target_date: date) -> dict[tuple[int, int], float]:
     frame = query_df(
         """
@@ -59,18 +104,9 @@ def main() -> int:
     target_date = date.fromisoformat(args.target_date) if args.target_date else date.today()
 
     settings = get_settings()
-    try:
-        artifact = load_latest_artifact("strikeouts")
-    except FileNotFoundError:
-        log.info("No strikeout artifact found; attempting a training pass")
-        from src.models.train_strikeouts import main as train_strikeouts_main
-
-        train_strikeouts_main()
-        try:
-            artifact = load_latest_artifact("strikeouts")
-        except FileNotFoundError:
-            log.info("No strikeout artifact available after training attempt")
-            return 0
+    artifact = _load_or_train_artifact()
+    if artifact is None:
+        return 0
 
     frame = load_feature_snapshots("strikeouts")
     if frame.empty:
@@ -82,9 +118,17 @@ def main() -> int:
         log.info("No strikeout features found for %s", target_date)
         return 0
 
-    feature_columns = artifact["feature_columns"]
-    X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
-    predictions = artifact["model"].predict(X)
+    try:
+        feature_columns = artifact["feature_columns"]
+        X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
+        predictions = artifact["model"].predict(X)
+    except Exception as exc:
+        artifact = _reload_artifact_after_failure(exc)
+        if artifact is None:
+            return 0
+        feature_columns = artifact["feature_columns"]
+        X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
+        predictions = artifact["model"].predict(X)
     residual_std = max(float(artifact.get("residual_std", 1.0)), 1.0)
     prediction_ts = datetime.now(timezone.utc)
     market_map = _fetch_market_map(target_date)
@@ -99,7 +143,7 @@ def main() -> int:
             over_probability = _sigmoid((float(predicted_strikeouts) - float(market_line)) / residual_std)
             under_probability = 1.0 - over_probability
             edge = abs(over_probability - 0.5)
-        else:
+        elif _expects_market_line(row):
             missing_market_lines += 1
         rows.append(
             {

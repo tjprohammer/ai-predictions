@@ -3,9 +3,9 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime
 
-from src.ingestors.common import iter_schedule_games, player_dimension_row, team_dimension_row
+from src.ingestors.common import iter_schedule_games, player_dimension_row, record_ingest_event, team_dimension_row
 from src.utils.cli import add_date_range_args, resolve_date_range
-from src.utils.db import query_df, upsert_rows
+from src.utils.db import query_df, run_sql, upsert_rows
 from src.utils.logging import get_logger
 
 
@@ -17,6 +17,29 @@ def _official_game_date(game: dict[str, object], game_start_ts: datetime) -> dat
     if official_date:
         return date.fromisoformat(str(official_date))
     return game_start_ts.date()
+
+
+def _coerce_date(value: object) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if hasattr(value, "date"):
+        dated = value.date()
+        if isinstance(dated, date):
+            return dated
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
 
 
 def main() -> int:
@@ -37,9 +60,20 @@ def main() -> int:
         """
     )
     prior_map = {
-        int(row.pitcher_id): row.last_game_date.date() if hasattr(row.last_game_date, "date") else row.last_game_date
+        int(row.pitcher_id): _coerce_date(row.last_game_date)
         for row in prior_starts.itertuples(index=False)
     }
+
+    # Clear stale probable rows in the requested window before writing the
+    # latest schedule view so starter changes do not accumulate duplicate sides.
+    run_sql(
+        """
+        DELETE FROM pitcher_starts
+        WHERE game_date BETWEEN :start_date AND :end_date
+          AND is_probable = :is_probable
+        """,
+        {"start_date": start_date, "end_date": end_date, "is_probable": True},
+    )
 
     for game in games:
         game_start_ts = datetime.fromisoformat(str(game["gameDate"]).replace("Z", "+00:00"))
@@ -73,6 +107,12 @@ def main() -> int:
     upsert_rows("dim_players", player_rows, ["player_id"])
     inserted = upsert_rows("pitcher_starts", starter_rows, ["game_id", "pitcher_id"])
     log.info("Upserted %s probable starter rows for %s to %s", inserted, start_date, end_date)
+    record_ingest_event(
+        source_name="mlb_statsapi",
+        ingestor_module="src.ingestors.starters",
+        target_date=start_date.isoformat(),
+        row_count=inserted,
+    )
     return 0
 
 

@@ -5,6 +5,61 @@ from zipfile import ZipFile
 import scripts.build_windows_installer as build_windows_installer
 
 
+def test_release_artifact_base_name_normalizes_version_label():
+    assert (
+        build_windows_installer._release_artifact_base_name("MLBPredictor", "0.2.0-beta 1", "Setup")
+        == "MLBPredictor-Windows-v0.2.0-beta-1-Setup"
+    )
+
+
+def test_windows_version_value_strips_beta_label():
+    assert build_windows_installer._windows_version_value("0.2.0-beta") == "0.2.0.0"
+    assert build_windows_installer._windows_version_value("1.4") == "1.4.0.0"
+
+
+def test_find_inno_setup_uses_env_and_path(monkeypatch, tmp_path):
+    iscc_path = tmp_path / "Inno Setup 6" / "ISCC.exe"
+    iscc_path.parent.mkdir(parents=True)
+    iscc_path.write_text("exe", encoding="utf-8")
+
+    monkeypatch.setenv("ISCC_PATH", str(iscc_path))
+    monkeypatch.setattr(build_windows_installer.shutil, "which", lambda executable: None)
+
+    assert build_windows_installer.find_inno_setup() == iscc_path
+
+
+def test_build_inno_installer_passes_dynamic_defines(monkeypatch, tmp_path):
+    commands: list[list[str]] = []
+
+    class FakeCompletedProcess:
+        def __init__(self, returncode=0):
+            self.returncode = returncode
+
+    def fake_run(command, cwd):
+        commands.append(command)
+        return FakeCompletedProcess(0)
+
+    monkeypatch.setattr(build_windows_installer.subprocess, "run", fake_run)
+
+    artifact = build_windows_installer.build_inno_installer(
+        tmp_path / "ISCC.exe",
+        "MLBPredictor",
+        tmp_path / "dist" / "MLBPredictor",
+        tmp_path / "release",
+        "0.2.0",
+        "MLB Predictor",
+        "MLBPredictor.exe",
+        "MLBPredictor",
+    )
+
+    assert artifact == tmp_path / "release" / "MLBPredictor-Windows-v0.2.0-Setup.exe"
+    assert any(arg == "/DAppName=MLB Predictor" for arg in commands[0])
+    assert any(arg == "/DAppExeName=MLBPredictor.exe" for arg in commands[0])
+    assert any(arg == "/DAppInstallDirName=MLBPredictor" for arg in commands[0])
+    assert any(arg == "/DVersionInfoProductVersion=0.2.0.0" for arg in commands[0])
+    assert any(arg == "/DOutputBaseFilename=MLBPredictor-Windows-v0.2.0-Setup" for arg in commands[0])
+
+
 def test_portable_installer_bundle_includes_cmd_wrappers(tmp_path, monkeypatch):
     dist_dir = tmp_path / "dist" / "MLBPredictor"
     dist_dir.mkdir(parents=True)
@@ -18,17 +73,18 @@ def test_portable_installer_bundle_includes_cmd_wrappers(tmp_path, monkeypatch):
     monkeypatch.setattr(build_windows_installer, "INSTALLER_DIR", installer_dir)
 
     release_dir = tmp_path / "release"
-    zip_path = build_windows_installer.build_portable_installer_bundle(dist_dir, release_dir)
+    zip_path = build_windows_installer.build_portable_installer_bundle("MLBPredictor", dist_dir, release_dir, "0.2.0-beta1")
 
     assert zip_path.exists()
+    assert zip_path.name == "MLBPredictor-Windows-v0.2.0-beta1-PortableInstaller.zip"
     with ZipFile(zip_path) as zip_file:
         names = set(zip_file.namelist())
 
-    assert "MLBPredictor-Windows/install_mlb_predictor.cmd" in names
-    assert "MLBPredictor-Windows/install_mlb_predictor.ps1" in names
-    assert "MLBPredictor-Windows/uninstall_mlb_predictor.cmd" in names
-    assert "MLBPredictor-Windows/uninstall_mlb_predictor.ps1" in names
-    assert "MLBPredictor-Windows/MLBPredictor/MLBPredictor.exe" in names
+    assert "MLBPredictor-Windows-v0.2.0-beta1-Portable/install_mlb_predictor.cmd" in names
+    assert "MLBPredictor-Windows-v0.2.0-beta1-Portable/install_mlb_predictor.ps1" in names
+    assert "MLBPredictor-Windows-v0.2.0-beta1-Portable/uninstall_mlb_predictor.cmd" in names
+    assert "MLBPredictor-Windows-v0.2.0-beta1-Portable/uninstall_mlb_predictor.ps1" in names
+    assert "MLBPredictor-Windows-v0.2.0-beta1-Portable/MLBPredictor/MLBPredictor.exe" in names
 
 
 def test_install_script_succeeds_when_launch_is_canceled(tmp_path):
@@ -63,3 +119,41 @@ def test_install_script_succeeds_when_launch_is_canceled(tmp_path):
     assert "Installed MLB Predictor to" in completed.stdout
     assert "Windows blocked or canceled the first" in combined_output
     assert "You can start it manually" in combined_output
+
+
+def test_main_requires_inno_when_requested(tmp_path, monkeypatch, capsys):
+    dist_dir = tmp_path / "dist" / "MLBPredictor"
+    dist_dir.mkdir(parents=True)
+    (dist_dir / "MLBPredictor.exe").write_text("exe", encoding="utf-8")
+
+    monkeypatch.setattr(build_windows_installer, "find_inno_setup", lambda: None)
+    monkeypatch.setattr(
+        build_windows_installer,
+        "build_parser",
+        lambda: type(
+            "Parser",
+            (),
+            {
+                "parse_args": lambda self: type(
+                    "Args",
+                    (),
+                    {
+                        "app_name": "MLBPredictor",
+                        "display_name": "MLB Predictor",
+                        "dist_dir": str(dist_dir),
+                        "release_dir": str(tmp_path / "release"),
+                        "app_version": "0.1.0",
+                        "exe_name": None,
+                        "portable_only": False,
+                        "require_inno": True,
+                    },
+                )()
+            },
+        )(),
+    )
+
+    result = build_windows_installer.main()
+    output = capsys.readouterr().out
+
+    assert result == 1
+    assert "Inno Setup was not found" in output

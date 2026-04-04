@@ -86,6 +86,19 @@ def _apply_sqlite_migration_006(connection, sql_text: str) -> None:
     connection.connection.driver_connection.executescript(create_sql)
 
 
+def _apply_sqlite_alter_add_columns(connection, sql_text: str) -> None:
+    """Handle ALTER TABLE ... ADD COLUMN IF NOT EXISTS for SQLite."""
+    for match in re.finditer(
+        r"ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+(\w+)\s+([^;]+);",
+        sql_text,
+        flags=re.IGNORECASE,
+    ):
+        table_name, column_name, column_type = match.group(1), match.group(2), match.group(3).strip()
+        column_type = re.sub(r"\bTIMESTAMPTZ\b", "TEXT", column_type, flags=re.IGNORECASE)
+        column_type = re.sub(r"\bJSONB\b", "TEXT", column_type, flags=re.IGNORECASE)
+        _sqlite_add_column_if_missing(connection, table_name, column_name, column_type)
+
+
 def _apply_sqlite_migration(connection, migration_path: Path) -> None:
     sql_text = migration_path.read_text(encoding="utf-8")
     if migration_path.name == "004_pitcher_trend_precision.sql":
@@ -96,6 +109,22 @@ def _apply_sqlite_migration(connection, migration_path: Path) -> None:
     if migration_path.name == "006_first5_totals.sql":
         _apply_sqlite_migration_006(connection, sql_text)
         return
+
+    # Migrations that are purely ALTER TABLE ADD COLUMN IF NOT EXISTS
+    alter_only = re.sub(
+        r"ALTER\s+TABLE\s+\w+\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+\w+\s+[^;]+;",
+        "",
+        sql_text,
+        flags=re.IGNORECASE,
+    )
+    has_alter_adds = alter_only.strip() != sql_text.strip()
+    if has_alter_adds:
+        _apply_sqlite_alter_add_columns(connection, sql_text)
+        remaining = _normalize_sqlite_sql(alter_only)
+        if remaining.strip():
+            connection.connection.driver_connection.executescript(remaining)
+        return
+
     normalized = _normalize_sqlite_sql(sql_text)
     if normalized.strip():
         connection.connection.driver_connection.executescript(normalized)

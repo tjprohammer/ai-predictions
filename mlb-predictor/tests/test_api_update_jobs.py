@@ -2,6 +2,8 @@ import json
 import importlib
 import types
 
+import pytest
+
 
 app_module = importlib.import_module("src.api.app")
 
@@ -53,6 +55,181 @@ def test_update_job_prepare_slate_runs_expected_modules(monkeypatch):
         ("src.ingestors.games", ["--target-date", "2026-04-02"]),
         ("src.ingestors.starters", ["--target-date", "2026-04-02"]),
         ("src.ingestors.prepare_slate_inputs", ["--target-date", "2026-04-02"]),
+        ("src.ingestors.validator", ["--target-date", "2026-04-02"]),
+    ]
+
+
+def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
+    calls = _install_success_stubs(monkeypatch)
+
+    response = app_module.run_update_job(
+        app_module.UpdateJobRunRequest(
+            action="refresh_everything",
+            target_date="2026-04-02",
+        )
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["label"] == "Refresh Everything"
+    assert [module for module, _ in calls] == [
+        "src.ingestors.games",
+        "src.ingestors.starters",
+        "src.ingestors.prepare_slate_inputs",
+        "src.ingestors.lineups",
+        "src.ingestors.market_totals",
+        "src.transforms.freeze_markets",
+        "src.ingestors.validator",
+        "src.transforms.offense_daily",
+        "src.transforms.bullpens_daily",
+        "src.features.totals_builder",
+        "src.features.first5_totals_builder",
+        "src.features.hits_builder",
+        "src.features.strikeouts_builder",
+        "src.models.predict_totals",
+        "src.models.predict_first5_totals",
+        "src.models.predict_hits",
+        "src.models.predict_strikeouts",
+        "src.transforms.product_surfaces",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("action", "target_date", "expected_label", "expected_modules"),
+    [
+        (
+            "refresh_everything",
+            "2026-04-02",
+            "Refresh Everything",
+            [
+                "src.ingestors.games",
+                "src.ingestors.starters",
+                "src.ingestors.prepare_slate_inputs",
+                "src.ingestors.lineups",
+                "src.ingestors.market_totals",
+                "src.transforms.freeze_markets",
+                "src.ingestors.validator",
+                "src.transforms.offense_daily",
+                "src.transforms.bullpens_daily",
+                "src.features.totals_builder",
+                "src.features.first5_totals_builder",
+                "src.features.hits_builder",
+                "src.features.strikeouts_builder",
+                "src.models.predict_totals",
+                "src.models.predict_first5_totals",
+                "src.models.predict_hits",
+                "src.models.predict_strikeouts",
+                "src.transforms.product_surfaces",
+            ],
+        ),
+        (
+            "prepare_slate",
+            "2026-04-02",
+            "Prepare slate",
+            [
+                "src.ingestors.games",
+                "src.ingestors.starters",
+                "src.ingestors.prepare_slate_inputs",
+                "src.ingestors.validator",
+            ],
+        ),
+        (
+            "import_manual_inputs",
+            "2026-04-02",
+            "Import inputs",
+            [
+                "src.ingestors.lineups",
+                "src.ingestors.market_totals",
+                "src.transforms.freeze_markets",
+                "src.ingestors.validator",
+            ],
+        ),
+        (
+            "refresh_results",
+            "2026-04-02",
+            "Refresh results and stats",
+            [
+                "src.ingestors.boxscores",
+                "src.ingestors.player_batting",
+                "src.transforms.offense_daily",
+                "src.transforms.bullpens_daily",
+                "src.transforms.product_surfaces",
+            ],
+        ),
+        (
+            "rebuild_predictions",
+            "2026-04-02",
+            "Rebuild predictions",
+            [
+                "src.transforms.freeze_markets",
+                "src.features.totals_builder",
+                "src.features.first5_totals_builder",
+                "src.features.hits_builder",
+                "src.features.strikeouts_builder",
+                "src.models.predict_totals",
+                "src.models.predict_first5_totals",
+                "src.models.predict_hits",
+                "src.models.predict_strikeouts",
+                "src.transforms.product_surfaces",
+            ],
+        ),
+        (
+            "grade_predictions",
+            "2026-04-03",
+            "Grade recent predictions",
+            [
+                "src.ingestors.boxscores",
+                "src.ingestors.player_batting",
+                "src.ingestors.weather",
+                "src.transforms.offense_daily",
+                "src.transforms.bullpens_daily",
+                "src.transforms.product_surfaces",
+            ],
+        ),
+    ],
+)
+def test_update_job_sequences_cover_every_dashboard_action(
+    monkeypatch,
+    action,
+    target_date,
+    expected_label,
+    expected_modules,
+):
+    calls = _install_success_stubs(monkeypatch)
+
+    response = app_module.run_update_job(
+        app_module.UpdateJobRunRequest(
+            action=action,
+            target_date=target_date,
+        )
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["label"] == expected_label
+    assert [module for module, _ in calls] == expected_modules
+
+
+def test_update_job_grade_predictions_targets_yesterday(monkeypatch):
+    calls = _install_success_stubs(monkeypatch)
+
+    response = app_module.run_update_job(
+        app_module.UpdateJobRunRequest(
+            action="grade_predictions",
+            target_date="2026-04-03",
+        )
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["label"] == "Grade recent predictions"
+    assert calls == [
+        ("src.ingestors.boxscores", ["--target-date", "2026-04-02"]),
+        ("src.ingestors.player_batting", ["--target-date", "2026-04-02"]),
+        ("src.ingestors.weather", ["--target-date", "2026-04-02", "--mode", "observed"]),
+        ("src.transforms.offense_daily", ["--target-date", "2026-04-02"]),
+        ("src.transforms.bullpens_daily", ["--target-date", "2026-04-02"]),
+        ("src.transforms.product_surfaces", ["--target-date", "2026-04-02"]),
     ]
 
 
@@ -105,6 +282,7 @@ def test_legacy_pipeline_includes_first5_lane(monkeypatch):
     assert [module for module, _ in calls] == [
         "src.transforms.offense_daily",
         "src.transforms.bullpens_daily",
+        "src.transforms.freeze_markets",
         "src.features.totals_builder",
         "src.features.first5_totals_builder",
         "src.features.hits_builder",
@@ -134,7 +312,7 @@ def test_start_update_job_returns_queued_job(monkeypatch):
     assert response.status_code == 202
     assert payload["ok"] is True
     assert payload["job"]["status"] == "queued"
-    assert payload["job"]["total_steps"] == 3
+    assert payload["job"]["total_steps"] == 4
     assert launched == [payload["job"]["job_id"]]
 
 
@@ -171,13 +349,97 @@ def test_background_update_job_marks_success(monkeypatch):
 
     assert stored_job is not None
     assert stored_job["status"] == "succeeded"
-    assert stored_job["completed_steps"] == stored_job["total_steps"] == 3
+    assert stored_job["completed_steps"] == stored_job["total_steps"] == 4
     assert stored_job["status_snapshot"]["ok"] is True
     assert [module for module, _ in calls] == [
         "src.ingestors.games",
         "src.ingestors.starters",
         "src.ingestors.prepare_slate_inputs",
+        "src.ingestors.validator",
     ]
+
+
+def test_start_update_job_blocks_rebuild_predictions_when_desktop_history_missing(monkeypatch):
+    _reset_update_jobs()
+    blocker = {"message": "Desktop historical data is incomplete."}
+
+    monkeypatch.setattr(
+        app_module,
+        "_action_blocker",
+        lambda action, target_date: blocker if action == "rebuild_predictions" else None,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "_fetch_status",
+        lambda target_date: {"target_date": target_date.isoformat(), "rebuild_blocker": blocker},
+    )
+
+    response = app_module.start_update_job(
+        app_module.UpdateJobRunRequest(
+            action="rebuild_predictions",
+            target_date="2026-04-02",
+        )
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 409
+    assert payload["ok"] is False
+    assert payload["message"] == blocker["message"]
+    assert payload["blocker"] == blocker
+
+
+def test_start_update_job_blocks_refresh_everything_when_desktop_history_missing(monkeypatch):
+    _reset_update_jobs()
+    blocker = {"message": "Desktop historical data is incomplete."}
+
+    monkeypatch.setattr(
+        app_module,
+        "_action_blocker",
+        lambda action, target_date: blocker if action == "refresh_everything" else None,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "_fetch_status",
+        lambda target_date: {"target_date": target_date.isoformat(), "rebuild_blocker": blocker},
+    )
+
+    response = app_module.start_update_job(
+        app_module.UpdateJobRunRequest(
+            action="refresh_everything",
+            target_date="2026-04-02",
+        )
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 409
+    assert payload["ok"] is False
+    assert payload["message"] == blocker["message"]
+    assert payload["blocker"] == blocker
+
+
+def test_background_update_job_marks_blocked_rebuild_failed(monkeypatch):
+    _reset_update_jobs()
+    blocker = {"message": "Desktop historical data is incomplete."}
+
+    monkeypatch.setattr(
+        app_module,
+        "_action_blocker",
+        lambda action, target_date: blocker if action == "rebuild_predictions" else None,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "_fetch_status",
+        lambda target_date: {"target_date": target_date.isoformat(), "rebuild_blocker": blocker},
+    )
+
+    job = app_module._create_update_job("rebuild_predictions", "2026-04-02")
+    app_module._run_update_job_background(job["job_id"])
+    stored_job = app_module._get_update_job(job["job_id"])
+
+    assert stored_job is not None
+    assert stored_job["status"] == "failed"
+    assert stored_job["error"] == blocker["message"]
+    assert stored_job["status_snapshot"]["rebuild_blocker"] == blocker
 
 
 def test_update_job_history_persists_to_disk(monkeypatch, tmp_path):
@@ -208,8 +470,8 @@ def test_load_persisted_update_jobs_recovers_history_and_marks_interrupted_faile
             "started_at": "2026-04-02T10:00:01+00:00",
             "finished_at": "2026-04-02T10:00:03+00:00",
             "current_step": None,
-            "completed_steps": 3,
-            "total_steps": 3,
+            "completed_steps": 4,
+            "total_steps": 4,
             "steps": [],
             "error": None,
             "status_snapshot": {"ok": True},

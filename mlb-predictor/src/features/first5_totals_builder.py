@@ -9,6 +9,7 @@ from src.features.common import (
     build_hitter_priors,
     build_pitcher_priors,
     build_team_priors,
+    coerce_utc_timestamp_series,
     default_cutoff,
     latest_market_snapshot,
     latest_weather_snapshot,
@@ -26,7 +27,7 @@ from src.features.contracts import (
     validate_columns,
 )
 from src.utils.cli import add_date_range_args, resolve_date_range
-from src.utils.db import query_df
+from src.utils.db import query_df, table_exists
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -95,6 +96,9 @@ def _load_frames(start_date, end_date, settings):
             """,
             {"start_date": start_date, "end_date": end_date},
         ),
+        "market_freezes": query_df("SELECT * FROM market_selection_freezes WHERE market_type = 'first_five_total'")
+        if table_exists("market_selection_freezes")
+        else pd.DataFrame(),
         "parks": query_df("SELECT * FROM park_factors"),
     }
     return frames
@@ -118,7 +122,7 @@ def main() -> int:
             frames[frame_name]["game_date"] = pd.to_datetime(frames[frame_name]["game_date"])
     for frame_name in ("lineups", "weather", "markets"):
         if not frames[frame_name].empty and "snapshot_ts" in frames[frame_name].columns:
-            frames[frame_name]["snapshot_ts"] = pd.to_datetime(frames[frame_name]["snapshot_ts"], utc=True)
+            frames[frame_name]["snapshot_ts"] = coerce_utc_timestamp_series(frames[frame_name]["snapshot_ts"])
     games["game_date"] = pd.to_datetime(games["game_date"]).dt.date
     games["game_start_ts"] = pd.to_datetime(games["game_start_ts"], utc=True)
 
@@ -201,7 +205,13 @@ def main() -> int:
             prior_blend_mode=settings.prior_blend_mode,
             prior_weight_multiplier=settings.prior_weight_multiplier,
         )
-        market = latest_market_snapshot(game.game_id, cutoff_ts, frames["markets"])
+        market = latest_market_snapshot(
+            game.game_id,
+            cutoff_ts,
+            frames["markets"],
+            freezes=frames["market_freezes"],
+            market_type="first_five_total",
+        )
         weather = latest_weather_snapshot(game.game_id, cutoff_ts, frames["weather"])
         season = int(game.game_date.year) if pd.isna(game.season) else int(game.season)
         park = park_snapshot(game.home_team, season, frames["parks"], settings.prior_season)
@@ -245,6 +255,7 @@ def main() -> int:
                 "wind_speed_mph": weather["wind_speed_mph"],
                 "wind_direction_deg": weather["wind_direction_deg"],
                 "humidity_pct": weather["humidity_pct"],
+                "market_sportsbook": market.get("market_sportsbook"),
                 "market_total": market["market_total"],
                 "market_over_price": market["market_over_price"],
                 "market_under_price": market["market_under_price"],

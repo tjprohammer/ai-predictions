@@ -66,9 +66,11 @@ def main() -> int:
     for module_name in (
         "src.transforms.offense_daily",
         "src.transforms.bullpens_daily",
+        "src.transforms.freeze_markets",
         "src.features.totals_builder",
         "src.features.first5_totals_builder",
         "src.features.hits_builder",
+        "src.features.strikeouts_builder",
     ):
         _run_step(module_name, "--start-date", start_raw, "--end-date", end_raw)
 
@@ -78,6 +80,7 @@ def main() -> int:
         _run_step("src.models.predict_totals", "--target-date", current_raw)
         _run_step("src.models.predict_first5_totals", "--target-date", current_raw)
         _run_step("src.models.predict_hits", "--target-date", current_raw)
+        _run_step("src.models.predict_strikeouts", "--target-date", current_raw)
         current_date += timedelta(days=1)
 
     log.info("Range pipeline complete for %s to %s", start_raw, end_raw)

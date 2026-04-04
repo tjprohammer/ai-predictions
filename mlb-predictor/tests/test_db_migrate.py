@@ -13,7 +13,7 @@ def test_run_migrations_builds_sqlite_schema(tmp_path):
     applied_count = run_migrations(engine=engine)
     inspector = inspect(engine)
 
-    assert applied_count >= 6
+    assert applied_count >= 14
     assert inspector.has_table("games") is True
     assert inspector.has_table("player_prop_markets") is True
     assert inspector.has_table("predictions_first5_totals") is True
@@ -23,6 +23,14 @@ def test_run_migrations_builds_sqlite_schema(tmp_path):
 
     pitcher_columns = {column["name"] for column in inspector.get_columns("pitcher_starts")}
     assert "batters_faced" in pitcher_columns
+
+    prediction_columns = {column["name"]: str(column["type"]) for column in inspector.get_columns("predictions_totals")}
+    assert {"market_sportsbook", "market_snapshot_ts"}.issubset(prediction_columns)
+    assert prediction_columns["market_snapshot_ts"] == "TEXT"
+
+    outcome_columns = {column["name"]: str(column["type"]) for column in inspector.get_columns("prediction_outcomes_daily")}
+    assert {"entry_market_sportsbook", "entry_market_snapshot_ts", "closing_market_same_sportsbook"}.issubset(outcome_columns)
+    assert outcome_columns["entry_market_snapshot_ts"] == "TEXT"
 
 
 def test_run_migrations_supports_sqlite_inserts_after_schema_build(tmp_path):
