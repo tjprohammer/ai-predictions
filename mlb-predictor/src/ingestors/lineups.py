@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.ingestors.common import player_dimension_row
+from src.ingestors.common import player_dimension_row, record_ingest_event
 from src.ingestors.prepare_slate_inputs import LINEUP_COLUMNS, build_lineup_input_frame
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df, upsert_rows
@@ -168,6 +168,12 @@ def main() -> int:
     upsert_rows("dim_players", player_rows, ["player_id"])
     inserted = upsert_rows("lineups", lineup_rows, ["game_id", "player_id", "source_name", "snapshot_ts"])
     log.info("Imported %s lineup rows for %s to %s", inserted, start_date, end_date)
+    record_ingest_event(
+        source_name="lineup_csv",
+        ingestor_module="src.ingestors.lineups",
+        target_date=start_date.isoformat(),
+        row_count=inserted,
+    )
     return 0
 
 

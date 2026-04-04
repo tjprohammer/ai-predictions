@@ -26,7 +26,7 @@ SERVER_BOOT_TIMEOUT_SECONDS = 30.0
 AUTO_REFRESH_ENV_VAR = "MLB_PREDICTOR_AUTO_REFRESH"
 AUTO_REFRESH_REQUEST_TIMEOUT_SECONDS = 10.0
 AUTO_REFRESH_JOB_TIMEOUT_SECONDS = 600.0
-AUTO_REFRESH_ACTIONS = ("prepare_slate", "import_manual_inputs", "rebuild_predictions")
+AUTO_REFRESH_ACTIONS = ("refresh_everything",)
 _STDOUT_FALLBACK = None
 _STDERR_FALLBACK = None
 LEGACY_DEFAULT_DATABASE_URL = "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"
@@ -358,8 +358,18 @@ def run_startup_refresh(base_url: str, log_path: Path, target_date: str | None =
             json={"action": action, "target_date": resolved_target_date},
             timeout=AUTO_REFRESH_JOB_TIMEOUT_SECONDS,
         )
+        payload: dict[str, object] = {}
+        try:
+            payload = action_response.json()
+        except Exception:  # noqa: BLE001
+            payload = {}
+        if getattr(action_response, "status_code", 200) == 409 and payload.get("message"):
+            append_runtime_log(
+                log_path,
+                f"Startup auto-refresh blocked during {action} for {resolved_target_date}: {payload['message']}",
+            )
+            return
         action_response.raise_for_status()
-        payload = action_response.json()
         if not bool(payload.get("ok")):
             raise RuntimeError(f"Startup auto-refresh action failed: {action}")
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import time as timer
 import unicodedata
 from datetime import date, datetime, time, timedelta, timezone
 from html import unescape
@@ -11,8 +12,9 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from src.ingestors.common import record_ingest_event, record_source_health
 from src.utils.cli import add_date_range_args, resolve_date_range
-from src.utils.db import get_dialect_name, query_df, run_sql, upsert_rows
+from src.utils.db import get_dialect_name, query_df, run_sql, table_exists, upsert_rows
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -1025,6 +1027,59 @@ def _format_required_player_prop_gap_summary(gaps: list[dict[str, object]]) -> s
     return "; ".join(parts)
 
 
+def _write_market_snapshot_versions(rows: list[dict[str, object]]) -> int:
+    """Append versioned copies of market rows to market_snapshot_versions."""
+    if not rows:
+        return 0
+    try:
+        if not table_exists("market_snapshot_versions"):
+            return 0
+        version_rows = [
+            {
+                "game_id": row["game_id"],
+                "game_date": str(row.get("game_date", "")),
+                "sportsbook": row.get("sportsbook", ""),
+                "market_type": row.get("market_type", ""),
+                "line_value": row.get("line_value"),
+                "over_price": row.get("over_price"),
+                "under_price": row.get("under_price"),
+                "snapshot_ts": row.get("snapshot_ts"),
+                "source_name": row.get("source_name"),
+                "pull_number": 1,
+            }
+            for row in rows
+        ]
+        return upsert_rows(
+            "market_snapshot_versions",
+            version_rows,
+            ["game_id", "sportsbook", "market_type", "snapshot_ts", "pull_number"],
+        )
+    except Exception as exc:
+        log.warning("Failed to write market snapshot versions: %s", exc)
+        return 0
+
+
+def _timed_fetch(source_name: str, fetcher, *args):
+    """Run a source fetcher and record source health."""
+    started = timer.perf_counter()
+    try:
+        result = fetcher(*args)
+    except Exception as exc:
+        record_source_health(
+            source_name=source_name,
+            is_available=False,
+            response_time_ms=int((timer.perf_counter() - started) * 1000),
+            error_message=str(exc),
+        )
+        raise
+    record_source_health(
+        source_name=source_name,
+        is_available=True,
+        response_time_ms=int((timer.perf_counter() - started) * 1000),
+    )
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import totals and player prop market CSV rows")
     parser.add_argument("--csv", help="Override manual markets csv path")
@@ -1045,15 +1100,22 @@ def main() -> int:
     inserted = 0
     if settings.odds_api_key:
         try:
-            odds_rows = _fetch_odds_api_rows(start_date, end_date, settings.odds_api_key)
+            odds_rows = _timed_fetch("odds_api", _fetch_odds_api_rows, start_date, end_date, settings.odds_api_key)
         except requests.RequestException as exc:
             log.warning("Odds API market pull failed: %s", exc)
         else:
             inserted += upsert_rows("game_markets", odds_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
+            _write_market_snapshot_versions(odds_rows)
             if odds_rows:
                 log.info("Imported %s market rows from the Odds API", len(odds_rows))
         try:
-            odds_prop_rows = _fetch_odds_api_player_prop_rows(start_date, end_date, settings.odds_api_key)
+            odds_prop_rows = _timed_fetch(
+                "odds_api_player_props",
+                _fetch_odds_api_player_prop_rows,
+                start_date,
+                end_date,
+                settings.odds_api_key,
+            )
         except requests.RequestException as exc:
             log.warning("Odds API player prop pull failed: %s", exc)
         else:
@@ -1067,15 +1129,21 @@ def main() -> int:
                 log.info("Imported %s player prop rows from the Odds API", len(odds_prop_rows))
     else:
         try:
-            covers_rows = _fetch_covers_rows(start_date, end_date)
+            covers_rows = _timed_fetch("covers_totals", _fetch_covers_rows, start_date, end_date)
         except requests.RequestException as exc:
             log.warning("Covers market pull failed: %s", exc)
         else:
             inserted += upsert_rows("game_markets", covers_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
+            _write_market_snapshot_versions(covers_rows)
             if covers_rows:
                 log.info("Imported %s market rows from Covers totals HTML", len(covers_rows))
         try:
-            covers_prop_rows = _fetch_covers_player_prop_rows(start_date, end_date)
+            covers_prop_rows = _timed_fetch(
+                "covers_player_props",
+                _fetch_covers_player_prop_rows,
+                start_date,
+                end_date,
+            )
         except requests.RequestException as exc:
             log.warning("Covers player prop pull failed: %s", exc)
         else:
@@ -1088,7 +1156,12 @@ def main() -> int:
                 )
                 log.info("Imported %s player prop rows from Covers player props HTML", len(covers_prop_rows))
         try:
-            rotowire_prop_rows = _fetch_rotowire_player_prop_rows(start_date, end_date)
+            rotowire_prop_rows = _timed_fetch(
+                "rotowire_player_props",
+                _fetch_rotowire_player_prop_rows,
+                start_date,
+                end_date,
+            )
         except requests.RequestException as exc:
             log.warning("Rotowire player prop pull failed: %s", exc)
         else:
@@ -1230,6 +1303,7 @@ def main() -> int:
 
     if game_rows:
         inserted += upsert_rows("game_markets", game_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
+        _write_market_snapshot_versions(game_rows)
     if prop_rows:
         _ensure_player_prop_markets_table()
         inserted += upsert_rows(
@@ -1242,6 +1316,12 @@ def main() -> int:
         len(game_rows),
         len(prop_rows),
         csv_path,
+    )
+    record_ingest_event(
+        source_name="market_totals",
+        ingestor_module="src.ingestors.market_totals",
+        target_date=start_date.isoformat(),
+        row_count=inserted,
     )
     return 0
 

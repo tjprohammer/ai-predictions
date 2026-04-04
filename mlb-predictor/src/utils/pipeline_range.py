@@ -66,6 +66,7 @@ def main() -> int:
     for module_name in (
         "src.transforms.offense_daily",
         "src.transforms.bullpens_daily",
+        "src.transforms.freeze_markets",
         "src.features.totals_builder",
         "src.features.first5_totals_builder",
         "src.features.hits_builder",

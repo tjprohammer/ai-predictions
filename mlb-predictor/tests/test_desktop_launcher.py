@@ -322,3 +322,39 @@ def test_run_startup_refresh_skips_when_predictions_exist(monkeypatch, tmp_path)
 
     assert post_calls == []
     assert "Startup auto-refresh skipped for 2026-04-02" in log_path.read_text(encoding="utf-8")
+
+
+def test_run_startup_refresh_logs_clear_warning_when_rebuild_is_blocked(monkeypatch, tmp_path):
+    class FakeResponse:
+        def __init__(self, payload, status_code=200):
+            self.payload = payload
+            self.status_code = status_code
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}")
+
+        def json(self):
+            return self.payload
+
+    post_calls: list[str] = []
+
+    def fake_get(url, timeout):
+        return FakeResponse(
+            {"db_connected": True, "totals_predictions": 0, "hits_predictions": 0, "strikeouts_predictions": 0}
+        )
+
+    def fake_post(url, json, timeout):
+        post_calls.append(str(json["action"]))
+        if json["action"] == "refresh_everything":
+            return FakeResponse({"message": "Desktop historical data is incomplete."}, status_code=409)
+        return FakeResponse({"ok": True}, status_code=200)
+
+    monkeypatch.setattr(launcher_module.requests, "get", fake_get)
+    monkeypatch.setattr(launcher_module.requests, "post", fake_post)
+
+    log_path = tmp_path / "launcher.log"
+    launcher_module.run_startup_refresh("http://127.0.0.1:8126/", log_path, target_date="2026-04-02")
+
+    assert post_calls == list(launcher_module.AUTO_REFRESH_ACTIONS)
+    assert "Startup auto-refresh blocked during refresh_everything for 2026-04-02" in log_path.read_text(encoding="utf-8")

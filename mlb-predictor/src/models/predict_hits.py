@@ -17,6 +17,33 @@ log = get_logger(__name__)
 HITTER_MARKET_TYPES = ("player_hits", "1_plus_hit", "hits")
 
 
+def _load_or_train_artifact() -> dict | None:
+    try:
+        return load_latest_artifact("hits")
+    except FileNotFoundError:
+        log.info("No hits artifact found; attempting a training pass")
+        from src.models.train_hits import main as train_hits_main
+
+        train_hits_main()
+        try:
+            return load_latest_artifact("hits")
+        except FileNotFoundError:
+            log.info("No hits artifact available after training attempt")
+            return None
+
+
+def _reload_artifact_after_failure(exc: Exception) -> dict | None:
+    log.warning("Latest hits artifact failed to score with the current runtime; retraining and retrying once: %s", exc)
+    from src.models.train_hits import main as train_hits_main
+
+    train_hits_main()
+    try:
+        return load_latest_artifact("hits")
+    except FileNotFoundError:
+        log.info("No hits artifact available after retry training")
+        return None
+
+
 def _bind_list(prefix: str, values: list[object], params: dict[str, object]) -> str:
     placeholders: list[str] = []
     for index, value in enumerate(values):
@@ -107,18 +134,9 @@ def main() -> int:
     target_date = date.fromisoformat(args.target_date) if args.target_date else date.today()
 
     settings = get_settings()
-    try:
-        artifact = load_latest_artifact("hits")
-    except FileNotFoundError:
-        log.info("No hits artifact found; attempting a training pass")
-        from src.models.train_hits import main as train_hits_main
-
-        train_hits_main()
-        try:
-            artifact = load_latest_artifact("hits")
-        except FileNotFoundError:
-            log.info("No hits artifact available after training attempt")
-            return 0
+    artifact = _load_or_train_artifact()
+    if artifact is None:
+        return 0
     frame = load_feature_snapshots("hits")
     if frame.empty:
         log.info("No hits feature snapshots found")
@@ -129,10 +147,19 @@ def main() -> int:
         log.info("No hit features found for %s", target_date)
         return 0
 
-    feature_columns = artifact["feature_columns"]
-    X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
-    raw_probabilities = artifact["model"].predict_proba(X)[:, 1]
-    probabilities = _apply_probability_calibration(raw_probabilities, artifact)
+    try:
+        feature_columns = artifact["feature_columns"]
+        X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
+        raw_probabilities = artifact["model"].predict_proba(X)[:, 1]
+        probabilities = _apply_probability_calibration(raw_probabilities, artifact)
+    except Exception as exc:
+        artifact = _reload_artifact_after_failure(exc)
+        if artifact is None:
+            return 0
+        feature_columns = artifact["feature_columns"]
+        X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
+        raw_probabilities = artifact["model"].predict_proba(X)[:, 1]
+        probabilities = _apply_probability_calibration(raw_probabilities, artifact)
     prediction_ts = datetime.now(timezone.utc)
     market_map = _fetch_market_map(target_date)
     rows = []

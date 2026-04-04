@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import time as timer
 from datetime import datetime, time, timezone
 
 import requests
 
+from src.ingestors.common import record_ingest_event, record_source_health
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df, upsert_rows
 from src.utils.logging import get_logger
@@ -13,7 +15,9 @@ from src.utils.logging import get_logger
 log = get_logger(__name__)
 
 
-def _weather_endpoint(game_date) -> tuple[str, str]:
+def _weather_endpoint(game_date, *, force_mode: str | None = None) -> tuple[str, str]:
+    if force_mode == "observed":
+        return "https://archive-api.open-meteo.com/v1/archive", "observed"
     today = datetime.now(timezone.utc).date()
     if game_date < today:
         return "https://archive-api.open-meteo.com/v1/archive", "archive"
@@ -54,8 +58,15 @@ def _serialized_hour_payload(selected: dict[str, object]) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fetch weather snapshots from Open-Meteo")
     add_date_range_args(parser)
+    parser.add_argument(
+        "--mode",
+        choices=["auto", "observed"],
+        default="auto",
+        help="'auto' picks forecast/archive by date. 'observed' forces archive API and tags rows as observed.",
+    )
     args = parser.parse_args()
     start_date, end_date = resolve_date_range(args)
+    force_mode = args.mode if args.mode != "auto" else None
 
     games = query_df(
         """
@@ -75,7 +86,7 @@ def main() -> int:
     snapshot_ts = datetime.now(timezone.utc)
     rows = []
     for game in games.itertuples(index=False):
-        endpoint, weather_type = _weather_endpoint(game.game_date)
+        endpoint, weather_type = _weather_endpoint(game.game_date, force_mode=force_mode)
         params = {
             "latitude": float(game.latitude),
             "longitude": float(game.longitude),
@@ -86,8 +97,23 @@ def main() -> int:
             "wind_speed_unit": "mph",
             "timezone": "auto",
         }
-        response = requests.get(endpoint, params=params, timeout=30)
-        response.raise_for_status()
+        started = timer.perf_counter()
+        try:
+            response = requests.get(endpoint, params=params, timeout=30)
+            response.raise_for_status()
+        except Exception as exc:
+            record_source_health(
+                source_name="open_meteo",
+                is_available=False,
+                response_time_ms=int((timer.perf_counter() - started) * 1000),
+                error_message=str(exc),
+            )
+            raise
+        record_source_health(
+            source_name="open_meteo",
+            is_available=True,
+            response_time_ms=int((timer.perf_counter() - started) * 1000),
+        )
         payload = response.json()
         selected = _pick_hour(payload, _target_local_dt(game.game_date, game.game_start_ts))
         if not selected:
@@ -113,6 +139,12 @@ def main() -> int:
 
     inserted = upsert_rows("game_weather", rows, ["game_id", "snapshot_ts", "source_name"])
     log.info("Upserted %s weather rows", inserted)
+    record_ingest_event(
+        source_name="open_meteo",
+        ingestor_module="src.ingestors.weather",
+        target_date=start_date.isoformat(),
+        row_count=inserted,
+    )
     return 0
 
 

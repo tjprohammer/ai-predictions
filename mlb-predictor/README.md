@@ -158,7 +158,7 @@ The best way to test the packaged app is to download a release asset from the re
 Current Windows release flow:
 
 1. Open the latest GitHub Release.
-2. Download `MLBPredictor-Windows-PortableInstaller.zip` or `MLBPredictorSetup.exe` if an Inno Setup installer was published for that release.
+2. Download the versioned Windows asset for that release, usually `MLBPredictor-Windows-v<version>-PortableInstaller.zip` or `MLBPredictor-Windows-v<version>-Setup.exe` when an Inno Setup installer was published.
 3. If you downloaded the portable ZIP, extract it and double-click `install_mlb_predictor.cmd`. `install_mlb_predictor.ps1` is still included, but some Windows setups open `.ps1` files in an editor instead of executing them.
 4. Launch `MLBPredictor` from the shortcut or install folder.
 
@@ -210,6 +210,13 @@ cd S:\Projects\AI_Predictions\mlb-predictor
 make build-installer
 ```
 
+For a strict `Setup.exe` build that fails loudly when Inno Setup is not installed:
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+python scripts\build_windows_installer.py --app-version 0.1.0-beta1 --require-inno
+```
+
 Run the full Windows release flow in one step:
 
 ```powershell
@@ -217,9 +224,18 @@ cd S:\Projects\AI_Predictions\mlb-predictor
 make build-release
 ```
 
-If Inno Setup is installed, this produces a standard Windows installer. If not, the build falls back to a portable installer bundle with `install_mlb_predictor.ps1` and `uninstall_mlb_predictor.ps1` plus the packaged app folder.
+For tagged beta artifacts with versioned names:
+
+```powershell
+cd S:\Projects\AI_Predictions\mlb-predictor
+python scripts\build_windows_release.py --app-version 0.1.0-beta1 --require-inno
+```
+
+If Inno Setup is installed, this produces a versioned standard Windows installer such as `MLBPredictor-Windows-v0.1.0-beta1-Setup.exe`. If not, the build falls back to a versioned portable installer bundle such as `MLBPredictor-Windows-v0.1.0-beta1-PortableInstaller.zip` with `install_mlb_predictor.ps1` and `uninstall_mlb_predictor.ps1` plus the packaged app folder.
 
 The portable bundle also includes `install_mlb_predictor.cmd` and `uninstall_mlb_predictor.cmd` so testers can launch install or uninstall by double-clicking on a typical Windows machine.
+
+For a repeatable beta ship flow, see `BETA_RELEASE_CHECKLIST.md`.
 
 The desktop runtime now defaults to a per-user SQLite file under `%LOCALAPPDATA%\MLBPredictor\db\mlb_predictor.sqlite3` when no custom `DATABASE_URL` is configured. Explicit `DATABASE_URL` overrides are still respected for Postgres-based workflows.
 

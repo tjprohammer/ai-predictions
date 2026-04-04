@@ -87,6 +87,68 @@
         z-index: 4;
       }
 
+      .activity-banner {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+        padding: 14px 16px;
+        border-radius: 20px;
+        border: 1px solid rgba(20, 33, 25, 0.08);
+        background: rgba(255, 251, 246, 0.88);
+        box-shadow: var(--shadow);
+      }
+
+      .activity-banner[hidden] {
+        display: none;
+      }
+
+      .activity-banner.running {
+        border-color: rgba(11, 106, 88, 0.18);
+        background: rgba(11, 106, 88, 0.08);
+      }
+
+      .activity-banner.good {
+        border-color: rgba(22, 101, 52, 0.16);
+        background: rgba(22, 101, 52, 0.08);
+      }
+
+      .activity-banner.warn {
+        border-color: rgba(146, 64, 14, 0.18);
+        background: rgba(146, 64, 14, 0.08);
+      }
+
+      .activity-copy {
+        display: grid;
+        gap: 2px;
+      }
+
+      .activity-title {
+        font-weight: 800;
+        letter-spacing: 0.02em;
+      }
+
+      .activity-detail {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .loading-spinner {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid rgba(11, 106, 88, 0.18);
+        border-top-color: var(--accent);
+        animation: loading-spin 0.9s linear infinite;
+        flex: 0 0 auto;
+      }
+
+      @keyframes loading-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       .brand-link,
       .nav-link {
         text-decoration: none;
@@ -252,6 +314,28 @@
         letter-spacing: 0.12em;
         text-transform: uppercase;
         color: var(--accent-deep);
+      }
+
+      .dq-badge {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 6px;
+        vertical-align: middle;
+        flex-shrink: 0;
+      }
+
+      .lock-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(17, 24, 39, 0.1);
+        color: var(--accent-deep);
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
       }
 
       h1 {
@@ -472,6 +556,23 @@
         transform: translateY(-1px);
       }
 
+      button.busy {
+        position: relative;
+      }
+
+      button.busy::after {
+        content: "";
+        width: 14px;
+        height: 14px;
+        margin-left: 10px;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        border-top-color: currentColor;
+        display: inline-block;
+        vertical-align: -2px;
+        animation: loading-spin 0.9s linear infinite;
+      }
+
       button:disabled {
         opacity: 0.7;
         cursor: progress;
@@ -546,6 +647,22 @@
 
       .games-board {
         margin-top: 18px;
+      }
+
+      .loading-panel {
+        display: grid;
+        gap: 8px;
+        place-items: center;
+        text-align: center;
+        padding: 28px;
+        border-radius: 24px;
+        border: 1px solid rgba(20, 33, 25, 0.08);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--muted);
+      }
+
+      .loading-panel .activity-title {
+        color: var(--ink);
       }
 
       .game-card,
@@ -1392,6 +1509,21 @@
         </div>
       </nav>
 
+      <section
+        class="activity-banner"
+        id="activityBanner"
+        aria-live="polite"
+        hidden
+      >
+        <span class="loading-spinner" id="activitySpinner"></span>
+        <div class="activity-copy">
+          <div class="activity-title" id="activityTitle">Loading board...</div>
+          <div class="activity-detail" id="activityDetail">
+            Fetching game board data and update status.
+          </div>
+        </div>
+      </section>
+
       <section class="hero-grid">
         <article class="hero-card">
           <div class="eyebrow">Daily Game Board</div>
@@ -1444,7 +1576,7 @@
             </div>
 
             <div class="control-row">
-              <button class="secondary" id="refreshButton">
+              <button class="secondary" id="refreshButton" type="button">
                 Refresh board
               </button>
             </div>
@@ -1452,24 +1584,67 @@
             <div class="field">
               <label>Update Center</label>
               <div class="update-grid">
-                <button class="secondary" data-update-action="prepare_slate">
+                <button
+                  class="primary"
+                  data-update-action="refresh_everything"
+                  type="button"
+                >
+                  Refresh Everything
+                </button>
+                <button
+                  class="secondary"
+                  data-update-action="prepare_slate"
+                  type="button"
+                >
                   Prepare slate
                 </button>
-                <button class="secondary" data-update-action="import_manual_inputs">
+                <button
+                  class="secondary"
+                  data-update-action="import_manual_inputs"
+                  type="button"
+                >
                   Import inputs
                 </button>
-                <button class="secondary" data-update-action="refresh_results">
+                <button
+                  class="secondary"
+                  data-update-action="refresh_results"
+                  type="button"
+                >
                   Refresh results
                 </button>
-                <button class="primary" data-update-action="rebuild_predictions">
+                <button
+                  class="secondary"
+                  data-update-action="rebuild_predictions"
+                  type="button"
+                >
                   Rebuild predictions
+                </button>
+                <button
+                  class="secondary"
+                  data-update-action="grade_predictions"
+                  type="button"
+                >
+                  Grade predictions
                 </button>
               </div>
               <p class="hint control-note">
-                Prepare slate refreshes schedule, starters, and editable CSV templates. Import inputs reads projected or edited lineup data plus live and fallback market inputs. Refresh results pulls boxscores and batting logs, then updates team form tables. Rebuild predictions refreshes full-game totals, first-five totals, hitter cards, strikeout cards, and published product surfaces.
+                Refresh Everything runs the full selected-date pipeline in one
+                shot: slate prep, input imports, aggregate refresh, feature
+                builds, predictions, and published product surfaces. Prepare
+                slate refreshes schedule, starters, and editable CSV templates.
+                Import inputs reads projected or edited lineup data plus live
+                and fallback market inputs. Refresh results pulls boxscores and
+                batting logs, then updates team form tables. Grade predictions
+                pulls yesterday's final scores, batting logs, and aggregates,
+                then grades all prior predictions and updates scorecards.
               </p>
               <p class="hint control-note">
-                Daily workflow: on desktop launch the app will try the standard refresh automatically when today's predictions are missing. If you want tighter control, run: 1. Prepare slate. 2. Review or edit lineup and market templates if needed. 3. Import inputs. 4. Rebuild predictions. 5. After games finish, run Refresh results.
+                Daily workflow: on desktop launch the app will try the standard
+                refresh automatically when today's predictions are missing. For
+                most days, just run Refresh Everything. If you want tighter
+                control, use the individual steps instead. After games finish,
+                run Grade predictions to refresh historical review and
+                scorecards.
               </p>
               <div class="update-job-status" id="updateJobStatus">
                 No update job running.
@@ -1649,6 +1824,50 @@
         </div>
       </section>
 
+      <section class="panel review-panel">
+        <div class="panel-head">
+          <div>
+            <div class="section-tag" id="pickReviewTag">Pick Review</div>
+            <h2 class="panel-title" id="pickReviewTitle">
+              Top misses and best calls for the selected date
+            </h2>
+          </div>
+          <span class="panel-subtitle" id="pickReviewSubtitle"
+            >Waiting for graded totals review</span
+          >
+        </div>
+        <div class="summary-grid review-grid" id="pickReviewGrid">
+          <div class="summary-card">
+            <div class="summary-copy">
+              Load a completed slate to review the biggest totals misses and the
+              strongest winning calls.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel review-panel">
+        <div class="panel-head">
+          <div>
+            <div class="section-tag" id="clvReviewTag">CLV Review</div>
+            <h2 class="panel-title" id="clvReviewTitle">
+              Best and worst closing-line value over the recent window
+            </h2>
+          </div>
+          <span class="panel-subtitle" id="clvReviewSubtitle"
+            >Waiting for CLV rows</span
+          >
+        </div>
+        <div class="summary-grid review-grid" id="clvReviewGrid">
+          <div class="summary-card">
+            <div class="summary-copy">
+              Run grading plus product surfaces to compare recommendation lines
+              against the selected close.
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="panel historical-panel">
         <div class="panel-head">
           <div>
@@ -1707,7 +1926,9 @@
             <div class="section-tag">Pipeline</div>
             <h2 class="panel-title">Run log</h2>
           </div>
-          <span class="panel-subtitle">Live output from the active or latest update job</span>
+          <span class="panel-subtitle"
+            >Live output from the active or latest update job</span
+          >
         </div>
         <div class="log-box" id="logBox">Waiting for action.</div>
       </section>
@@ -1762,6 +1983,10 @@
       const gamesBoard = document.getElementById("gamesBoard");
       const logBox = document.getElementById("logBox");
       const updateJobStatus = document.getElementById("updateJobStatus");
+      const activityBanner = document.getElementById("activityBanner");
+      const activitySpinner = document.getElementById("activitySpinner");
+      const activityTitle = document.getElementById("activityTitle");
+      const activityDetail = document.getElementById("activityDetail");
       const LINEUP_CONTROLS_STORAGE_KEY = "mlbPredictor.lineupControls.v2";
       let updateJobPollTimer = null;
 
@@ -1794,6 +2019,8 @@
         games: [],
         boardSummary: null,
         scorecards: null,
+        pickReview: null,
+        clvReview: null,
         details: {},
         expandedGames: {},
         historySortMode: "time",
@@ -1806,13 +2033,20 @@
       targetDateInput.value = today;
 
       const updateActionMeta = {
+        refresh_everything: {
+          label: "Refresh Everything",
+          pending:
+            "Refreshing the full slate pipeline, inputs, features, predictions, and published surfaces",
+        },
         prepare_slate: {
           label: "Prepare slate",
-          pending: "Refreshing schedule, probable starters, and slate templates",
+          pending:
+            "Refreshing schedule, probable starters, and slate templates",
         },
         import_manual_inputs: {
           label: "Import inputs",
-          pending: "Importing projected or edited lineup data plus market inputs",
+          pending:
+            "Importing projected or edited lineup data plus market inputs",
         },
         refresh_results: {
           label: "Refresh results",
@@ -1822,12 +2056,17 @@
           label: "Rebuild predictions",
           pending: "Rebuilding features, predictions, and published surfaces",
         },
+        grade_predictions: {
+          label: "Grade predictions",
+          pending: "Grading yesterday's predictions against final results",
+        },
       };
 
       const updateStepLabels = {
         "src.ingestors.games": "Load games for the selected date",
         "src.ingestors.starters": "Load probable starters",
-        "src.ingestors.prepare_slate_inputs": "Create editable lineup and market templates",
+        "src.ingestors.prepare_slate_inputs":
+          "Create editable lineup and market templates",
         "src.ingestors.lineups": "Import lineup inputs",
         "src.ingestors.market_totals": "Import market inputs",
         "src.ingestors.boxscores": "Load final game scores",
@@ -1835,14 +2074,17 @@
         "src.transforms.offense_daily": "Refresh team offense form",
         "src.transforms.bullpens_daily": "Refresh bullpen form",
         "src.features.totals_builder": "Build full-game totals features",
-        "src.features.first5_totals_builder": "Build first-five totals features",
+        "src.features.first5_totals_builder":
+          "Build first-five totals features",
         "src.features.hits_builder": "Build hitter features",
         "src.features.strikeouts_builder": "Build strikeout features",
         "src.models.predict_totals": "Generate full-game totals predictions",
-        "src.models.predict_first5_totals": "Generate first-five totals predictions",
+        "src.models.predict_first5_totals":
+          "Generate first-five totals predictions",
         "src.models.predict_hits": "Generate hitter predictions",
         "src.models.predict_strikeouts": "Generate strikeout predictions",
-        "src.transforms.product_surfaces": "Refresh board, results, and scorecards",
+        "src.transforms.product_surfaces":
+          "Refresh board, results, and scorecards",
       };
 
       function humanizeUpdateStep(stepName) {
@@ -1861,9 +2103,55 @@
         updateJobStatus.className = `update-job-status${tone ? ` ${tone}` : ""}`;
       }
 
-      function setUpdateButtonsDisabled(disabled) {
+      function setBusyButton(button, busy, busyLabel = "") {
+        if (!button) {
+          return;
+        }
+        if (!button.dataset.idleLabel) {
+          button.dataset.idleLabel = button.textContent.trim();
+        }
+        button.classList.toggle("busy", busy);
+        button.setAttribute("aria-busy", busy ? "true" : "false");
+        button.textContent = busy
+          ? busyLabel || `${button.dataset.idleLabel}...`
+          : button.dataset.idleLabel;
+      }
+
+      function setActivityState({
+        visible = true,
+        title = "",
+        detail = "",
+        tone = "running",
+        spinning = true,
+      } = {}) {
+        activityBanner.hidden = !visible;
+        activityBanner.className = `activity-banner${visible && tone ? ` ${tone}` : ""}`;
+        activitySpinner.hidden = !visible || !spinning;
+        activityTitle.textContent = title || "Working...";
+        activityDetail.textContent = detail || "";
+      }
+
+      function renderLoadingPanel(title, detail = "") {
+        return `
+          <div class="loading-panel">
+            <span class="loading-spinner"></span>
+            <div class="activity-title">${title}</div>
+            <div class="activity-detail">${detail}</div>
+          </div>
+        `;
+      }
+
+      function setUpdateButtonsDisabled(disabled, activeAction = "") {
         updateActionButtons.forEach((button) => {
+          const meta = updateActionMeta[button.dataset.updateAction] || {};
+          const isActive =
+            disabled && button.dataset.updateAction === activeAction;
           button.disabled = disabled;
+          setBusyButton(
+            button,
+            isActive,
+            isActive ? `${meta.label || button.textContent.trim()}...` : "",
+          );
         });
       }
 
@@ -2420,12 +2708,157 @@
                 : `${row.predictions_count || 0} queued`,
               `Latest ${scoreDate} · ${row.model_name} ${row.model_version} · ${row.trailing_predictions || 0} calls over ${row.trailing_days || 0} days.`,
               row.trailing_graded
-                ? `MAE ${formatNumber(row.trailing_avg_absolute_error, 2)} · beat mkt ${formatPercent(beatMarket, 0)}`
+                ? `MAE ${formatNumber(row.trailing_avg_absolute_error, 2)} · beat mkt ${formatPercent(beatMarket, 0)} · CLV ${formatSigned(row.trailing_avg_clv_side_value, 2)}`
                 : `${row.pending_count || 0} pending on latest day`,
               reviewToneClass("winRate", trailingRate),
             );
           })
           .join("");
+      }
+
+      function renderPickReviewItem(row, kind) {
+        const teams = `${row.away_team || "?"} at ${row.home_team || "?"}`;
+        const side = row.recommended_side
+          ? String(row.recommended_side).toUpperCase()
+          : "-";
+        const actual = row.actual_side
+          ? String(row.actual_side).toUpperCase()
+          : "-";
+        const resultValue = `${side} → ${actual}`;
+        const detailBits = [
+          `Model ${formatNumber(row.predicted_value, 1)}`,
+          `Market ${formatNumber(row.market_line, 1)}`,
+          `Final ${formatNumber(row.actual_value, 0)}`,
+        ];
+        if (row.weather_delta_temperature_f != null) {
+          detailBits.push(
+            `Weather Δ ${formatSigned(row.weather_delta_temperature_f, 1)}°`,
+          );
+        }
+        if (row.clv_side_value != null) {
+          detailBits.push(`CLV ${formatSigned(row.clv_side_value, 1)}`);
+        }
+        const chip =
+          kind === "miss"
+            ? `Miss ${formatNumber(row.miss_severity, 1)}`
+            : row.beat_closing_line
+              ? `+CLV ${formatSigned(row.clv_side_value, 1)}`
+              : row.beat_market
+                ? "Beat market"
+                : `Error ${formatNumber(row.miss_severity, 1)}`;
+        return renderReviewCard(
+          `${kind === "miss" ? "Top Miss" : "Best Call"} · ${teams}`,
+          resultValue,
+          detailBits.join(" · "),
+          chip,
+          kind === "miss" ? "warn" : "good",
+        );
+      }
+
+      function renderClvReviewItem(row, kind) {
+        const teams = `${row.away_team || "?"} at ${row.home_team || "?"}`;
+        const direction = row.recommended_side
+          ? String(row.recommended_side).toUpperCase()
+          : "-";
+        const detail = `Entry ${formatNumber(row.market_line, 1)} · Close ${formatNumber(row.closing_market_line, 1)} · CLV ${formatSigned(row.clv_side_value, 2)}`;
+        const chip = row.beat_closing_line ? "Beat close" : "Lost to close";
+        return renderReviewCard(
+          `${kind === "best" ? "Best CLV" : "Worst CLV"} · ${teams}`,
+          `${direction} ticket`,
+          detail,
+          chip,
+          kind === "best" ? "good" : "warn",
+        );
+      }
+
+      function renderClvReviewPanel() {
+        const grid = document.getElementById("clvReviewGrid");
+        const tag = document.getElementById("clvReviewTag");
+        const title = document.getElementById("clvReviewTitle");
+        const subtitle = document.getElementById("clvReviewSubtitle");
+        const payload = state.clvReview;
+
+        if (!payload) {
+          tag.textContent = "CLV Review";
+          title.textContent =
+            "Best and worst closing-line value over the recent window";
+          subtitle.textContent = "Waiting for CLV rows";
+          grid.innerHTML = `
+          <div class="summary-card">
+            <div class="summary-copy">Run grading plus product surfaces to compare recommendation lines against the selected close.</div>
+          </div>
+        `;
+          return;
+        }
+
+        const summary = payload.summary || {};
+        tag.textContent = `CLV Review · ${marketDisplayName(payload.market || "totals")}`;
+        title.textContent =
+          "Best and worst closing-line value over the recent window";
+        subtitle.textContent = summary.rows
+          ? `${summary.rows} rows · avg CLV ${formatSigned(summary.avg_clv_side_value, 2)} · positive CLV ${formatPercent(summary.positive_clv_rate, 0)}`
+          : "No CLV rows available in the selected window";
+
+        const cards = [
+          ...(payload.best_clv || []).map((row) =>
+            renderClvReviewItem(row, "best"),
+          ),
+          ...(payload.worst_clv || []).map((row) =>
+            renderClvReviewItem(row, "worst"),
+          ),
+        ];
+        grid.innerHTML =
+          cards.length > 0
+            ? cards.join("")
+            : `
+            <div class="summary-card">
+              <div class="summary-copy">No totals rows have enough market history to compute CLV for this window yet.</div>
+            </div>
+          `;
+      }
+
+      function renderPickReviewPanel() {
+        const grid = document.getElementById("pickReviewGrid");
+        const tag = document.getElementById("pickReviewTag");
+        const title = document.getElementById("pickReviewTitle");
+        const subtitle = document.getElementById("pickReviewSubtitle");
+        const payload = state.pickReview;
+
+        if (!payload) {
+          tag.textContent = "Pick Review";
+          title.textContent = "Top misses and best calls for the selected date";
+          subtitle.textContent = "Waiting for graded totals review";
+          grid.innerHTML = `
+          <div class="summary-card">
+            <div class="summary-copy">Load a completed slate to review the biggest totals misses and the strongest winning calls.</div>
+          </div>
+        `;
+          return;
+        }
+
+        const summary = payload.summary || {};
+        tag.textContent = `Pick Review · ${marketDisplayName(payload.market || "totals")}`;
+        title.textContent = "Top misses and best calls for the selected date";
+        subtitle.textContent = summary.graded_games
+          ? `${summary.graded_games} graded games · ${summary.wins || 0} wins · ${summary.losses || 0} losses · ${summary.pushes || 0} pushes`
+          : `No graded ${marketDisplayName(payload.market || "totals").toLowerCase()} calls for ${targetDateInput.value}.`;
+
+        const misses = Array.isArray(payload.misses) ? payload.misses : [];
+        const bestCalls = Array.isArray(payload.best_calls)
+          ? payload.best_calls
+          : [];
+        const cards = [
+          ...misses.map((row) => renderPickReviewItem(row, "miss")),
+          ...bestCalls.map((row) => renderPickReviewItem(row, "best")),
+        ];
+        grid.innerHTML =
+          cards.length > 0
+            ? cards.join("")
+            : `
+            <div class="summary-card">
+              <div class="summary-copy">No graded totals review rows are available for ${targetDateInput.value} yet.</div>
+            </div>
+          `;
       }
 
       function historicalOutcomeInfo(game) {
@@ -3320,6 +3753,74 @@
       `;
       }
 
+      function renderDetailReviewCards(detail) {
+        const review = detail.review || {};
+        const rationale = review.rationale || {};
+        const grading = review.grading || {};
+        const confidence =
+          rationale.confidence == null
+            ? "-"
+            : formatPercent(rationale.confidence, 0);
+        const signals =
+          Array.isArray(rationale.signals) && rationale.signals.length
+            ? rationale.signals.join(" · ")
+            : "Waiting for stronger model evidence.";
+        const risks =
+          Array.isArray(rationale.risk_flags) && rationale.risk_flags.length
+            ? rationale.risk_flags.join(" · ")
+            : "No major risk flags from the current payload.";
+        const beatMarket =
+          grading.beat_market == null
+            ? "No comparison yet"
+            : grading.beat_market
+              ? "Model beat market"
+              : "Market beat model";
+        const clvSummary =
+          grading.clv_side_value == null
+            ? "No closing-line comparison yet"
+            : grading.beat_closing_line
+              ? `Beat close by ${formatSigned(grading.clv_side_value, 2)}`
+              : `Lost to close by ${formatSigned(grading.clv_side_value, 2)}`;
+        return `
+        <article class="context-card">
+          <div class="section-tag">Pregame Rationale</div>
+          <div class="data-row">
+            <span class="data-label">Headline</span>
+            <span class="data-value">${rationale.headline || totalsReasonSummary(detail)}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Confidence</span>
+            <span class="data-value">${confidence}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Signals</span>
+            <span class="data-value">${signals}</span>
+          </div>
+          <div class="small-note">Risk flags: ${risks}</div>
+        </article>
+        <article class="context-card">
+          <div class="section-tag">Postgame Review</div>
+          <div class="data-row">
+            <span class="data-label">Result</span>
+            <span class="data-value">${grading.summary || "No review summary yet."}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Model / Market Error</span>
+            <span class="data-value">${formatNumber(grading.model_error, 1)} / ${formatNumber(grading.market_error, 1)}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Beat Market</span>
+            <span class="data-value">${beatMarket}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">CLV</span>
+            <span class="data-value">${clvSummary}</span>
+          </div>
+          <div class="small-note">${grading.weather_shift || "Observed-vs-forecast weather delta will appear after grading."}</div>
+        </article>
+      `;
+      }
+
       function renderStarterDetailCard(starter, fallbackLabel) {
         if (!starter) {
           return `
@@ -3566,6 +4067,7 @@
                     <span class="data-value">${totalsReasonList(detail).join(" · ") || "Waiting for totals features"}</span>
                   </div>
                 </article>
+                ${renderDetailReviewCards(detail)}
               </div>
             </section>
             <section class="detail-section">
@@ -3598,6 +4100,23 @@
         return `<div class="empty-state">Expand this matchup to load the deeper game detail.</div>`;
       }
 
+      function renderDataQualityBadge(game) {
+        const dq = game.data_quality;
+        if (!dq) return "";
+        const colors = { green: "#22c55e", yellow: "#eab308", red: "#ef4444" };
+        const color = colors[dq.badge] || colors.yellow;
+        return `<span class="dq-badge" title="${dq.badge_reason}" style="background:${color}"></span>`;
+      }
+
+      function renderMarketLockBadge(game) {
+        const totals = game.totals || {};
+        if (!totals.market_locked) return "";
+        const book = totals.locked_sportsbook
+          ? ` ${String(totals.locked_sportsbook).toUpperCase()}`
+          : "";
+        return `<span class="lock-chip" title="Pregame market frozen${book}">LOCKED${book}</span>`;
+      }
+
       function renderGameSection(game) {
         const totals = game.totals || {};
         const actual = game.actual_result || {};
@@ -3615,7 +4134,7 @@
           <button class="game-toggle" data-game-id="${game.game_id}" aria-expanded="${expanded}">
             <div class="game-header">
               <div>
-                <div class="eyebrow">${formatDateTime(game.game_start_ts)} · ${venue.name || "Venue TBD"}</div>
+                <div class="eyebrow">${renderDataQualityBadge(game)}${renderMarketLockBadge(game)}${formatDateTime(game.game_start_ts)} · ${venue.name || "Venue TBD"}</div>
                 <h2 class="game-title">${game.away_team} at ${game.home_team}</h2>
                 <div class="game-subtitle">${venue.city || ""}${venue.city && venue.state ? ", " : ""}${venue.state || ""}${venue.roof_type ? ` · ${venue.roof_type}` : ""}</div>
               </div>
@@ -3661,7 +4180,7 @@
       function renderGames() {
         const games = state.games || [];
         if (!games.length) {
-          gamesBoard.innerHTML = `<div class="empty-state">No game sections are available for ${targetDateInput.value}. On desktop startup the app now tries to refresh the standard slate automatically, but a fresh install can still be catching up. You can also run Update Center in this order: Prepare slate, Import inputs, then Rebuild predictions. If live coverage is incomplete, the board can stay empty or partially populated until more data arrives.</div>`;
+          gamesBoard.innerHTML = `<div class="empty-state">No game sections are available for ${targetDateInput.value}. On desktop startup the app now tries to refresh the standard slate automatically, but a fresh install can still be catching up. Try Refresh Everything first. If live coverage is incomplete, the board can stay empty or partially populated until more data arrives.</div>`;
           return;
         }
         gamesBoard.innerHTML = games.map(safeRenderGameSection).join("");
@@ -3673,6 +4192,8 @@
         renderHitterDataWarning();
         renderReviewStrip();
         renderScorecards();
+        renderPickReviewPanel();
+        renderClvReviewPanel();
         renderHistoricalReview();
         renderGames();
       }
@@ -3715,6 +4236,32 @@
           throw new Error(`Scorecard request failed: ${response.status}`);
         }
         state.scorecards = await response.json();
+      }
+
+      async function loadPickReview() {
+        const date = targetDateInput.value;
+        const response = await fetch(
+          appUrl(
+            `api/review/top-misses?target_date=${encodeURIComponent(date)}&market=totals&limit=6`,
+          ),
+        );
+        if (!response.ok) {
+          throw new Error(`Pick review request failed: ${response.status}`);
+        }
+        state.pickReview = await response.json();
+      }
+
+      async function loadClvReview() {
+        const date = targetDateInput.value;
+        const response = await fetch(
+          appUrl(
+            `api/review/clv?start_date=${encodeURIComponent(date)}&end_date=${encodeURIComponent(date)}&market=totals&limit=4`,
+          ),
+        );
+        if (!response.ok) {
+          throw new Error(`CLV review request failed: ${response.status}`);
+        }
+        state.clvReview = await response.json();
       }
 
       async function loadGameDetail(gameId) {
@@ -3769,64 +4316,135 @@
       async function refreshBoard(options = {}) {
         const preserveLog = Boolean(options.preserveLog);
         const filters = getHitFilters();
+        const date = targetDateInput.value;
+        const totalLoads = 5;
+        let completedLoads = 0;
+        const trackLoad = (label, loader) =>
+          Promise.resolve()
+            .then(loader)
+            .finally(() => {
+              completedLoads += 1;
+              setActivityState({
+                visible: true,
+                title: `Loading ${date} board...`,
+                detail: `${completedLoads}/${totalLoads} checks finished · ${label}`,
+                tone: "running",
+                spinning: true,
+              });
+            });
+
         state.details = {};
         state.expandedGames = {};
-        gamesBoard.innerHTML = `<div class="empty-state">Refreshing slate board...</div>`;
+        setBusyButton(refreshButton, true, "Loading board...");
+        gamesBoard.innerHTML = renderLoadingPanel(
+          `Loading ${date} board...`,
+          "Fetching games, scorecards, review panels, and CLV data.",
+        );
+        setActivityState({
+          visible: true,
+          title: `Loading ${date} board...`,
+          detail: "Fetching games, scorecards, review panels, and CLV data.",
+          tone: "running",
+          spinning: true,
+        });
         if (!preserveLog) {
           setLog(
-            `Refreshing board for ${targetDateInput.value}\n` +
+            `Refreshing board for ${date}\n` +
               `Compact slate: ${filters.limit} hitters per team, min hit probability ${filters.minProbability || 0}, confirmed only ${filters.confirmedOnly}, include inferred ${filters.includeInferred}.`,
           );
         }
 
-        const [statusResult, boardResult, scorecardResult] =
-          await Promise.allSettled([
-            loadStatus(),
-            loadBoard(),
-            loadScorecards(),
-          ]);
-        const problems = [];
-
-        if (statusResult.status === "rejected") {
-          problems.push(`Status: ${describeError(statusResult.reason)}`);
-        }
-        if (boardResult.status === "rejected") {
-          state.boardSummary = null;
-          state.games = [];
-          problems.push(`Board: ${describeError(boardResult.reason)}`);
-        }
-        if (scorecardResult.status === "rejected") {
-          state.scorecards = null;
-          problems.push(`Scorecards: ${describeError(scorecardResult.reason)}`);
-        }
-
         try {
-          renderBoard();
-        } catch (error) {
-          problems.push(`Render: ${describeError(error)}`);
-        }
+          const [
+            statusResult,
+            boardResult,
+            scorecardResult,
+            pickReviewResult,
+            clvReviewResult,
+          ] = await Promise.allSettled([
+            trackLoad("status", () => loadStatus()),
+            trackLoad("board games", () => loadBoard()),
+            trackLoad("scorecards", () => loadScorecards()),
+            trackLoad("pick review", () => loadPickReview()),
+            trackLoad("CLV review", () => loadClvReview()),
+          ]);
+          const problems = [];
 
-        if (problems.length) {
-          if (!preserveLog) {
-            setLog(
-              `Board refresh completed with issues for ${targetDateInput.value}.\n` +
-                problems.join("\n\n"),
+          if (statusResult.status === "rejected") {
+            problems.push(`Status: ${describeError(statusResult.reason)}`);
+          }
+          if (boardResult.status === "rejected") {
+            state.boardSummary = null;
+            state.games = [];
+            problems.push(`Board: ${describeError(boardResult.reason)}`);
+          }
+          if (scorecardResult.status === "rejected") {
+            state.scorecards = null;
+            problems.push(
+              `Scorecards: ${describeError(scorecardResult.reason)}`,
             );
           }
-          return;
-        }
+          if (pickReviewResult.status === "rejected") {
+            state.pickReview = null;
+            problems.push(
+              `Pick review: ${describeError(pickReviewResult.reason)}`,
+            );
+          }
+          if (clvReviewResult.status === "rejected") {
+            state.clvReview = null;
+            problems.push(
+              `CLV review: ${describeError(clvReviewResult.reason)}`,
+            );
+          }
 
-        if (!preserveLog) {
-          setLog(
-            `Board refreshed for ${targetDateInput.value}. Loaded ${state.games.length} games.` +
-              `${state.boardSummary ? ` ${state.boardSummary.final_games || 0} final.` : ""}`,
-          );
+          try {
+            renderBoard();
+          } catch (error) {
+            problems.push(`Render: ${describeError(error)}`);
+          }
+
+          if (problems.length) {
+            setActivityState({
+              visible: true,
+              title: `Board loaded with issues for ${date}`,
+              detail: problems[0],
+              tone: "warn",
+              spinning: false,
+            });
+            if (!preserveLog) {
+              setLog(
+                `Board refresh completed with issues for ${date}.\n` +
+                  problems.join("\n\n"),
+              );
+            }
+            return;
+          }
+
+          setActivityState({
+            visible: true,
+            title: `Board ready for ${date}`,
+            detail: `Loaded ${state.games.length} games${state.boardSummary ? ` · ${state.boardSummary.final_games || 0} final` : ""}.`,
+            tone: "good",
+            spinning: false,
+          });
+          if (!preserveLog) {
+            setLog(
+              `Board refreshed for ${date}. Loaded ${state.games.length} games.` +
+                `${state.boardSummary ? ` ${state.boardSummary.final_games || 0} final.` : ""}`,
+            );
+          }
+        } finally {
+          setBusyButton(refreshButton, false);
         }
       }
 
       function formatStepLog(step) {
-        const stdout = step.stdout ? `stdout:\n${step.stdout}` : "stdout: (empty)";
-        const stderr = step.stderr ? `stderr:\n${step.stderr}` : "stderr: (empty)";
+        const stdout = step.stdout
+          ? `stdout:\n${step.stdout}`
+          : "stdout: (empty)";
+        const stderr = step.stderr
+          ? `stderr:\n${step.stderr}`
+          : "stderr: (empty)";
         return `${humanizeUpdateStep(step.module)} (${step.module}) -> ${step.returncode}\n${stdout}\n${stderr}`;
       }
 
@@ -3856,6 +4474,22 @@
         return `${job.label} ${updateJobOutcomeLabel(job.status)} for ${job.target_date} · ${progress}`;
       }
 
+      function updateJobActivityDetail(job) {
+        if (!job) {
+          return "";
+        }
+        const runningStep = Array.isArray(job.steps)
+          ? [...job.steps].reverse().find((step) => step.returncode == null)
+          : null;
+        const completedStep = Array.isArray(job.steps)
+          ? [...job.steps].reverse().find((step) => step.returncode === 0)
+          : null;
+        const stepModule = runningStep?.module || completedStep?.module;
+        return stepModule
+          ? `Current step: ${humanizeUpdateStep(stepModule)}`
+          : "Waiting for the next pipeline step.";
+      }
+
       function renderUpdateJobLog(job) {
         if (!job) {
           return "Waiting for action.";
@@ -3881,24 +4515,42 @@
           state.activeUpdateJobId = null;
           setUpdateButtonsDisabled(false);
           setUpdateJobStatusCopy("No update job running.");
+          setActivityState({ visible: false });
           return;
         }
         state.activeUpdateJobId =
           job.status === "queued" || job.status === "running"
             ? job.job_id
             : null;
-        setUpdateButtonsDisabled(Boolean(state.activeUpdateJobId));
+        setUpdateButtonsDisabled(
+          Boolean(state.activeUpdateJobId),
+          job.action || "",
+        );
         setUpdateJobStatusCopy(
           updateJobStatusLine(job),
           updateJobTone(job.status),
         );
+        setActivityState({
+          visible: true,
+          title: updateJobStatusLine(job),
+          detail:
+            job.status === "queued" || job.status === "running"
+              ? updateJobActivityDetail(job)
+              : job.status === "failed"
+                ? job.error || "The update job stopped before finishing."
+                : `Completed ${job.completed_steps || 0} of ${job.total_steps || 0} steps.`,
+          tone: updateJobTone(job.status),
+          spinning: job.status === "queued" || job.status === "running",
+        });
         setLog(renderUpdateJobLog(job));
       }
 
       async function loadActiveUpdateJob() {
         const response = await fetch(appUrl("api/update-jobs/active"));
         if (!response.ok) {
-          throw new Error(`Active update job request failed: ${response.status}`);
+          throw new Error(
+            `Active update job request failed: ${response.status}`,
+          );
         }
         const payload = await response.json();
         return payload.job || null;
@@ -3918,7 +4570,9 @@
       async function loadUpdateJobHistory() {
         const response = await fetch(appUrl("api/update-jobs/history"));
         if (!response.ok) {
-          throw new Error(`Update job history request failed: ${response.status}`);
+          throw new Error(
+            `Update job history request failed: ${response.status}`,
+          );
         }
         const payload = await response.json();
         return Array.isArray(payload.jobs) ? payload.jobs : [];
@@ -3963,8 +4617,18 @@
 
         const date = targetDateInput.value;
         clearUpdateJobPoll();
-        setUpdateButtonsDisabled(true);
-        setUpdateJobStatusCopy(`${meta.label} queued for ${date}...`, "running");
+        setUpdateButtonsDisabled(true, action);
+        setUpdateJobStatusCopy(
+          `${meta.label} queued for ${date}...`,
+          "running",
+        );
+        setActivityState({
+          visible: true,
+          title: `${meta.label} queued for ${date}...`,
+          detail: meta.pending,
+          tone: "running",
+          spinning: true,
+        });
         setLog(`${meta.pending} for ${date}...`);
         try {
           const response = await fetch(appUrl("api/update-jobs/start"), {
@@ -3983,19 +4647,31 @@
             return;
           }
           if (!response.ok) {
-            throw new Error(payload.message || `Update job start failed: ${response.status}`);
+            throw new Error(
+              payload.message || `Update job start failed: ${response.status}`,
+            );
           }
           const job = payload.job;
           if (!job) {
-            throw new Error("Update job start response was missing the job payload.");
+            throw new Error(
+              "Update job start response was missing the job payload.",
+            );
           }
           applyUpdateJobState(job);
           await pollUpdateJob(job.job_id);
         } catch (error) {
+          const failureMessage = describeError(error);
           state.activeUpdateJobId = null;
           setUpdateButtonsDisabled(false);
-          setUpdateJobStatusCopy(`${meta.label} failed to start.`, "warn");
-          setLog(`${meta.label} failed to start: ${describeError(error)}`);
+          setUpdateJobStatusCopy(failureMessage, "warn");
+          setActivityState({
+            visible: true,
+            title: `${meta.label} failed to start`,
+            detail: failureMessage,
+            tone: "warn",
+            spinning: false,
+          });
+          setLog(`${meta.label} failed to start: ${failureMessage}`);
         }
       }
 
@@ -4056,9 +4732,13 @@
         renderHistoricalReview();
       });
 
-      refreshButton.addEventListener("click", refreshBoard);
+      refreshButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        refreshBoard();
+      });
       updateActionButtons.forEach((button) => {
-        button.addEventListener("click", () => {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
           startUpdateJob(button.dataset.updateAction);
         });
       });
@@ -4067,7 +4747,8 @@
       confirmedOnlyInput.addEventListener("change", refreshBoard);
       includeInferredInput.addEventListener("change", refreshBoard);
       targetDateInput.addEventListener("change", refreshBoard);
-      showProjectedHittersButton.addEventListener("click", () => {
+      showProjectedHittersButton.addEventListener("click", (event) => {
+        event.preventDefault();
         confirmedOnlyInput.checked = false;
         includeInferredInput.checked = true;
         refreshBoard();
