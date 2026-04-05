@@ -3,7 +3,18 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from src.models import predict_hits, predict_strikeouts
+from src.models import predict_first5_totals, predict_hits, predict_strikeouts, predict_totals
+
+
+def _capture_delete(monkeypatch, module):
+    captured: dict[str, object] = {}
+
+    def fake_run_sql(query, params=None, *args, **kwargs):
+        captured["query"] = query
+        captured["params"] = params
+
+    monkeypatch.setattr(module, "run_sql", fake_run_sql)
+    return captured
 
 
 def test_predict_hits_retries_with_retrained_artifact(monkeypatch, tmp_path):
@@ -20,7 +31,7 @@ def test_predict_hits_retries_with_retrained_artifact(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(predict_hits, "encode_frame", lambda frame, category_columns, training_columns: frame)
     monkeypatch.setattr(predict_hits, "_fetch_market_map", lambda target_date: {(1, 2): -110})
-    monkeypatch.setattr(predict_hits, "run_sql", lambda *args, **kwargs: None)
+    delete_capture = _capture_delete(monkeypatch, predict_hits)
     saved_rows: list[dict] = []
     monkeypatch.setattr(predict_hits, "upsert_rows", lambda table, rows, keys: saved_rows.extend(rows))
 
@@ -58,6 +69,8 @@ def test_predict_hits_retries_with_retrained_artifact(monkeypatch, tmp_path):
     assert reload_calls == ["stale artifact"]
     assert len(saved_rows) == 1
     assert saved_rows[0]["model_version"] == "hits_test"
+    assert "model_version" not in str(delete_capture["query"])
+    assert delete_capture["params"] == {"target_date": pd.Timestamp(target_date).date()}
 
 
 def test_predict_strikeouts_retries_with_retrained_artifact(monkeypatch, tmp_path):
@@ -74,7 +87,7 @@ def test_predict_strikeouts_retries_with_retrained_artifact(monkeypatch, tmp_pat
     )
     monkeypatch.setattr(predict_strikeouts, "encode_frame", lambda frame, category_columns, training_columns: frame)
     monkeypatch.setattr(predict_strikeouts, "_fetch_market_map", lambda target_date: {(1, 3): 5.5})
-    monkeypatch.setattr(predict_strikeouts, "run_sql", lambda *args, **kwargs: None)
+    delete_capture = _capture_delete(monkeypatch, predict_strikeouts)
     saved_rows: list[dict] = []
     monkeypatch.setattr(predict_strikeouts, "upsert_rows", lambda table, rows, keys: saved_rows.extend(rows))
 
@@ -107,6 +120,88 @@ def test_predict_strikeouts_retries_with_retrained_artifact(monkeypatch, tmp_pat
     assert reload_calls == ["stale artifact"]
     assert len(saved_rows) == 1
     assert saved_rows[0]["model_version"] == "strikeouts_test"
+    assert "model_version" not in str(delete_capture["query"])
+    assert delete_capture["params"] == {"target_date": pd.Timestamp(target_date).date()}
+
+
+def test_predict_totals_replaces_selected_date_across_versions(monkeypatch, tmp_path):
+    target_date = "2026-04-03"
+    monkeypatch.setattr(predict_totals.argparse.ArgumentParser, "parse_args", lambda self: SimpleNamespace(target_date=target_date))
+    monkeypatch.setattr(predict_totals, "get_settings", lambda: SimpleNamespace(report_dir=tmp_path))
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", lambda self, path, index=False: None)
+    monkeypatch.setattr(
+        predict_totals,
+        "load_feature_snapshots",
+        lambda lane: pd.DataFrame([
+            {"game_date": target_date, "game_id": 1, "feature_a": 0.4, "market_total": 8.5, "market_sportsbook": "FD", "line_snapshot_ts": None}
+        ]),
+    )
+    monkeypatch.setattr(predict_totals, "encode_frame", lambda frame, category_columns, training_columns: frame)
+    delete_capture = _capture_delete(monkeypatch, predict_totals)
+    saved_rows: list[dict] = []
+    monkeypatch.setattr(predict_totals, "upsert_rows", lambda table, rows, keys: saved_rows.extend(rows))
+
+    class WorkingModel:
+        def predict(self, X):
+            return np.array([8.9])
+
+    artifact = {
+        "feature_columns": ["feature_a"],
+        "category_columns": [],
+        "training_columns": ["feature_a"],
+        "model": WorkingModel(),
+        "model_name": "gbr",
+        "model_version": "totals_test",
+        "residual_std": 1.0,
+    }
+
+    monkeypatch.setattr(predict_totals, "_load_or_train_artifact", lambda: artifact)
+
+    assert predict_totals.main() == 0
+    assert len(saved_rows) == 1
+    assert saved_rows[0]["model_version"] == "totals_test"
+    assert "model_version" not in str(delete_capture["query"])
+    assert delete_capture["params"] == {"target_date": pd.Timestamp(target_date).date()}
+
+
+def test_predict_first5_totals_replaces_selected_date_across_versions(monkeypatch, tmp_path):
+    target_date = "2026-04-03"
+    monkeypatch.setattr(predict_first5_totals.argparse.ArgumentParser, "parse_args", lambda self: SimpleNamespace(target_date=target_date))
+    monkeypatch.setattr(predict_first5_totals, "get_settings", lambda: SimpleNamespace(report_dir=tmp_path))
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", lambda self, path, index=False: None)
+    monkeypatch.setattr(
+        predict_first5_totals,
+        "load_feature_snapshots",
+        lambda lane: pd.DataFrame([
+            {"game_date": target_date, "game_id": 1, "feature_a": 0.4, "market_total": 4.5, "market_sportsbook": "FD", "line_snapshot_ts": None}
+        ]),
+    )
+    monkeypatch.setattr(predict_first5_totals, "encode_frame", lambda frame, category_columns, training_columns: frame)
+    delete_capture = _capture_delete(monkeypatch, predict_first5_totals)
+    saved_rows: list[dict] = []
+    monkeypatch.setattr(predict_first5_totals, "upsert_rows", lambda table, rows, keys: saved_rows.extend(rows))
+
+    class WorkingModel:
+        def predict(self, X):
+            return np.array([4.9])
+
+    artifact = {
+        "feature_columns": ["feature_a"],
+        "category_columns": [],
+        "training_columns": ["feature_a"],
+        "model": WorkingModel(),
+        "model_name": "gbr",
+        "model_version": "first5_test",
+        "residual_std": 1.0,
+    }
+
+    monkeypatch.setattr(predict_first5_totals, "_load_or_train_artifact", lambda: artifact)
+
+    assert predict_first5_totals.main() == 0
+    assert len(saved_rows) == 1
+    assert saved_rows[0]["model_version"] == "first5_test"
+    assert "model_version" not in str(delete_capture["query"])
+    assert delete_capture["params"] == {"target_date": pd.Timestamp(target_date).date()}
 
 
 def test_predict_strikeouts_market_expectation_skips_opener_like_rows():

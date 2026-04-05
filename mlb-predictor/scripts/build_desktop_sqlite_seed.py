@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -20,6 +21,7 @@ from src.utils.settings import get_settings
 
 DEFAULT_OUTPUT_PATH = ROOT / "db" / "mlb_predictor.sqlite3"
 DEFAULT_CHUNK_SIZE = 2000
+LEGACY_DEFAULT_DATABASE_URL = "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"
 PREFERRED_TABLE_ORDER = (
     "dim_teams",
     "dim_players",
@@ -83,6 +85,37 @@ def _resolve_table_order(source_tables: Iterable[str], destination_tables: Itera
     ordered = [table_name for table_name in PREFERRED_TABLE_ORDER if table_name in available]
     ordered.extend(sorted(table_name for table_name in available if table_name not in set(ordered)))
     return ordered
+
+
+def _sqlite_source_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "MLBPredictor" / "db" / "mlb_predictor.sqlite3")
+    else:
+        candidates.append(Path.home() / ".mlb-predictor" / "db" / "mlb_predictor.sqlite3")
+    candidates.append(ROOT / "db" / "mlb_predictor.sqlite3")
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
+
+
+def _database_has_accessible_tables(database_url: str) -> bool:
+    engine = create_engine(database_url, future=True)
+    try:
+        inspect(engine).get_table_names()
+        return True
+    except Exception:
+        return False
+    finally:
+        engine.dispose()
 
 
 def _copy_table(source_engine: Engine, destination_engine: Engine, table_name: str, chunk_size: int) -> int:
@@ -153,19 +186,36 @@ def build_sqlite_seed(
     return counts
 
 
-def _resolve_source_database_url(explicit_url: str | None) -> str:
+def _resolve_source_database_url(explicit_url: str | None) -> tuple[str, bool]:
     if explicit_url:
-        return explicit_url.strip()
-    return get_settings().database_url
+        return explicit_url.strip(), False
+
+    configured_url = get_settings().database_url.strip()
+    if configured_url.startswith("sqlite"):
+        return configured_url, True
+    if configured_url and configured_url != LEGACY_DEFAULT_DATABASE_URL and _database_has_accessible_tables(configured_url):
+        return configured_url, False
+    if configured_url == LEGACY_DEFAULT_DATABASE_URL and _database_has_accessible_tables(configured_url):
+        return configured_url, False
+
+    for candidate in _sqlite_source_candidates():
+        if not candidate.exists():
+            continue
+        candidate_url = f"sqlite:///{candidate.resolve().as_posix()}"
+        if _database_has_accessible_tables(candidate_url):
+            print(f"Falling back to SQLite seed source: {candidate}")
+            return candidate_url, True
+
+    return configured_url, False
 
 
 def main() -> int:
     args = build_parser().parse_args()
     output_path = Path(args.output).resolve()
-    source_database_url = _resolve_source_database_url(args.source_database_url)
+    source_database_url, auto_selected_sqlite = _resolve_source_database_url(args.source_database_url)
     source_engine = create_engine(source_database_url, future=True)
     source_dialect = get_dialect_name(source_engine)
-    if source_dialect == "sqlite" and not args.allow_sqlite_source:
+    if source_dialect == "sqlite" and not (args.allow_sqlite_source or auto_selected_sqlite):
         print(
             "Refusing to build the desktop seed from a SQLite source database. "
             "Clear DATABASE_URL or pass --source-database-url for the populated Postgres database."

@@ -445,14 +445,124 @@
       }
 
       .cards-grid {
-        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
         margin-top: 18px;
       }
 
       .game-card {
+        display: block;
+        background: rgba(255, 255, 255, 0.78);
+        overflow: hidden;
+        min-width: 0;
+      }
+
+      .game-card-link {
         display: grid;
         gap: 16px;
-        background: rgba(255, 255, 255, 0.75);
+        padding: 20px;
+        color: inherit;
+        text-decoration: none;
+        min-width: 0;
+        height: 100%;
+        transition: background 140ms ease, transform 140ms ease;
+      }
+
+      .game-card-link:hover {
+        background: rgba(11, 106, 88, 0.05);
+        transform: translateY(-1px);
+      }
+
+      .game-card-body,
+      .team-note-grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .game-card-body {
+        grid-template-columns: 1fr;
+      }
+
+      .game-card-glance {
+        display: grid;
+        gap: 10px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(246, 240, 232, 0.72);
+      }
+
+      .game-card-glance .data-row {
+        align-items: flex-start;
+      }
+
+      .game-card-glance .data-value {
+        max-width: 58%;
+      }
+
+      .team-note,
+      .game-card-footer-copy {
+        color: var(--muted);
+        line-height: 1.5;
+        font-size: 0.88rem;
+      }
+
+      .team-note {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        padding: 0;
+      }
+
+      .team-note-value {
+        font-size: 0.92rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+      }
+
+      .game-card-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
+      }
+
+      .game-card-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(11, 106, 88, 0.09);
+        border: 1px solid rgba(11, 106, 88, 0.14);
+        color: var(--accent-deep);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .compact-metrics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .compact-metric {
+        padding: 12px 14px;
+        border-radius: 18px;
+        background: rgba(11, 106, 88, 0.06);
+        border: 1px solid rgba(11, 106, 88, 0.1);
+      }
+
+      .compact-metric .value {
+        display: block;
+        margin-top: 6px;
+        font-size: 1.05rem;
+        font-weight: 800;
       }
 
       .game-title {
@@ -620,6 +730,15 @@
         .bullpen-grid,
         .starter-grid,
         .history-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .game-card-body,
+        .team-note-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .compact-metrics {
           grid-template-columns: 1fr;
         }
       }
@@ -905,6 +1024,11 @@
         return number == null ? "-" : number.toFixed(digits);
       }
 
+      function formatInteger(value) {
+        const number = numberOr(value);
+        return number == null ? "-" : `${Math.round(number)}`;
+      }
+
       function formatSigned(value, digits = 2) {
         const number = numberOr(value);
         return number == null
@@ -978,6 +1102,42 @@
           pitchesLast3: numberOr(totals?.[`${side}_bullpen_pitches_last3`]),
           inningsLast3: numberOr(totals?.[`${side}_bullpen_innings_last3`]),
           b2b: numberOr(totals?.[`${side}_bullpen_b2b`], 0) === 1,
+          runsAllowedLast3: numberOr(totals?.[`${side}_bullpen_runs_allowed_last3`]),
+          earnedRunsLast3: numberOr(totals?.[`${side}_bullpen_earned_runs_last3`]),
+          hitsAllowedLast3: numberOr(totals?.[`${side}_bullpen_hits_allowed_last3`]),
+          eraLast3: numberOr(totals?.[`${side}_bullpen_era_last3`]),
+        };
+      }
+
+      function bullpenQuality(snapshot) {
+        const era = snapshot?.eraLast3;
+        const runsAllowed = snapshot?.runsAllowedLast3;
+        const hitsAllowed = snapshot?.hitsAllowedLast3;
+        if (era == null && runsAllowed == null && hitsAllowed == null) {
+          return {
+            label: "Quality unknown",
+            tone: "",
+            copy: "Recent bullpen run-prevention data is not loaded yet.",
+          };
+        }
+        if ((era != null && era >= 5.5) || (runsAllowed != null && runsAllowed >= 7) || (hitsAllowed != null && hitsAllowed >= 12)) {
+          return {
+            label: "Recent prevention slipping",
+            tone: "bad",
+            copy: "This bullpen has allowed meaningful recent traffic or runs, so late outs look less stable right now.",
+          };
+        }
+        if ((era != null && era >= 4.0) || (runsAllowed != null && runsAllowed >= 4) || (hitsAllowed != null && hitsAllowed >= 8)) {
+          return {
+            label: "Recent prevention mixed",
+            tone: "warn",
+            copy: "The recent relief results are playable but not especially clean; some run prevention leakage is showing up.",
+          };
+        }
+        return {
+          label: "Recent prevention solid",
+          tone: "good",
+          copy: "The bullpen has kept recent damage in check, which matters once the game gets past the starters.",
         };
       }
 
@@ -992,24 +1152,24 @@
             copy: "No recent bullpen workload loaded",
           };
         }
-        if ((pitches != null && pitches >= 110) || (innings != null && innings >= 10) || (b2b && pitches != null && pitches >= 85)) {
+        if ((pitches != null && pitches >= 140) || (innings != null && innings >= 12) || (b2b && ((pitches != null && pitches >= 110) || (innings != null && innings >= 9)))) {
           return {
-            label: "Heavy recent use",
+            label: "High recent load",
             tone: "bad",
-            copy: "This bullpen has thrown a lot lately, which can matter more in the late innings",
+            copy: "This bullpen has covered a heavy recent workload, which matters most once the starters are out of the game.",
           };
         }
-        if ((pitches != null && pitches >= 75) || (innings != null && innings >= 7) || b2b) {
+        if ((pitches != null && pitches >= 90) || (innings != null && innings >= 8) || b2b) {
           return {
-            label: "Used recently",
+            label: "Moderate recent load",
             tone: "warn",
-            copy: "There has been some recent bullpen work, but not an extreme amount",
+            copy: "There has been meaningful recent bullpen work here, but it does not look maxed out.",
           };
         }
         return {
-          label: "Light recent use",
+          label: "Light recent load",
           tone: "good",
-          copy: "This bullpen has had a lighter workload lately and should be more rested",
+          copy: "This bullpen has had a lighter recent workload and should be more rested.",
         };
       }
 
@@ -1030,11 +1190,12 @@
         const marketTotal = numberOr(record.market_total);
         const totalRuns = numberOr(record.total_runs);
         const delta = numberOr(record.delta_vs_market);
-        const score = `${escapeHtml(team)} ${escapeHtml(record.team_runs ?? "-")} - ${escapeHtml(record.opponent || "TBD")} ${escapeHtml(record.opponent_runs ?? "-")}`;
+        const score = `${escapeHtml(team)} ${escapeHtml(record.team_runs ?? "-")}, ${escapeHtml(record.opponent || "TBD")} ${escapeHtml(record.opponent_runs ?? "-")}`;
+        const combinedCopy = totalRuns == null ? "Combined total pending" : `Combined final ${formatNumber(totalRuns, 0)} runs`;
         const marketCopy =
           marketTotal == null
             ? "No posted full-game total loaded"
-            : `${formatNumber(totalRuns, 0)} runs vs ${formatNumber(marketTotal, 1)} line (${formatSigned(delta, 1)})`;
+            : `Closed total ${formatNumber(marketTotal, 1)} · ${sideLabel(record.actual_side)} by ${formatSigned(delta, 1)}`;
         return `
         <div class="history-entry">
           <div class="history-entry-top">
@@ -1045,8 +1206,8 @@
             ${historyChip(record)}
           </div>
           <div class="history-entry-bottom">
+            <div class="history-entry-meta">${escapeHtml(combinedCopy)}</div>
             <div class="history-entry-meta">${escapeHtml(marketCopy)}</div>
-            <div class="history-entry-meta">Final total: ${escapeHtml(record.total_runs ?? "-")}</div>
           </div>
         </div>
       `;
@@ -1066,14 +1227,14 @@
           (row) => row.actual_side === "push",
         ).length;
         const summary = marketBacked.length
-          ? `${overs} over, ${unders} under, ${pushes} push in the last ${marketBacked.length} lined games`
+          ? `${overs} over / ${unders} under / ${pushes} push across the last ${marketBacked.length} lined games`
           : "No recent lined totals loaded";
         return `
         <article class="history-card">
           <div class="history-head">
             <div>
               <div class="section-tag">${escapeHtml(team)}</div>
-              <h3>Recent team totals</h3>
+              <h3>Recent full-game totals</h3>
             </div>
             <span class="small-copy">Last 5 finals</span>
           </div>
@@ -1123,19 +1284,24 @@
 
       function renderBullpenCard(snapshot) {
         const load = bullpenLoad(snapshot);
+        const quality = bullpenQuality(snapshot);
         return `
         <article class="bullpen-card">
           <div class="starter-head">
             <div>
               <div class="section-tag">${escapeHtml(snapshot.team)}</div>
-              <h3>Bullpen workload</h3>
+              <h3>Recent bullpen load</h3>
             </div>
             <span class="chip ${load.tone}">${escapeHtml(load.label)}</span>
           </div>
           <div class="data-stack">
             <div class="data-row"><span class="data-label">Last 3 Games</span><span class="data-value">${formatNumber(snapshot.pitchesLast3, 0)} pitches | ${formatBaseballIp(snapshot.inningsLast3)} IP</span></div>
             <div class="data-row"><span class="data-label">Worked Yesterday</span><span class="data-value">${snapshot.b2b ? "Yes" : "No"}</span></div>
+            <div class="data-row"><span class="data-label">Runs / Hits</span><span class="data-value">${formatNumber(snapshot.runsAllowedLast3, 0)} runs | ${formatNumber(snapshot.hitsAllowedLast3, 0)} hits allowed</span></div>
+            <div class="data-row"><span class="data-label">Bullpen ERA</span><span class="data-value">${formatNumber(snapshot.eraLast3, 2)} over the last 3 relief game logs</span></div>
+            <div class="data-row"><span class="data-label">Tracking</span><span class="data-value">This uses each team&apos;s last 3 bullpen game logs. We currently track recent workload and run prevention, not a true inning-by-inning late-game split.</span></div>
             <div class="data-row"><span class="data-label">What It Means</span><span class="data-value">${escapeHtml(load.copy)}</span></div>
+            <div class="data-row"><span class="data-label">Run Prevention</span><span class="data-value">${escapeHtml(quality.label)} · ${escapeHtml(quality.copy)}</span></div>
           </div>
         </article>
       `;
@@ -1169,10 +1335,14 @@
           : `Expected split ${formatNumber(awayExpected, 2)} / ${formatNumber(homeExpected, 2)}`;
         const headline = predicted == null
           ? "Prediction pending"
-          : `${formatNumber(predicted, 2)} / ${formatNumber(market, 1)}`;
+          : market == null
+            ? `Model ${formatNumber(predicted, 2)} | Market pending`
+            : `${formatNumber(predicted, 2)} / ${formatNumber(market, 1)}`;
         const detail = predicted == null
           ? `${splitCopy} | Trained first-five pick not available yet`
-          : `Delta ${formatSigned(first5.delta_vs_market, 2)} | ${first5.recommended_side ? `${escapeHtml(first5.recommended_side)} call` : "No posted first-five total"}`;
+          : market == null
+            ? `${splitCopy} | No posted first-five total is loaded for this matchup yet.`
+            : `Delta ${formatSigned(first5.delta_vs_market, 2)} | ${first5.recommended_side ? `${escapeHtml(first5.recommended_side)} call` : "No posted first-five total"}`;
         return `
             <article class="summary-card">
               <div class="data-label">First 5 / Market</div>
@@ -1193,65 +1363,60 @@
           away: bullpenSnapshot(game.away_team, totals, "away"),
           home: bullpenSnapshot(game.home_team, totals, "home"),
         };
-        const recentTotals = game.recent_totals || {};
-        const recentOffense = game.recent_offense || {};
         const lean = leanSide(totals);
         const leanProb = leanProbability(totals);
+        const matchupHref = appUrl(`game?game_id=${encodeURIComponent(game.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=true`);
+        const awayLoad = bullpenLoad(bullpens.away);
+        const homeLoad = bullpenLoad(bullpens.home);
+        const awayStarterLine = starters.away
+          ? `${escapeHtml(starters.away.pitcher_name || game.away_team)}${starters.away.throws ? ` · ${escapeHtml(starters.away.throws)}HP` : ""}${starters.away.days_rest == null ? "" : ` · ${formatInteger(starters.away.days_rest)}d rest`}`
+          : "Starter pending";
+        const homeStarterLine = starters.home
+          ? `${escapeHtml(starters.home.pitcher_name || game.home_team)}${starters.home.throws ? ` · ${escapeHtml(starters.home.throws)}HP` : ""}${starters.home.days_rest == null ? "" : ` · ${formatInteger(starters.home.days_rest)}d rest`}`
+          : "Starter pending";
         return `
         <article class="game-card">
-          <div class="game-header">
-            <div>
-              <div class="eyebrow">${escapeHtml(formatDateTime(game.game_start_ts))} | ${escapeHtml(venue.name || "Venue TBD")}</div>
-              <div class="game-title">${escapeHtml(game.away_team)} at ${escapeHtml(game.home_team)}</div>
-              <div class="game-subtitle">${escapeHtml([venue.city, venue.state].filter(Boolean).join(", "))}${venue.roof_type ? ` | ${escapeHtml(venue.roof_type)}` : ""}</div>
+          <a class="game-card-link" href="${matchupHref}">
+            <div class="game-header">
+              <div>
+                <div class="eyebrow">${escapeHtml(formatDateTime(game.game_start_ts))} | ${escapeHtml(venue.name || "Venue TBD")}</div>
+                <div class="game-title">${escapeHtml(game.away_team)} at ${escapeHtml(game.home_team)}</div>
+                <div class="game-subtitle">${escapeHtml([venue.city, venue.state].filter(Boolean).join(", "))}${venue.roof_type ? ` | ${escapeHtml(venue.roof_type)}` : ""}</div>
+              </div>
+              <div class="big-metric">
+                <span class="tiny-label">Totals Edge</span>
+                <span class="value ${edgeTone(totals.edge)}">${formatSigned(totals.edge)}</span>
+              </div>
             </div>
-            <div class="big-metric">
-              <span class="tiny-label">Totals Edge</span>
-              <span class="value ${edgeTone(totals.edge)}">${formatSigned(totals.edge)}</span>
+
+            <div class="game-card-body">
+              <div class="game-card-glance">
+                <div class="data-row"><span class="data-label">Model / Market</span><span class="data-value">${formatNumber(totals.predicted_total_runs, 2)} / ${formatNumber(totals.market_total, 1)}</span></div>
+                <div class="data-row"><span class="data-label">Lean</span><span class="data-value">${leanProb == null ? escapeHtml(lean) : `${escapeHtml(lean)} · ${formatPercent(leanProb, 1)}`}</span></div>
+                <div class="data-row"><span class="data-label">Expected Runs</span><span class="data-value">${escapeHtml(game.away_team)} ${formatNumber(totals.away_expected_runs, 1)} / ${escapeHtml(game.home_team)} ${formatNumber(totals.home_expected_runs, 1)}</span></div>
+                <div class="data-row"><span class="data-label">Weather / Park</span><span class="data-value">${formatNumber(weather.temperature_f, 0)}F · Wind ${formatNumber(weather.wind_speed_mph, 0)} mph · Park ${formatNumber(totals.venue_run_factor, 2)}</span></div>
+                <div class="data-row"><span class="data-label">Bullpen Load</span><span class="data-value">${escapeHtml(game.away_team)} ${escapeHtml(awayLoad.label)} / ${escapeHtml(game.home_team)} ${escapeHtml(homeLoad.label)}</span></div>
+                <div class="data-row"><span class="data-label">Outcome</span><span class="data-value">${escapeHtml(outcomeCopy(game))}</span></div>
+              </div>
+
+              <div class="team-note-grid">
+                <article class="team-note">
+                  <div class="section-tag">${escapeHtml(game.away_team)}</div>
+                  <div class="team-note-value">${awayStarterLine}</div>
+                </article>
+                <article class="team-note">
+                  <div class="section-tag">${escapeHtml(game.home_team)}</div>
+                  <div class="team-note-value">${homeStarterLine}</div>
+                </article>
+              </div>
             </div>
-          </div>
 
-          <div class="summary-grid">
-            <article class="summary-card">
-              <div class="data-label">Model / Market</div>
-              <div class="summary-value">${formatNumber(totals.predicted_total_runs, 2)} / ${formatNumber(totals.market_total, 1)}</div>
-              <div class="summary-copy">Delta ${formatSigned(totals.delta_vs_market, 2)} | ${totals.recommended_side ? `${escapeHtml(totals.recommended_side)} call` : "No posted total"}</div>
-            </article>
-            ${renderFirst5SummaryCard(first5)}
-            <article class="summary-card">
-              <div class="data-label">Lean</div>
-              <div class="summary-value">${escapeHtml(lean)}</div>
-              <div class="summary-copy">${leanProb == null ? "Probability pending" : `${formatPercent(leanProb, 1)} stronger side`}</div>
-            </article>
-            <article class="summary-card">
-              <div class="data-label">Expected Runs</div>
-              <div class="summary-value">${escapeHtml(game.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(game.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div>
-              <div class="summary-copy">Outcome: ${escapeHtml(outcomeCopy(game))}</div>
-            </article>
-          </div>
+            <div class="game-card-footer">
+              <span class="game-card-footer-copy">Open the matchup page for lineups, hitter history, starter trends, bullpen detail, and the full breakdown.</span>
+              <span class="game-card-cta">Open Matchup Page</span>
+            </div>
 
-          <div class="data-stack">
-            <div class="data-row"><span class="data-label">Run Environment</span><span class="data-value">Park ${formatNumber(totals.venue_run_factor, 2)} | HR ${formatNumber(totals.venue_hr_factor, 2)}</span></div>
-            <div class="data-row"><span class="data-label">Weather</span><span class="data-value">${formatNumber(weather.temperature_f, 0)}F | Wind ${formatNumber(weather.wind_speed_mph, 0)} mph | Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}</span></div>
-            <div class="data-row"><span class="data-label">Line Move</span><span class="data-value">${formatSigned(totals.line_movement, 2)}</span></div>
-            <div class="data-row"><span class="data-label">Recent Offense</span><span class="data-value">${escapeHtml(offenseCopy(game.away_team, recentOffense.away))}</span></div>
-            <div class="data-row"><span class="data-label">Recent Offense</span><span class="data-value">${escapeHtml(offenseCopy(game.home_team, recentOffense.home))}</span></div>
-          </div>
-
-          <div class="starter-grid">
-            ${renderStarterCard(starters.away, game.away_team)}
-            ${renderStarterCard(starters.home, game.home_team)}
-          </div>
-
-          <div class="bullpen-grid">
-            ${renderBullpenCard(bullpens.away)}
-            ${renderBullpenCard(bullpens.home)}
-          </div>
-
-          <div class="history-grid">
-            ${renderHistoryCard(game.away_team, recentTotals.away || [])}
-            ${renderHistoryCard(game.home_team, recentTotals.home || [])}
-          </div>
+          </a>
         </article>
       `;
       }
@@ -1402,12 +1567,15 @@
         pageStatus.textContent = `Loading ${targetDateInput.value}`;
         try {
           await loadTotalsBoard();
+          const first5MarketBacked = (state.games || []).filter(
+            (game) => Boolean(game.first5_totals?.market_backed),
+          ).length;
           first5Title.textContent = state.first5Supported ? "Partially wired" : "Not wired yet";
           first5Subtitle.textContent = state.first5Supported
-            ? `${state.summary?.first5_supported_games || 0} game cards have first-five context`
+            ? `${state.summary?.first5_supported_games || 0} game cards have first-five model context · ${first5MarketBacked} have posted first-five totals`
             : "Full-game totals only for now";
           first5Copy.textContent = state.first5Supported
-            ? "First 5 context is now attached to game cards when the data exists. If you still see 'Prediction pending' on a card, the feature row exists but the trained first-five model artifact or posted first-five line is still missing for that game."
+            ? "First 5 cards can still be model-only. When a matchup shows 'Market pending', the starter and lineup context exists but no first-five total was ingested for that game yet."
             : "First 5 totals are not ingested yet. This page is full-game only for now, but it keeps starters prominent because they heavily influence the total before the bullpen takes over.";
           renderGames();
         } catch (error) {

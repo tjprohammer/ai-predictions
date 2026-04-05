@@ -3,10 +3,11 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
-from src.ingestors.common import player_dimension_row, record_ingest_event
+from src.ingestors.common import BASE_URL, player_dimension_row, record_ingest_event, statsapi_get
 from src.ingestors.prepare_slate_inputs import LINEUP_COLUMNS, build_lineup_input_frame
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df, upsert_rows
@@ -32,6 +33,17 @@ def _as_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _lineup_slot_from_batting_order(batting_order: Any) -> int | None:
+    if batting_order in (None, ""):
+        return None
+    batting_order_str = str(batting_order).strip()
+    if not batting_order_str.isdigit():
+        return None
+    if len(batting_order_str) >= 3:
+        return int(batting_order_str[:-2])
+    return int(batting_order_str)
 
 
 def _load_games_for_range(start_date, end_date) -> pd.DataFrame:
@@ -66,6 +78,94 @@ def _filter_lineup_date_range(frame: pd.DataFrame, start_date, end_date) -> pd.D
     ].copy()
 
 
+def _fetch_statsapi_lineup_frame(games: pd.DataFrame, snapshot_ts: str) -> pd.DataFrame:
+    if games.empty:
+        return pd.DataFrame(columns=LINEUP_COLUMNS)
+
+    rows: list[dict[str, object]] = []
+    for game in games.itertuples(index=False):
+        try:
+            feed = statsapi_get(f"/api/v1.1/game/{int(game.game_id)}/feed/live")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("StatsAPI lineup fetch failed for game %s: %s", game.game_id, exc)
+            continue
+
+        teams_box = ((feed.get("liveData") or {}).get("boxscore") or {}).get("teams") or {}
+        source_url = f"{BASE_URL}/api/v1.1/game/{int(game.game_id)}/feed/live"
+        for side, team_abbr in (("away", game.away_team), ("home", game.home_team)):
+            players = (teams_box.get(side) or {}).get("players") or {}
+            starters_by_slot: dict[int, dict[str, object]] = {}
+            for player in players.values():
+                person = player.get("person") or {}
+                player_id = person.get("id")
+                lineup_slot = _lineup_slot_from_batting_order(player.get("battingOrder"))
+                if player_id is None or lineup_slot is None:
+                    continue
+
+                batting_order_value = int(str(player.get("battingOrder")))
+                positions = player.get("allPositions") or []
+                field_position = (
+                    (player.get("position") or {}).get("abbreviation")
+                    or (positions[0] or {}).get("abbreviation") if positions else None
+                )
+                starter_row = {
+                    "game_id": int(game.game_id),
+                    "game_date": game.game_date,
+                    "team": team_abbr,
+                    "player_id": int(player_id),
+                    "player_name": person.get("fullName") or str(player_id),
+                    "lineup_slot": int(lineup_slot),
+                    "position": field_position,
+                    "confirmed": True,
+                    "source_name": "mlb_statsapi_lineups",
+                    "source_url": source_url,
+                    "snapshot_ts": snapshot_ts,
+                    "_batting_order_value": batting_order_value,
+                }
+                existing = starters_by_slot.get(int(lineup_slot))
+                if existing is None or batting_order_value < int(existing["_batting_order_value"]):
+                    starters_by_slot[int(lineup_slot)] = starter_row
+
+            if len(starters_by_slot) != 9:
+                continue
+
+            for lineup_slot in sorted(starters_by_slot):
+                row = starters_by_slot[lineup_slot].copy()
+                row.pop("_batting_order_value", None)
+                rows.append(row)
+
+    return pd.DataFrame(rows, columns=LINEUP_COLUMNS)
+
+
+def _lineup_team_keys(frame: pd.DataFrame) -> set[tuple[int, str]]:
+    if frame.empty:
+        return set()
+    keys: set[tuple[int, str]] = set()
+    for row in frame.itertuples(index=False):
+        game_id = getattr(row, "game_id", None)
+        team = getattr(row, "team", None)
+        if pd.isna(game_id) or team is None:
+            continue
+        keys.add((int(game_id), str(team)))
+    return keys
+
+
+def _prefer_statsapi_lineups(statsapi_frame: pd.DataFrame, existing: pd.DataFrame) -> pd.DataFrame:
+    if statsapi_frame.empty:
+        return existing.copy()
+    if existing.empty:
+        return statsapi_frame.copy()
+
+    covered_keys = _lineup_team_keys(statsapi_frame)
+    filtered_existing = existing[
+        existing.apply(
+            lambda row: (int(row["game_id"]), str(row["team"])) not in covered_keys if pd.notna(row["game_id"]) else True,
+            axis=1,
+        )
+    ].copy()
+    return pd.concat([statsapi_frame, filtered_existing], ignore_index=True)
+
+
 def _build_lineup_import_frame(csv_path: Path, start_date, end_date) -> pd.DataFrame:
     games = _load_games_for_range(start_date, end_date)
     if games.empty:
@@ -78,14 +178,16 @@ def _build_lineup_import_frame(csv_path: Path, start_date, end_date) -> pd.DataF
         existing = _filter_lineup_date_range(_coerce_lineup_columns(pd.read_csv(csv_path)), start_date, end_date)
     else:
         log.info(
-            "No manual lineup CSV found at %s; using projected lineup inference for %s to %s",
+            "No manual lineup CSV found at %s; using StatsAPI lineups when available and projected inference otherwise for %s to %s",
             csv_path,
             start_date,
             end_date,
         )
 
     snapshot_ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    return build_lineup_input_frame(games, existing=existing, snapshot_ts=snapshot_ts)
+    statsapi_existing = _fetch_statsapi_lineup_frame(games, snapshot_ts)
+    preferred_existing = _prefer_statsapi_lineups(statsapi_existing, existing)
+    return build_lineup_input_frame(games, existing=preferred_existing, snapshot_ts=snapshot_ts)
 
 
 def main() -> int:

@@ -81,11 +81,25 @@ def test_bootstrap_runtime_environment_preserves_explicit_database_url(tmp_path,
 
     custom_database_url = "postgresql+psycopg2://custom-user:custom-pass@dbhost:5432/mlb"
     monkeypatch.setenv("DATABASE_URL", custom_database_url)
+    monkeypatch.setenv("DATA_DIR", "./data")
+    monkeypatch.setenv("MODEL_DIR", "./data/models")
+    monkeypatch.setenv("REPORT_DIR", "./data/reports")
+    monkeypatch.setenv("FEATURE_DIR", "./data/features")
+    monkeypatch.setenv("MANUAL_LINEUPS_CSV", "./data/raw/manual_lineups.csv")
+    monkeypatch.setenv("MANUAL_MARKETS_CSV", "./data/raw/manual_market_totals.csv")
+    monkeypatch.setenv("PARK_FACTORS_CSV", "./db/seeds/park_factors.csv")
 
     user_env = bootstrap_runtime_environment(bundle_root, user_root)
 
     assert user_env is not None
     assert os.environ["DATABASE_URL"] == custom_database_url
+    assert Path(os.environ["DATA_DIR"]) == user_root / "data"
+    assert Path(os.environ["MODEL_DIR"]) == user_root / "data" / "models"
+    assert Path(os.environ["REPORT_DIR"]) == user_root / "data" / "reports"
+    assert Path(os.environ["FEATURE_DIR"]) == user_root / "data" / "features"
+    assert Path(os.environ["MANUAL_LINEUPS_CSV"]) == user_root / "data" / "raw" / "manual_lineups.csv"
+    assert Path(os.environ["MANUAL_MARKETS_CSV"]) == user_root / "data" / "raw" / "manual_market_totals.csv"
+    assert Path(os.environ["PARK_FACTORS_CSV"]) == user_root / "db" / "seeds" / "park_factors.csv"
     assert "mlb_predictor.sqlite3" in user_env.read_text(encoding="utf-8")
 
 

@@ -14,6 +14,13 @@ from src.utils.logging import get_logger
 log = get_logger(__name__)
 
 
+def _is_final_game_status(status: Any) -> bool:
+    normalized = str(status or "").strip().lower()
+    if not normalized:
+        return False
+    return any(marker in normalized for marker in ("final", "completed", "game over", "closed"))
+
+
 def _hit_streak(values: pd.Series) -> list[int]:
     streak = 0
     results = []
@@ -369,6 +376,7 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
             WHERE p.game_date BETWEEN :start_date AND :end_date
         )
         SELECT r.*, g.total_runs, g.away_team, g.home_team
+               , g.status AS game_status
         FROM ranked r
         LEFT JOIN games g ON g.game_id = r.game_id AND g.game_date = r.game_date
         WHERE r.row_rank = 1
@@ -387,7 +395,8 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
         preferred_sportsbook_by_game=preferred_totals_books,
     )
     for record in totals.to_dict(orient="records"):
-        actual_total = record.get("total_runs")
+        is_final_game = _is_final_game_status(record.get("game_status"))
+        actual_total = record.get("total_runs") if is_final_game else None
         market_total = record.get("market_total")
         predicted_total = record.get("predicted_total_runs")
         graded = actual_total is not None
@@ -478,7 +487,7 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
             FROM predictions_player_hits p
             WHERE p.game_date BETWEEN :start_date AND :end_date
         )
-        SELECT r.*, f.opponent, actual.hits AS actual_hits
+        SELECT r.*, f.opponent, actual.hits AS actual_hits, g.status AS game_status
         FROM ranked r
         LEFT JOIN player_features_hits f
             ON f.game_id = r.game_id
@@ -487,12 +496,17 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
         LEFT JOIN player_game_batting actual
             ON actual.game_id = r.game_id
            AND actual.player_id = r.player_id
+        LEFT JOIN games g
+            ON g.game_id = r.game_id
+           AND g.game_date = r.game_date
         WHERE r.row_rank = 1
         """,
         {"start_date": start_date, "end_date": end_date},
     )
     for record in hits.to_dict(orient="records"):
-        actual_hit = None if record.get("actual_hits") is None else (1.0 if float(record.get("actual_hits")) > 0 else 0.0)
+        is_final_game = _is_final_game_status(record.get("game_status"))
+        actual_hits = record.get("actual_hits") if is_final_game else None
+        actual_hit = None if actual_hits is None else (1.0 if float(actual_hits) > 0 else 0.0)
         probability = record.get("predicted_hit_probability")
         rows.append(
             {
@@ -539,7 +553,8 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
         SELECT
             r.*,
             CASE WHEN ps.team = g.home_team THEN g.away_team ELSE g.home_team END AS opponent,
-            ps.strikeouts AS actual_strikeouts
+            ps.strikeouts AS actual_strikeouts,
+            g.status AS game_status
         FROM ranked r
         LEFT JOIN pitcher_starts ps
             ON ps.game_id = r.game_id
@@ -553,7 +568,8 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
         {"start_date": start_date, "end_date": end_date},
     )
     for record in strikeouts.to_dict(orient="records"):
-        actual_value = record.get("actual_strikeouts")
+        is_final_game = _is_final_game_status(record.get("game_status"))
+        actual_value = record.get("actual_strikeouts") if is_final_game else None
         market_line = record.get("market_line")
         predicted_value = record.get("predicted_strikeouts")
         graded = actual_value is not None

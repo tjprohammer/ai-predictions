@@ -56,6 +56,7 @@ def main() -> int:
         """
         SELECT pitcher_id, max(game_date) AS last_game_date
         FROM pitcher_starts
+        WHERE COALESCE(is_probable, FALSE) = FALSE
         GROUP BY pitcher_id
         """
     )

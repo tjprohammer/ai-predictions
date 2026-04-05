@@ -3,7 +3,37 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
 from datetime import date
+from pathlib import Path
+
+
+LEGACY_DEFAULT_DATABASE_URL = "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"
+
+
+def _runtime_database_candidates() -> list[Path]:
+    root = Path(__file__).resolve().parents[2]
+    candidates: list[Path] = []
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "MLBPredictor" / "db" / "mlb_predictor.sqlite3")
+    else:
+        candidates.append(Path.home() / ".mlb-predictor" / "db" / "mlb_predictor.sqlite3")
+    candidates.append(root / "db" / "mlb_predictor.sqlite3")
+    return candidates
+
+
+def _bootstrap_database_url() -> None:
+    current_database_url = str(os.environ.get("DATABASE_URL") or "").strip()
+    if current_database_url and current_database_url != LEGACY_DEFAULT_DATABASE_URL:
+        return
+    for candidate in _runtime_database_candidates():
+        if candidate.exists():
+            os.environ["DATABASE_URL"] = f"sqlite:///{candidate.resolve().as_posix()}"
+            return
+
+
+_bootstrap_database_url()
 
 
 app_module = importlib.import_module("src.api.app")
@@ -55,7 +85,7 @@ def main() -> int:
         update_history_limit=args.update_history_limit,
     )
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print(json.dumps(payload, indent=2, default=str))
     else:
         print(render_text(payload))
     return 0

@@ -1017,23 +1017,6 @@
         text-transform: uppercase;
       }
 
-      .detail-shell {
-        max-height: 0;
-        overflow: hidden;
-        opacity: 0;
-        transition:
-          max-height 220ms ease,
-          opacity 180ms ease,
-          margin-top 180ms ease;
-        margin-top: 0;
-      }
-
-      .detail-shell.open {
-        max-height: 6000px;
-        opacity: 1;
-        margin-top: 14px;
-      }
-
       .detail-grid {
         grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.2fr);
         align-items: start;
@@ -1691,55 +1674,59 @@
                   data-update-action="prepare_slate"
                   type="button"
                 >
-                  Prepare slate
+                  Prepare Slate
                 </button>
                 <button
                   class="secondary"
                   data-update-action="import_manual_inputs"
                   type="button"
                 >
-                  Import inputs
+                  Update Lineups &amp; Markets
                 </button>
                 <button
                   class="secondary"
                   data-update-action="refresh_results"
                   type="button"
                 >
-                  Refresh results
+                  Refresh Daily Results
                 </button>
                 <button
                   class="secondary"
                   data-update-action="rebuild_predictions"
                   type="button"
                 >
-                  Rebuild predictions
+                  Rebuild Predictions
                 </button>
                 <button
                   class="secondary"
                   data-update-action="grade_predictions"
                   type="button"
                 >
-                  Grade predictions
+                  Grade Predictions
                 </button>
               </div>
               <p class="hint control-note">
                 Refresh Everything runs the full selected-date pipeline in one
                 shot: slate prep, input imports, aggregate refresh, feature
                 builds, predictions, and published product surfaces. Prepare
-                slate refreshes schedule, starters, and editable CSV templates.
-                Import inputs reads projected or edited lineup data plus live
-                and fallback market inputs. Refresh results pulls boxscores and
-                batting logs, then updates team form tables. Grade predictions
-                pulls yesterday's final scores, batting logs, and aggregates,
-                then grades all prior predictions and updates scorecards.
+                Slate refreshes schedule and starters, seeds editable CSV
+                templates, imports the current template state, and republishes
+                the selected-date board. Update Lineups & Markets rereads the
+                lineup and market CSVs, then rebuilds the selected-date board so
+                edits show up immediately. Refresh Daily Results pulls
+                boxscores, batting logs, and observed weather for the selected
+                date, then refreshes review surfaces without grading live or
+                pregame games. Grade Predictions reruns selected-date grading
+                and scorecards using only games that are already final.
               </p>
               <p class="hint control-note">
                 Daily workflow: on desktop launch the app will try the standard
                 refresh automatically when today's predictions are missing. For
                 most days, just run Refresh Everything. If you want tighter
-                control, use the individual steps instead. After games finish,
-                run Grade predictions to refresh historical review and
-                scorecards.
+                control, use Prepare Slate first, edit the CSVs if needed, then
+                run Update Lineups & Markets to republish the board. After
+                finals post for the selected date, run Grade Predictions to
+                refresh review and scorecards.
               </p>
               <div class="update-job-status" id="updateJobStatus">
                 No update job running.
@@ -2140,26 +2127,28 @@
             "Refreshing the full slate pipeline, inputs, features, predictions, and published surfaces",
         },
         prepare_slate: {
-          label: "Prepare slate",
+          label: "Prepare Slate",
           pending:
-            "Refreshing schedule, probable starters, and slate templates",
+            "Refreshing schedule, starters, templates, and the selected-date board",
         },
         import_manual_inputs: {
-          label: "Import inputs",
+          label: "Update Lineups & Markets",
           pending:
-            "Importing projected or edited lineup data plus market inputs",
+            "Importing lineup and market edits, then rebuilding selected-date predictions",
         },
         refresh_results: {
-          label: "Refresh results",
-          pending: "Pulling boxscores, batting logs, and aggregate team form",
+          label: "Refresh Daily Results",
+          pending:
+            "Refreshing selected-date scores, batter logs, observed weather, and partial review surfaces",
         },
         rebuild_predictions: {
-          label: "Rebuild predictions",
+          label: "Rebuild Predictions",
           pending: "Rebuilding features, predictions, and published surfaces",
         },
         grade_predictions: {
-          label: "Grade predictions",
-          pending: "Grading yesterday's predictions against final results",
+          label: "Grade Predictions",
+          pending:
+            "Refreshing selected-date grading and scorecards from games that are already final",
         },
       };
 
@@ -2172,8 +2161,10 @@
         "src.ingestors.market_totals": "Import market inputs",
         "src.ingestors.boxscores": "Load final game scores",
         "src.ingestors.player_batting": "Load hitter box score stats",
+        "src.ingestors.weather": "Load observed weather for completed games",
         "src.transforms.offense_daily": "Refresh team offense form",
         "src.transforms.bullpens_daily": "Refresh bullpen form",
+        "src.transforms.freeze_markets": "Freeze the latest market snapshot",
         "src.features.totals_builder": "Build full-game totals features",
         "src.features.first5_totals_builder":
           "Build first-five totals features",
@@ -4327,11 +4318,10 @@
           totals.market_total == null || totals.predicted_total_runs == null
             ? null
             : Number(totals.predicted_total_runs) - Number(totals.market_total);
-        const expanded = Boolean(state.expandedGames[game.game_id]);
-        const detailState = getGameDetailState(game.game_id);
+        const matchupHref = appUrl(`game?game_id=${encodeURIComponent(game.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`);
         return `
-        <article class="game-card ${expanded ? "expanded" : ""}">
-          <button class="game-toggle" data-game-id="${game.game_id}" aria-expanded="${expanded}">
+        <article class="game-card">
+          <a class="game-toggle" href="${matchupHref}">
             <div class="game-header">
               <div>
                 <div class="eyebrow">${renderDataQualityBadge(game)}${renderMarketLockBadge(game)}${formatDateTime(game.game_start_ts)} · ${venue.name || "Venue TBD"}</div>
@@ -4354,11 +4344,8 @@
               ${renderCompactHitTargets(game.away_team, awayPlayers, actual.is_final)}
               ${renderCompactHitTargets(game.home_team, homePlayers, actual.is_final)}
             </div>
-            <span class="toggle-copy">${expanded ? "Hide Detail" : "Show Detail"}</span>
-          </button>
-          <div class="detail-shell ${expanded ? "open" : ""}">
-            ${expanded ? renderGameDetailBody(detailState) : ""}
-          </div>
+            <span class="toggle-copy">Open Matchup Page</span>
+          </a>
         </article>
       `;
       }
@@ -4464,55 +4451,6 @@
         state.clvReview = await response.json();
       }
 
-      async function loadGameDetail(gameId) {
-        const date = targetDateInput.value;
-        const filters = getHitFilters();
-        const response = await fetch(
-          appUrl(
-            `api/games/${encodeURIComponent(gameId)}/detail?target_date=${encodeURIComponent(date)}&include_inferred=${encodeURIComponent(filters.includeInferred)}`,
-          ),
-        );
-        if (!response.ok) {
-          throw new Error(`Detail request failed: ${response.status}`);
-        }
-        const payload = await response.json();
-        state.details[gameId] = {
-          status: "loaded",
-          data: payload.game || null,
-          error: null,
-        };
-      }
-
-      async function toggleGameExpansion(gameId) {
-        const isExpanded = Boolean(state.expandedGames[gameId]);
-        state.expandedGames[gameId] = !isExpanded;
-        renderGames();
-
-        if (isExpanded) {
-          return;
-        }
-
-        const detailState = getGameDetailState(gameId);
-        if (detailState.status === "loaded") {
-          return;
-        }
-
-        state.details[gameId] = { status: "loading", data: null, error: null };
-        renderGames();
-
-        try {
-          await loadGameDetail(gameId);
-        } catch (error) {
-          state.details[gameId] = {
-            status: "error",
-            data: null,
-            error: describeError(error),
-          };
-        }
-
-        renderGames();
-      }
-
       async function refreshBoard(options = {}) {
         const preserveLog = Boolean(options.preserveLog);
         const filters = getHitFilters();
@@ -4537,8 +4475,6 @@
               });
             });
 
-        state.details = {};
-        state.expandedGames = {};
         setBusyButton(refreshButton, true, "Loading board...");
         gamesBoard.innerHTML = renderLoadingPanel(
           `Loading ${date} board...`,
@@ -4849,6 +4785,10 @@
           detail: meta.pending,
           tone: "running",
           spinning: true,
+          progressVisible: true,
+          progressLabel: "Queued · starting",
+          progressValue: 0,
+          progressStep: meta.pending,
         });
         setLog(`${meta.pending} for ${date}...`);
         try {
@@ -4911,15 +4851,6 @@
           return;
         }
 
-        const toggle = event.target.closest(".game-toggle");
-        if (!toggle) {
-          return;
-        }
-        const gameId = Number(toggle.dataset.gameId);
-        if (!Number.isFinite(gameId)) {
-          return;
-        }
-        toggleGameExpansion(gameId);
       });
 
       gamesBoard.addEventListener("change", (event) => {

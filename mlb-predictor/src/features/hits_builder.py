@@ -284,7 +284,7 @@ def main() -> int:
         return 0
     validate_columns(feature_frame, HITS_META_COLUMNS + HITS_FEATURE_COLUMNS + [HITS_TARGET_COLUMN], "hits")
     output_path = write_feature_snapshot(feature_frame, "hits", start_date, end_date)
-    persisted = persist_hits_features(feature_frame)
+    persisted = persist_hits_features(feature_frame, start_date, end_date)
     log.info("Built %s hit rows -> %s and persisted %s DB rows", len(feature_frame), output_path, persisted)
     return 0
 

@@ -421,6 +421,29 @@
         margin-top: 18px;
       }
 
+      .cards-grid.team-sections {
+        grid-template-columns: 1fr;
+      }
+
+      .team-group {
+        display: grid;
+        gap: 14px;
+      }
+
+      .team-group-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding-bottom: 2px;
+      }
+
+      .team-group-grid {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      }
+
       .player-card {
         display: grid;
         gap: 14px;
@@ -490,6 +513,57 @@
       .data-stack {
         display: grid;
         gap: 8px;
+      }
+
+      .history-strip {
+        display: grid;
+        gap: 10px;
+      }
+
+      .history-strip-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .history-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .history-tile {
+        display: grid;
+        gap: 4px;
+        align-items: center;
+        justify-items: center;
+        padding: 10px 6px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        text-align: center;
+      }
+
+      .history-tile.hit {
+        background: rgba(22, 101, 52, 0.12);
+        border-color: rgba(22, 101, 52, 0.22);
+      }
+
+      .history-tile.miss {
+        background: rgba(185, 28, 28, 0.10);
+        border-color: rgba(185, 28, 28, 0.18);
+      }
+
+      .history-date {
+        font-size: 0.74rem;
+        font-weight: 700;
+        color: var(--muted);
+      }
+
+      .history-result {
+        font-size: 0.88rem;
+        font-weight: 800;
+        color: var(--ink);
       }
 
       .data-row {
@@ -688,7 +762,8 @@
             <div class="field">
               <label for="sortMode">Sort By</label>
               <select id="sortMode">
-                <option value="heat" selected>Heat score</option>
+                <option value="team" selected>Team</option>
+                <option value="heat">Heat score</option>
                 <option value="streak">Hit streak</option>
                 <option value="probability">Model probability</option>
                 <option value="edge">Betting edge</option>
@@ -720,7 +795,7 @@
               Streak only
             </label>
             <label class="checkbox-row" for="hideStartedOnly">
-              <input id="hideStartedOnly" type="checkbox" checked />
+              <input id="hideStartedOnly" type="checkbox" />
               Hide started games
             </label>
             <button class="primary" id="refreshButton">
@@ -896,6 +971,16 @@
         });
       }
 
+      function formatShortDate(value) {
+        if (!value) return "-";
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return String(value);
+        return parsed.toLocaleDateString([], {
+          month: "short",
+          day: "numeric",
+        });
+      }
+
       function matchupLabel(row) {
         if (!row.team || !row.opponent) return "Matchup pending";
         return row.team === row.away_team
@@ -1015,6 +1100,15 @@
       function sortRows(rows) {
         const sortMode = sortModeInput.value;
         const sorted = [...rows];
+        if (sortMode === "team") {
+          return sorted.sort(
+            (left, right) =>
+              String(left.team || "").localeCompare(String(right.team || "")) ||
+              numberOr(left.lineup_slot, 99) - numberOr(right.lineup_slot, 99) ||
+              numberOr(right.form?.heat_score, -1) - numberOr(left.form?.heat_score, -1) ||
+              String(left.player_name || "").localeCompare(String(right.player_name || "")),
+          );
+        }
         if (sortMode === "streak") {
           return sorted.sort(
             (left, right) =>
@@ -1059,6 +1153,39 @@
             numberOr(right.predicted_hit_probability, -1) -
               numberOr(left.predicted_hit_probability, -1),
         );
+      }
+
+      function renderRecentHistory(row) {
+        const history = Array.isArray(row.recent_hit_history)
+          ? row.recent_hit_history
+          : [];
+        if (!history.length) {
+          return `
+            <div class="history-strip">
+              <div class="history-strip-head">
+                <span class="data-label">Last 10 Games</span>
+                <span class="small-copy">Recent game logs pending</span>
+              </div>
+            </div>
+          `;
+        }
+        return `
+          <div class="history-strip">
+            <div class="history-strip-head">
+              <span class="data-label">Last 10 Games</span>
+              <span class="small-copy">Green = hit · red = no hit</span>
+            </div>
+            <div class="history-grid">
+              ${history
+                .map((entry) => {
+                  const hadHit = Boolean(entry.had_hit);
+                  const title = `${formatShortDate(entry.game_date)} vs ${entry.opponent || "TBD"} · ${entry.hits ?? 0} H in ${entry.at_bats ?? 0} AB`;
+                  return `<div class="history-tile ${hadHit ? "hit" : "miss"}" title="${escapeHtml(title)}"><span class="history-date">${escapeHtml(formatShortDate(entry.game_date))}</span><span class="history-result">${escapeHtml(hadHit ? "H" : "0")}</span></div>`;
+                })
+                .join("")}
+            </div>
+          </div>
+        `;
       }
 
       function filteredRows() {
@@ -1126,10 +1253,11 @@
             ? (state.rows || []).filter((row) => hasStarted(row.game_start_ts))
                 .length
             : 0;
+        const confirmedFallback = Boolean(summary.confirmed_fallback_active);
         pageStatus.textContent =
           totalHotCount > filteredCount
-            ? `${filteredCount} of ${totalHotCount} streak and hot hitters shown for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}`
-            : `${filteredCount} streak and hot hitters for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}`;
+            ? `${filteredCount} of ${totalHotCount} streak and hot hitters shown for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}${confirmedFallback ? " | confirmed filter fell back to latest projected order" : ""}`
+            : `${filteredCount} streak and hot hitters for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}${confirmedFallback ? " | confirmed filter fell back to latest projected order" : ""}`;
       }
 
       function updateDataWarning() {
@@ -1141,7 +1269,7 @@
           Number(summary.available_confirmed_count || 0) === 0
         ) {
           messages.push(
-            `No confirmed hitter lineups are ingested for ${targetDateInput.value}, so the accuracy filter is hiding every card.`,
+            `No confirmed hitter lineups are ingested for ${targetDateInput.value}, so this page is falling back to the latest projected lineup order instead of showing an empty board.`,
           );
         }
         if (
@@ -1156,7 +1284,7 @@
           hitterDataWarning.hidden = true;
           return;
         }
-        hitterDataWarningMeta.textContent = `${summary.available_confirmed_count || 0} confirmed hitters · ${summary.available_market_count || 0} market-backed hitters`;
+        hitterDataWarningMeta.textContent = `${summary.available_confirmed_count || 0} confirmed hitters · ${summary.available_count || 0} lineup slots available · ${summary.available_market_count || 0} market-backed hitters`;
         hitterDataWarningCopy.textContent = messages.join(" ");
         hitterDataWarning.hidden = false;
       }
@@ -1223,6 +1351,8 @@
             </div>
           </div>
 
+          ${renderRecentHistory(row)}
+
           <div class="data-stack">
             <div class="data-row">
               <span class="data-label">Why Hot</span>
@@ -1281,13 +1411,41 @@
           resultsSubtitle.textContent = totalHotCount
             ? `No hitters cleared the current probability filter. ${totalHotCount} still qualified on form.`
             : "No streak or hot hitters qualified";
+            cardsGrid.classList.remove("team-sections");
           return;
         }
         const probabilityFloor = Number(minProbabilityInput.value || 0);
+        const confirmedFallback = Boolean((state.summary || {}).confirmed_fallback_active);
         resultsSubtitle.textContent =
           totalHotCount > rows.length
-            ? `${rows.length} of ${totalHotCount} streak and hot hitters cleared the ${Math.round(probabilityFloor * 100)}% model floor for ${targetDateInput.value}.`
-            : `${rows.length} streak and hot hitters qualified for ${targetDateInput.value}.`;
+            ? `${rows.length} of ${totalHotCount} streak and hot hitters cleared the ${Math.round(probabilityFloor * 100)}% model floor for ${targetDateInput.value}.${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`
+            : `${rows.length} streak and hot hitters qualified for ${targetDateInput.value}.${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`;
+        if (sortModeInput.value === "team") {
+          const groups = new Map();
+          rows.forEach((row) => {
+            const team = row.team || "TBD";
+            if (!groups.has(team)) groups.set(team, []);
+            groups.get(team).push(row);
+          });
+          cardsGrid.classList.add("team-sections");
+          cardsGrid.innerHTML = Array.from(groups.entries())
+            .map(
+              ([team, teamRows]) => `
+              <section class="team-group">
+                <div class="team-group-head">
+                  <div class="section-tag">${escapeHtml(team)}</div>
+                  <span class="small-copy">${teamRows.length} hitter${teamRows.length === 1 ? "" : "s"}</span>
+                </div>
+                <div class="team-group-grid">
+                  ${teamRows.map(renderCard).join("")}
+                </div>
+              </section>
+            `,
+            )
+            .join("");
+          return;
+        }
+        cardsGrid.classList.remove("team-sections");
         cardsGrid.innerHTML = rows.map(renderCard).join("");
       }
 

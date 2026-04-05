@@ -431,7 +431,7 @@ def main() -> int:
         "strikeouts",
     )
     output_path = write_feature_snapshot(feature_frame, "strikeouts", start_date, end_date)
-    persisted = persist_strikeout_features(feature_frame)
+    persisted = persist_strikeout_features(feature_frame, start_date, end_date)
     log.info("Built %s strikeout rows -> %s and persisted %s DB rows", len(feature_frame), output_path, persisted)
     return 0
 

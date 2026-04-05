@@ -174,13 +174,9 @@ def main() -> int:
         """
         DELETE FROM predictions_pitcher_strikeouts
         WHERE game_date = :target_date
-          AND model_name = :model_name
-          AND model_version = :model_version
         """,
         {
             "target_date": target_date,
-            "model_name": artifact["model_name"],
-            "model_version": artifact["model_version"],
         },
     )
     upsert_rows(

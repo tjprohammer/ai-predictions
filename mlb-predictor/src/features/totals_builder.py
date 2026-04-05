@@ -256,6 +256,14 @@ def main() -> int:
                 "away_bullpen_innings_last3": away_bullpen["innings_last3"],
                 "home_bullpen_b2b": home_bullpen["b2b"],
                 "away_bullpen_b2b": away_bullpen["b2b"],
+                "home_bullpen_runs_allowed_last3": home_bullpen["runs_allowed_last3"],
+                "away_bullpen_runs_allowed_last3": away_bullpen["runs_allowed_last3"],
+                "home_bullpen_earned_runs_last3": home_bullpen["earned_runs_last3"],
+                "away_bullpen_earned_runs_last3": away_bullpen["earned_runs_last3"],
+                "home_bullpen_hits_allowed_last3": home_bullpen["hits_allowed_last3"],
+                "away_bullpen_hits_allowed_last3": away_bullpen["hits_allowed_last3"],
+                "home_bullpen_era_last3": home_bullpen["era_last3"],
+                "away_bullpen_era_last3": away_bullpen["era_last3"],
                 "home_lineup_top5_xwoba": home_lineup["top5_xwoba"],
                 "away_lineup_top5_xwoba": away_lineup["top5_xwoba"],
                 "home_lineup_k_pct": home_lineup["lineup_k_pct"],
@@ -278,7 +286,7 @@ def main() -> int:
     feature_frame = pd.DataFrame(rows)
     validate_columns(feature_frame, TOTALS_META_COLUMNS + TOTALS_FEATURE_COLUMNS + [TOTALS_TARGET_COLUMN], "totals")
     output_path = write_feature_snapshot(feature_frame, "totals", start_date, end_date)
-    persisted = persist_totals_features(feature_frame)
+    persisted = persist_totals_features(feature_frame, start_date, end_date)
     log.info("Built %s totals rows -> %s and persisted %s DB rows", len(feature_frame), output_path, persisted)
     return 0
 

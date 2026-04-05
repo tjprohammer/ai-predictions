@@ -54,6 +54,7 @@ HOT_HITTERS_FILE = STATIC_DIR / "hot-hitters.html"
 PITCHERS_FILE = STATIC_DIR / "pitchers.html"
 RESULTS_FILE = STATIC_DIR / "results.html"
 TOTALS_FILE = STATIC_DIR / "totals.html"
+GAME_FILE = STATIC_DIR / "game.html"
 DOCTOR_FILE = STATIC_DIR / "doctor.html"
 FAVICON_FILE = STATIC_DIR / "favicon.svg"
 UPDATE_MODULE_MAINS = {
@@ -85,6 +86,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+HTML_SHELL_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
+def _html_file_response(path: Path) -> FileResponse:
+    return FileResponse(path, headers=HTML_SHELL_HEADERS)
 
 
 class PipelineRunRequest(BaseModel):
@@ -243,6 +255,13 @@ def _sql_year(expression: str, dialect: str | None = None) -> str:
     if active_dialect == "sqlite":
         return f"CAST(strftime('%Y', {expression}) AS INTEGER)"
     return f"EXTRACT(YEAR FROM {expression})"
+
+
+def _sql_year_param(param_name: str, dialect: str | None = None) -> str:
+    active_dialect = (dialect or DB_DIALECT).lower()
+    if active_dialect == "sqlite":
+        return _sql_year(f":{param_name}", active_dialect)
+    return _sql_year(f"CAST(:{param_name} AS DATE)", active_dialect)
 
 
 def _sql_order_nulls_last(expression: str, direction: str = "ASC") -> str:
@@ -663,6 +682,86 @@ def _fetch_hitter_pitch_hand_splits(
             "vs_pitcher_hand_hard_hit_pct": row["split_hard_hit_pct"],
         }
     return split_map
+
+
+def _fetch_recent_hit_history_map(
+    target_date: date,
+    player_ids: list[int] | set[int],
+    limit: int = 10,
+) -> dict[int, list[dict[str, Any]]]:
+    if not player_ids or not _table_exists("player_game_batting"):
+        return {}
+
+    params: dict[str, Any] = {
+        "target_date": target_date,
+        "history_limit": int(limit),
+    }
+    player_id_placeholders = _sql_bind_list(
+        "history_player_id",
+        sorted(int(player_id) for player_id in player_ids),
+        params,
+    )
+    frame = _safe_frame(
+        f"""
+        WITH recent AS (
+            SELECT
+                b.player_id,
+                b.game_date,
+                b.game_id,
+                b.opponent,
+                b.hits,
+                b.at_bats,
+                b.home_runs,
+                (
+                    COALESCE(b.singles, 0)
+                    + 2 * COALESCE(b.doubles, 0)
+                    + 3 * COALESCE(b.triples, 0)
+                    + 4 * COALESCE(b.home_runs, 0)
+                ) AS total_bases,
+                ROW_NUMBER() OVER (
+                    PARTITION BY b.player_id
+                    ORDER BY b.game_date DESC, b.game_id DESC
+                ) AS row_rank
+            FROM player_game_batting b
+            WHERE b.game_date < :target_date
+              AND b.player_id IN ({player_id_placeholders})
+        )
+        SELECT
+            player_id,
+            game_date,
+            game_id,
+            opponent,
+            hits,
+            at_bats,
+            home_runs,
+            total_bases
+        FROM recent
+        WHERE row_rank <= :history_limit
+        ORDER BY player_id, game_date DESC, game_id DESC
+        """,
+        params,
+    )
+    if frame.empty:
+        return {}
+
+    history_map: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in _frame_records(frame):
+        player_id = int(row["player_id"])
+        hits = int(row.get("hits") or 0)
+        at_bats = int(row.get("at_bats") or 0)
+        history_map[player_id].append(
+            {
+                "game_date": row.get("game_date"),
+                "game_id": row.get("game_id"),
+                "opponent": row.get("opponent"),
+                "hits": hits,
+                "at_bats": at_bats,
+                "home_runs": int(row.get("home_runs") or 0),
+                "total_bases": int(row.get("total_bases") or 0),
+                "had_hit": hits > 0,
+            }
+        )
+    return dict(history_map)
 
 
 def _attach_hitter_matchup_context(
@@ -1529,7 +1628,7 @@ def _fetch_game_board(
     recent_batting_avg_expr = _sql_ratio("recent.hits", "recent.at_bats")
     season_batting_avg_expr = _sql_ratio("b.hits", "b.at_bats")
     game_year_expr = _sql_year("b.game_date")
-    target_year_expr = _sql_year("CAST(:target_date AS DATE)")
+    target_year_expr = _sql_year_param("target_date")
     hit_player_name_expr = _sql_json_text("f.feature_payload", "player_name")
     hit_lineup_slot_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'lineup_slot')}, '')")
     hit_confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
@@ -1592,6 +1691,14 @@ def _fetch_game_board(
             CAST(f.feature_payload ->> 'home_bullpen_innings_last3' AS DOUBLE PRECISION) AS home_bullpen_innings_last3,
             CAST(f.feature_payload ->> 'away_bullpen_b2b' AS DOUBLE PRECISION) AS away_bullpen_b2b,
             CAST(f.feature_payload ->> 'home_bullpen_b2b' AS DOUBLE PRECISION) AS home_bullpen_b2b,
+            CAST(f.feature_payload ->> 'away_bullpen_runs_allowed_last3' AS DOUBLE PRECISION) AS away_bullpen_runs_allowed_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_runs_allowed_last3' AS DOUBLE PRECISION) AS home_bullpen_runs_allowed_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_earned_runs_last3' AS DOUBLE PRECISION) AS away_bullpen_earned_runs_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_earned_runs_last3' AS DOUBLE PRECISION) AS home_bullpen_earned_runs_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_hits_allowed_last3' AS DOUBLE PRECISION) AS away_bullpen_hits_allowed_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_hits_allowed_last3' AS DOUBLE PRECISION) AS home_bullpen_hits_allowed_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_era_last3' AS DOUBLE PRECISION) AS away_bullpen_era_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_era_last3' AS DOUBLE PRECISION) AS home_bullpen_era_last3,
             CAST(f.feature_payload ->> 'away_lineup_top5_xwoba' AS DOUBLE PRECISION) AS away_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'home_lineup_top5_xwoba' AS DOUBLE PRECISION) AS home_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'away_lineup_k_pct' AS DOUBLE PRECISION) AS away_lineup_k_pct,
@@ -1915,6 +2022,14 @@ def _fetch_game_board(
                 "home_bullpen_innings_last3": record["home_bullpen_innings_last3"],
                 "away_bullpen_b2b": record["away_bullpen_b2b"],
                 "home_bullpen_b2b": record["home_bullpen_b2b"],
+                "away_bullpen_runs_allowed_last3": record["away_bullpen_runs_allowed_last3"],
+                "home_bullpen_runs_allowed_last3": record["home_bullpen_runs_allowed_last3"],
+                "away_bullpen_earned_runs_last3": record["away_bullpen_earned_runs_last3"],
+                "home_bullpen_earned_runs_last3": record["home_bullpen_earned_runs_last3"],
+                "away_bullpen_hits_allowed_last3": record["away_bullpen_hits_allowed_last3"],
+                "home_bullpen_hits_allowed_last3": record["home_bullpen_hits_allowed_last3"],
+                "away_bullpen_era_last3": record["away_bullpen_era_last3"],
+                "home_bullpen_era_last3": record["home_bullpen_era_last3"],
                 "away_lineup_top5_xwoba": record["away_lineup_top5_xwoba"],
                 "home_lineup_top5_xwoba": record["home_lineup_top5_xwoba"],
                 "away_lineup_k_pct": record["away_lineup_k_pct"],
@@ -3301,6 +3416,14 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             CAST(f.feature_payload ->> 'home_bullpen_innings_last3' AS DOUBLE PRECISION) AS home_bullpen_innings_last3,
             CAST(f.feature_payload ->> 'away_bullpen_b2b' AS DOUBLE PRECISION) AS away_bullpen_b2b,
             CAST(f.feature_payload ->> 'home_bullpen_b2b' AS DOUBLE PRECISION) AS home_bullpen_b2b,
+            CAST(f.feature_payload ->> 'away_bullpen_runs_allowed_last3' AS DOUBLE PRECISION) AS away_bullpen_runs_allowed_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_runs_allowed_last3' AS DOUBLE PRECISION) AS home_bullpen_runs_allowed_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_earned_runs_last3' AS DOUBLE PRECISION) AS away_bullpen_earned_runs_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_earned_runs_last3' AS DOUBLE PRECISION) AS home_bullpen_earned_runs_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_hits_allowed_last3' AS DOUBLE PRECISION) AS away_bullpen_hits_allowed_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_hits_allowed_last3' AS DOUBLE PRECISION) AS home_bullpen_hits_allowed_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_era_last3' AS DOUBLE PRECISION) AS away_bullpen_era_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_era_last3' AS DOUBLE PRECISION) AS home_bullpen_era_last3,
             CAST(f.feature_payload ->> 'away_lineup_top5_xwoba' AS DOUBLE PRECISION) AS away_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'home_lineup_top5_xwoba' AS DOUBLE PRECISION) AS home_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'away_lineup_k_pct' AS DOUBLE PRECISION) AS away_lineup_k_pct,
@@ -3387,7 +3510,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         recent_batting_avg_expr = _sql_ratio("hits", "at_bats")
         season_batting_avg_expr = _sql_ratio("b.hits", "b.at_bats")
         game_year_expr = _sql_year("b.game_date")
-        target_year_expr = _sql_year("CAST(:target_date AS DATE)")
+        target_year_expr = _sql_year_param("target_date")
         player_name_expr = _sql_json_text("f.feature_payload", "player_name")
         lineup_slot_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'lineup_slot')}, '')")
         confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
@@ -3426,8 +3549,32 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                 WHERE f.game_id = :game_id
                   AND f.game_date = :target_date
             ),
+            ranked_lineups AS (
+                SELECT
+                    l.game_id,
+                    l.player_id,
+                    l.player_name,
+                    l.team,
+                    l.lineup_slot,
+                    l.field_position,
+                    l.is_confirmed,
+                    l.source_name,
+                    l.source_url,
+                    l.snapshot_ts,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY l.game_id, l.player_id
+                        ORDER BY l.snapshot_ts DESC, l.lineup_slot ASC, l.player_id
+                    ) AS row_rank
+                FROM lineups l
+                WHERE l.game_id = :game_id
+                  AND l.game_date = :target_date
+            ),
             selected_players AS (
-                SELECT DISTINCT player_id
+                SELECT DISTINCT game_id, player_id
+                FROM ranked_lineups
+                WHERE row_rank = 1
+                UNION
+                SELECT DISTINCT game_id, player_id
                 FROM ranked_features
                 WHERE row_rank = 1
             ),
@@ -3470,21 +3617,24 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                 GROUP BY b.player_id
             )
             SELECT
-                f.game_id,
-                f.player_id,
-                                COALESCE({player_name_expr}, dp.full_name, CAST(f.player_id AS TEXT)) AS player_name,
-                COALESCE(f.team, CASE WHEN g.home_team = dp.team_abbr THEN g.home_team ELSE g.away_team END) AS team,
+                sp.game_id,
+                sp.player_id,
+                COALESCE(rl.player_name, {player_name_expr}, dp.full_name, CAST(sp.player_id AS TEXT)) AS player_name,
+                COALESCE(rl.team, f.team, CASE WHEN g.home_team = dp.team_abbr THEN g.home_team ELSE g.away_team END) AS team,
                 COALESCE(
                     f.opponent,
                     CASE
-                        WHEN g.home_team = COALESCE(f.team, dp.team_abbr) THEN g.away_team
-                        WHEN g.away_team = COALESCE(f.team, dp.team_abbr) THEN g.home_team
+                        WHEN g.home_team = COALESCE(rl.team, f.team, dp.team_abbr) THEN g.away_team
+                        WHEN g.away_team = COALESCE(rl.team, f.team, dp.team_abbr) THEN g.home_team
                         ELSE NULL
                     END,
                     'TBD'
                 ) AS opponent,
-                {lineup_slot_expr} AS lineup_slot,
-                {confirmed_lineup_expr} AS is_confirmed_lineup,
+                COALESCE(rl.lineup_slot, {lineup_slot_expr}) AS lineup_slot,
+                COALESCE(rl.is_confirmed, {confirmed_lineup_expr}) AS is_confirmed_lineup,
+                rl.source_name AS lineup_source_name,
+                rl.source_url AS lineup_source_url,
+                rl.snapshot_ts AS lineup_snapshot_ts,
                 {projected_pa_expr} AS projected_plate_appearances,
                 {streak_len_expr} AS streak_len_capped,
                 {hit_rate_7_expr} AS hit_rate_7,
@@ -3500,7 +3650,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                 p.market_price,
                 p.edge,
                 dp.bats,
-                dp.position,
+                COALESCE(rl.field_position, dp.position) AS position,
                 season_batting.games_season,
                 season_batting.season_hits,
                 season_batting.season_at_bats,
@@ -3527,23 +3677,30 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                 recent_batting.batting_avg_last7,
                 recent_batting.xwoba_last7,
                 recent_batting.hard_hit_pct_last7
-            FROM ranked_features f
+            FROM selected_players sp
+            LEFT JOIN ranked_features f
+                ON f.game_id = sp.game_id
+               AND f.player_id = sp.player_id
+               AND f.row_rank = 1
             LEFT JOIN ranked_predictions p
-                ON p.game_id = f.game_id
-               AND p.player_id = f.player_id
+                ON p.game_id = sp.game_id
+               AND p.player_id = sp.player_id
                AND p.row_rank = 1
-            LEFT JOIN dim_players dp ON dp.player_id = f.player_id
-            LEFT JOIN games g ON g.game_id = f.game_id
-                LEFT JOIN season_batting ON season_batting.player_id = f.player_id
+            LEFT JOIN ranked_lineups rl
+                ON rl.game_id = sp.game_id
+               AND rl.player_id = sp.player_id
+               AND rl.row_rank = 1
+            LEFT JOIN dim_players dp ON dp.player_id = sp.player_id
+            LEFT JOIN games g ON g.game_id = sp.game_id
+            LEFT JOIN season_batting ON season_batting.player_id = sp.player_id
             LEFT JOIN player_game_batting actual
-                ON actual.game_id = f.game_id
-               AND actual.player_id = f.player_id
-            LEFT JOIN recent_batting ON recent_batting.player_id = f.player_id
-            WHERE f.row_rank = 1
+                ON actual.game_id = sp.game_id
+               AND actual.player_id = sp.player_id
+            LEFT JOIN recent_batting ON recent_batting.player_id = sp.player_id
             ORDER BY
                 CASE
-                    WHEN COALESCE(f.team, dp.team_abbr) = g.away_team THEN 0
-                    WHEN COALESCE(f.team, dp.team_abbr) = g.home_team THEN 1
+                    WHEN COALESCE(rl.team, f.team, dp.team_abbr) = g.away_team THEN 0
+                    WHEN COALESCE(rl.team, f.team, dp.team_abbr) = g.home_team THEN 1
                     ELSE 2
                 END,
                 {lineup_slot_order},
@@ -3555,11 +3712,17 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         lineup_records = _annotate_lineup_confidence(lineup_records, _fetch_lineup_snapshot_keys(target_date))
         if not include_inferred:
             lineup_records = [record for record in lineup_records if not record.get("is_inferred_lineup")]
+        hit_history_map = _fetch_recent_hit_history_map(
+            target_date,
+            [int(player["player_id"]) for player in lineup_records if player.get("player_id") is not None],
+            limit=15,
+        )
         lineup_split_map = _fetch_hitter_pitch_hand_splits(
             target_date,
             [int(player["player_id"]) for player in lineup_records if player.get("player_id") is not None],
         )
     else:
+        hit_history_map = {}
         lineup_split_map = {}
 
     total_freeze = _fetch_market_freeze_map(target_date).get((int(game_id), "total"), {})
@@ -3611,6 +3774,14 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             "home_bullpen_innings_last3": game["home_bullpen_innings_last3"],
             "away_bullpen_b2b": game["away_bullpen_b2b"],
             "home_bullpen_b2b": game["home_bullpen_b2b"],
+            "away_bullpen_runs_allowed_last3": game["away_bullpen_runs_allowed_last3"],
+            "home_bullpen_runs_allowed_last3": game["home_bullpen_runs_allowed_last3"],
+            "away_bullpen_earned_runs_last3": game["away_bullpen_earned_runs_last3"],
+            "home_bullpen_earned_runs_last3": game["home_bullpen_earned_runs_last3"],
+            "away_bullpen_hits_allowed_last3": game["away_bullpen_hits_allowed_last3"],
+            "home_bullpen_hits_allowed_last3": game["home_bullpen_hits_allowed_last3"],
+            "away_bullpen_era_last3": game["away_bullpen_era_last3"],
+            "home_bullpen_era_last3": game["home_bullpen_era_last3"],
             "away_lineup_top5_xwoba": game["away_lineup_top5_xwoba"],
             "home_lineup_top5_xwoba": game["home_lineup_top5_xwoba"],
             "away_lineup_k_pct": game["away_lineup_k_pct"],
@@ -3666,6 +3837,8 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
 
     for player in lineup_records:
         player.update(_build_hit_actual_meta(player.get("actual_hits"), is_final))
+        player_id = player.get("player_id")
+        player["recent_hit_history"] = [] if player_id is None else hit_history_map.get(int(player_id), [])
         side = "away" if player["team"] == detail["away_team"] else "home"
         opposing_starter = detail["starters"]["home"] if side == "away" else detail["starters"]["away"]
         _attach_hitter_matchup_context(
@@ -3741,6 +3914,7 @@ def _fetch_hot_hitters(
         available_count: int = 0,
         available_confirmed_count: int = 0,
         available_market_count: int = 0,
+        confirmed_fallback_active: bool = False,
     ) -> dict[str, Any]:
         return {
             "rows": [],
@@ -3753,6 +3927,7 @@ def _fetch_hot_hitters(
                 "available_count": available_count,
                 "available_confirmed_count": available_confirmed_count,
                 "available_market_count": available_market_count,
+                "confirmed_fallback_active": confirmed_fallback_active,
                 "games_count": 0,
                 "average_hit_probability": None,
                 "latest_prediction_ts": None,
@@ -3766,7 +3941,7 @@ def _fetch_hot_hitters(
     recent_batting_avg_expr = _sql_ratio("hits", "at_bats")
     season_batting_avg_expr = _sql_ratio("b.hits", "b.at_bats")
     game_year_expr = _sql_year("b.game_date")
-    target_year_expr = _sql_year("CAST(:target_date AS DATE)")
+    target_year_expr = _sql_year_param("target_date")
     player_name_expr = _sql_json_text("f.feature_payload", "player_name")
     lineup_slot_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'lineup_slot')}, '')")
     confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
@@ -3966,8 +4141,13 @@ def _fetch_hot_hitters(
     available_count = len(records)
     available_confirmed_count = sum(1 for record in records if record.get("is_confirmed_lineup"))
     available_market_count = sum(1 for record in records if _to_float(record.get("market_price")) is not None)
+    confirmed_fallback_active = False
     if confirmed_only:
-        records = [record for record in records if record.get("is_confirmed_lineup")]
+        confirmed_records = [record for record in records if record.get("is_confirmed_lineup")]
+        if confirmed_records:
+            records = confirmed_records
+        else:
+            confirmed_fallback_active = available_count > 0
     suppressed_inferred_count = 0
     if not include_inferred:
         suppressed_inferred_count = sum(1 for record in records if record.get("is_inferred_lineup"))
@@ -3978,11 +4158,17 @@ def _fetch_hot_hitters(
             available_count=available_count,
             available_confirmed_count=available_confirmed_count,
             available_market_count=available_market_count,
+            confirmed_fallback_active=confirmed_fallback_active,
         )
 
     hit_split_map = _fetch_hitter_pitch_hand_splits(
         target_date,
         [int(record["player_id"]) for record in records if record.get("player_id") is not None],
+    )
+    hit_history_map = _fetch_recent_hit_history_map(
+        target_date,
+        [int(record["player_id"]) for record in records if record.get("player_id") is not None],
+        limit=10,
     )
 
     all_hot_rows: list[dict[str, Any]] = []
@@ -3990,12 +4176,14 @@ def _fetch_hot_hitters(
         form = _classify_hitter_form(record)
         if form["label"] not in {"Hot", "Streaking", "Hitting well"}:
             continue
+        player_id = int(record["player_id"]) if record.get("player_id") is not None else None
         actual_meta = _build_hit_actual_meta(record.get("actual_hits"), _is_final_game_status(record.get("game_status")))
         enriched = _attach_hitter_matchup_context(
             {
                 **record,
                 **actual_meta,
                 "form": form,
+                "recent_hit_history": [] if player_id is None else hit_history_map.get(player_id, []),
             },
             record.get("opposing_pitcher_throws"),
             hit_split_map,
@@ -4035,6 +4223,7 @@ def _fetch_hot_hitters(
             "available_count": available_count,
             "available_confirmed_count": available_confirmed_count,
             "available_market_count": available_market_count,
+            "confirmed_fallback_active": confirmed_fallback_active,
             "games_count": len({int(row["game_id"]) for row in hot_rows if row.get("game_id") is not None}),
             "average_hit_probability": round(sum(valid_probabilities) / len(valid_probabilities), 4) if valid_probabilities else None,
             "latest_prediction_ts": max((row.get("prediction_ts") for row in hot_rows if row.get("prediction_ts") is not None), default=None),
@@ -4691,7 +4880,13 @@ def _run_module_sequence(sequence: list[tuple[str, list[str]]]) -> tuple[list[di
     return steps, failed_step
 
 
-def _pipeline_sequence(target_date: str, refresh_aggregates: bool, rebuild_features: bool) -> list[tuple[str, list[str]]]:
+def _publish_target_date_sequence(
+    target_date: str,
+    *,
+    refresh_aggregates: bool,
+    rebuild_features: bool,
+    include_market_freeze: bool,
+) -> list[tuple[str, list[str]]]:
     sequence: list[tuple[str, list[str]]] = []
     if refresh_aggregates:
         sequence.extend(
@@ -4701,9 +4896,10 @@ def _pipeline_sequence(target_date: str, refresh_aggregates: bool, rebuild_featu
             ]
         )
     if rebuild_features:
+        if include_market_freeze:
+            sequence.append(("src.transforms.freeze_markets", ["--target-date", target_date]))
         sequence.extend(
             [
-                ("src.transforms.freeze_markets", ["--target-date", target_date]),
                 ("src.features.totals_builder", ["--target-date", target_date]),
                 ("src.features.first5_totals_builder", ["--target-date", target_date]),
                 ("src.features.hits_builder", ["--target-date", target_date]),
@@ -4722,6 +4918,26 @@ def _pipeline_sequence(target_date: str, refresh_aggregates: bool, rebuild_featu
     return sequence
 
 
+def _pipeline_sequence(target_date: str, refresh_aggregates: bool, rebuild_features: bool) -> list[tuple[str, list[str]]]:
+    return _publish_target_date_sequence(
+        target_date,
+        refresh_aggregates=refresh_aggregates,
+        rebuild_features=rebuild_features,
+        include_market_freeze=True,
+    )
+
+
+def _results_refresh_sequence(target_date: str) -> list[tuple[str, list[str]]]:
+    return [
+        ("src.ingestors.boxscores", ["--target-date", target_date]),
+        ("src.ingestors.player_batting", ["--target-date", target_date]),
+        ("src.ingestors.weather", ["--target-date", target_date, "--mode", "observed"]),
+        ("src.transforms.offense_daily", ["--target-date", target_date]),
+        ("src.transforms.bullpens_daily", ["--target-date", target_date]),
+        ("src.transforms.product_surfaces", ["--target-date", target_date]),
+    ]
+
+
 def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[str, list[str]]]:
     if action == "refresh_everything":
         return [
@@ -4730,6 +4946,7 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.ingestors.prepare_slate_inputs", ["--target-date", target_date]),
             ("src.ingestors.lineups", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
+            ("src.ingestors.weather", ["--target-date", target_date]),
             ("src.transforms.freeze_markets", ["--target-date", target_date]),
             ("src.ingestors.validator", ["--target-date", target_date]),
             ("src.transforms.offense_daily", []),
@@ -4749,7 +4966,17 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.ingestors.games", ["--target-date", target_date]),
             ("src.ingestors.starters", ["--target-date", target_date]),
             ("src.ingestors.prepare_slate_inputs", ["--target-date", target_date]),
+            ("src.ingestors.lineups", ["--target-date", target_date]),
+            ("src.ingestors.market_totals", ["--target-date", target_date]),
+            ("src.ingestors.weather", ["--target-date", target_date]),
+            ("src.transforms.freeze_markets", ["--target-date", target_date]),
             ("src.ingestors.validator", ["--target-date", target_date]),
+            *_publish_target_date_sequence(
+                target_date,
+                refresh_aggregates=False,
+                rebuild_features=True,
+                include_market_freeze=False,
+            ),
         ]
     if action == "import_manual_inputs":
         return [
@@ -4757,36 +4984,28 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.ingestors.market_totals", ["--target-date", target_date]),
             ("src.transforms.freeze_markets", ["--target-date", target_date]),
             ("src.ingestors.validator", ["--target-date", target_date]),
+            *_publish_target_date_sequence(
+                target_date,
+                refresh_aggregates=False,
+                rebuild_features=True,
+                include_market_freeze=False,
+            ),
         ]
     if action == "refresh_results":
-        return [
-            ("src.ingestors.boxscores", ["--target-date", target_date]),
-            ("src.ingestors.player_batting", ["--target-date", target_date]),
-            ("src.transforms.offense_daily", []),
-            ("src.transforms.bullpens_daily", []),
-            ("src.transforms.product_surfaces", ["--target-date", target_date]),
-        ]
+        return _results_refresh_sequence(target_date)
     if action == "grade_predictions":
-        yesterday = (date.fromisoformat(target_date) - timedelta(days=1)).isoformat()
-        return [
-            ("src.ingestors.boxscores", ["--target-date", yesterday]),
-            ("src.ingestors.player_batting", ["--target-date", yesterday]),
-            ("src.ingestors.weather", ["--target-date", yesterday, "--mode", "observed"]),
-            ("src.transforms.offense_daily", ["--target-date", yesterday]),
-            ("src.transforms.bullpens_daily", ["--target-date", yesterday]),
-            ("src.transforms.product_surfaces", ["--target-date", yesterday]),
-        ]
+        return _results_refresh_sequence(target_date)
     return _pipeline_sequence(target_date, refresh_aggregates=False, rebuild_features=True)
 
 
 def _update_job_label(action: UpdateAction) -> str:
     return {
         "refresh_everything": "Refresh Everything",
-        "prepare_slate": "Prepare slate",
-        "import_manual_inputs": "Import inputs",
-        "refresh_results": "Refresh results and stats",
-        "rebuild_predictions": "Rebuild predictions",
-        "grade_predictions": "Grade recent predictions",
+        "prepare_slate": "Prepare Slate",
+        "import_manual_inputs": "Update Lineups & Markets",
+        "refresh_results": "Refresh Daily Results",
+        "rebuild_predictions": "Rebuild Predictions",
+        "grade_predictions": "Grade Predictions",
     }[action]
 
 
@@ -4802,7 +5021,7 @@ def health() -> JSONResponse:
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(INDEX_FILE)
+    return _html_file_response(INDEX_FILE)
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -4816,31 +5035,37 @@ def favicon() -> FileResponse:
 @app.get("/hot-hitters/")
 @app.get("/hot-hitters")
 def hot_hitters_page() -> FileResponse:
-    return FileResponse(HOT_HITTERS_FILE)
+    return _html_file_response(HOT_HITTERS_FILE)
 
 
 @app.get("/results/")
 @app.get("/results")
 def results_page() -> FileResponse:
-    return FileResponse(RESULTS_FILE)
+    return _html_file_response(RESULTS_FILE)
 
 
 @app.get("/doctor/")
 @app.get("/doctor")
 def doctor_page() -> FileResponse:
-    return FileResponse(DOCTOR_FILE)
+    return _html_file_response(DOCTOR_FILE)
 
 
 @app.get("/totals/")
 @app.get("/totals")
 def totals_page() -> FileResponse:
-    return FileResponse(TOTALS_FILE)
+    return _html_file_response(TOTALS_FILE)
 
 
 @app.get("/pitchers/")
 @app.get("/pitchers")
 def pitchers_page() -> FileResponse:
-    return FileResponse(PITCHERS_FILE)
+    return _html_file_response(PITCHERS_FILE)
+
+
+@app.get("/game/")
+@app.get("/game")
+def game_page() -> FileResponse:
+    return _html_file_response(GAME_FILE)
 
 
 @app.get("/api/status")

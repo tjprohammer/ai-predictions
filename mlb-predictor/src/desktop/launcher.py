@@ -223,12 +223,12 @@ def bootstrap_runtime_environment(bundle_dir: Path, user_dir: Path, log_path: Pa
     if user_env.exists():
         load_dotenv(user_env, override=False)
 
-    os.environ.setdefault("DATA_DIR", str(data_target))
-    os.environ.setdefault("MODEL_DIR", str(data_target / "models"))
-    os.environ.setdefault("REPORT_DIR", str(data_target / "reports"))
-    os.environ.setdefault("FEATURE_DIR", str(data_target / "features"))
-    os.environ.setdefault("MANUAL_LINEUPS_CSV", str(data_target / "raw" / "manual_lineups.csv"))
-    os.environ.setdefault("MANUAL_MARKETS_CSV", str(data_target / "raw" / "manual_market_totals.csv"))
+    os.environ["DATA_DIR"] = str(data_target)
+    os.environ["MODEL_DIR"] = str(data_target / "models")
+    os.environ["REPORT_DIR"] = str(data_target / "reports")
+    os.environ["FEATURE_DIR"] = str(data_target / "features")
+    os.environ["MANUAL_LINEUPS_CSV"] = str(data_target / "raw" / "manual_lineups.csv")
+    os.environ["MANUAL_MARKETS_CSV"] = str(data_target / "raw" / "manual_market_totals.csv")
 
     park_factors_path = db_target / "seeds" / "park_factors.csv"
     if not park_factors_path.exists():
@@ -237,7 +237,7 @@ def bootstrap_runtime_environment(bundle_dir: Path, user_dir: Path, log_path: Pa
             park_factors_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(fallback_park_factors, park_factors_path)
     if park_factors_path.exists():
-        os.environ.setdefault("PARK_FACTORS_CSV", str(park_factors_path))
+        os.environ["PARK_FACTORS_CSV"] = str(park_factors_path)
 
     return user_env if user_env.exists() else None
 

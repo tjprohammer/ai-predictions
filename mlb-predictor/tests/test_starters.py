@@ -61,3 +61,31 @@ def test_starters_parses_sqlite_string_last_start(monkeypatch):
     }
     starter_rows = captured["pitcher_starts"]["rows"]
     assert starter_rows[0]["days_rest"] == 5
+
+
+def test_starters_rest_lookup_ignores_probable_rows(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        starters_module,
+        "resolve_date_range",
+        lambda _args: (starters_module.date(2026, 4, 4), starters_module.date(2026, 4, 4)),
+    )
+    monkeypatch.setattr(starters_module, "iter_schedule_games", lambda *_args: [])
+
+    def fake_query_df(query, *_args, **_kwargs):
+        captured["query"] = query
+        return pd.DataFrame(columns=["pitcher_id", "last_game_date"])
+
+    monkeypatch.setattr(starters_module, "query_df", fake_query_df)
+    monkeypatch.setattr(starters_module, "record_ingest_event", lambda **_kwargs: None)
+    monkeypatch.setattr(starters_module, "run_sql", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(starters_module, "upsert_rows", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(
+        starters_module.argparse.ArgumentParser,
+        "parse_args",
+        lambda self: type("Args", (), {"start_date": None, "end_date": None, "target_date": None})(),
+    )
+
+    assert starters_module.main() == 0
+    assert "COALESCE(is_probable, FALSE) = FALSE" in captured["query"]

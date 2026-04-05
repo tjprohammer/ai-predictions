@@ -28,6 +28,7 @@ def test_build_prediction_outcomes_normalizes_game_date(monkeypatch):
                 "game_id": 1,
                 "away_team": "NYY",
                 "home_team": "BOS",
+                "game_status": "final",
                 "model_name": "totals",
                 "model_version": "v1",
                 "prediction_ts": pd.Timestamp("2026-04-02T12:00:00Z"),
@@ -63,6 +64,7 @@ def test_build_prediction_outcomes_normalizes_game_date(monkeypatch):
             }
         },
     )
+    monkeypatch.setattr(product_surfaces, "_fetch_weather_by_game", lambda *args, **kwargs: {})
     monkeypatch.setattr(product_surfaces, "delete_for_date_range", lambda *args, **kwargs: None)
 
     def fake_upsert_rows(table_name, rows, conflict_columns):
@@ -79,6 +81,102 @@ def test_build_prediction_outcomes_normalizes_game_date(monkeypatch):
     assert captured["rows"][0]["game_date"] == date(2026, 4, 2)
     assert captured["rows"][0]["entry_market_sportsbook"] == "FanDuel"
     assert captured["rows"][0]["closing_market_same_sportsbook"] is True
+
+
+def test_build_prediction_outcomes_skips_live_games_for_grading(monkeypatch):
+    totals_frame = pd.DataFrame(
+        [
+            {
+                "game_date": pd.Timestamp("2026-04-02"),
+                "game_id": 1,
+                "away_team": "NYY",
+                "home_team": "BOS",
+                "game_status": "live",
+                "model_name": "totals",
+                "model_version": "v1",
+                "prediction_ts": pd.Timestamp("2026-04-02T12:00:00Z"),
+                "predicted_total_runs": 8.5,
+                "total_runs": 5,
+                "market_total": 8.0,
+                "market_sportsbook": "FanDuel",
+                "market_snapshot_ts": pd.Timestamp("2026-04-02T11:45:00Z"),
+                "over_probability": 0.56,
+                "under_probability": 0.44,
+            }
+        ]
+    )
+    hits_frame = pd.DataFrame(
+        [
+            {
+                "game_date": pd.Timestamp("2026-04-02"),
+                "game_id": 1,
+                "player_id": 42,
+                "team": "NYY",
+                "opponent": "BOS",
+                "game_status": "in progress",
+                "model_name": "hits",
+                "model_version": "v1",
+                "prediction_ts": pd.Timestamp("2026-04-02T12:00:00Z"),
+                "predicted_hit_probability": 0.61,
+                "fair_price": -115,
+                "market_price": -110,
+                "edge": 0.02,
+                "actual_hits": 2,
+            }
+        ]
+    )
+    strikeouts_frame = pd.DataFrame(
+        [
+            {
+                "game_date": pd.Timestamp("2026-04-02"),
+                "game_id": 1,
+                "pitcher_id": 77,
+                "team": "BOS",
+                "opponent": "NYY",
+                "game_status": "live",
+                "model_name": "strikeouts",
+                "model_version": "v1",
+                "prediction_ts": pd.Timestamp("2026-04-02T12:00:00Z"),
+                "predicted_strikeouts": 6.2,
+                "market_line": 5.5,
+                "over_probability": 0.58,
+                "under_probability": 0.42,
+                "edge": 0.03,
+                "actual_strikeouts": 4,
+            }
+        ]
+    )
+
+    def fake_latest_rows(query: str, params=None):
+        if "predictions_totals" in query:
+            return totals_frame
+        if "predictions_player_hits" in query:
+            return hits_frame
+        if "predictions_pitcher_strikeouts" in query:
+            return strikeouts_frame
+        return pd.DataFrame()
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(product_surfaces, "_latest_rows", fake_latest_rows)
+    monkeypatch.setattr(product_surfaces, "_fetch_closing_market_by_game", lambda *args, **kwargs: {})
+    monkeypatch.setattr(product_surfaces, "_fetch_weather_by_game", lambda *args, **kwargs: {})
+    monkeypatch.setattr(product_surfaces, "delete_for_date_range", lambda *args, **kwargs: None)
+
+    def fake_upsert_rows(table_name, rows, conflict_columns):
+        captured["table_name"] = table_name
+        captured["rows"] = rows
+        return len(rows)
+
+    monkeypatch.setattr(product_surfaces, "upsert_rows", fake_upsert_rows)
+
+    result = product_surfaces._build_prediction_outcomes(date(2026, 4, 2), date(2026, 4, 2))
+
+    assert result == 3
+    assert captured["table_name"] == "prediction_outcomes_daily"
+    assert len(captured["rows"]) == 3
+    assert all(row["graded"] is False for row in captured["rows"])
+    assert all(row["actual_value"] is None for row in captured["rows"])
 
 
 def test_fetch_closing_market_by_game_prefers_entry_sportsbook(monkeypatch):

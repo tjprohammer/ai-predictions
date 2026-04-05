@@ -50,12 +50,25 @@ def test_update_job_prepare_slate_runs_expected_modules(monkeypatch):
     payload = json.loads(response.body)
 
     assert response.status_code == 200
-    assert payload["label"] == "Prepare slate"
+    assert payload["label"] == "Prepare Slate"
     assert calls == [
         ("src.ingestors.games", ["--target-date", "2026-04-02"]),
         ("src.ingestors.starters", ["--target-date", "2026-04-02"]),
         ("src.ingestors.prepare_slate_inputs", ["--target-date", "2026-04-02"]),
+        ("src.ingestors.lineups", ["--target-date", "2026-04-02"]),
+        ("src.ingestors.market_totals", ["--target-date", "2026-04-02"]),
+        ("src.ingestors.weather", ["--target-date", "2026-04-02"]),
+        ("src.transforms.freeze_markets", ["--target-date", "2026-04-02"]),
         ("src.ingestors.validator", ["--target-date", "2026-04-02"]),
+        ("src.features.totals_builder", ["--target-date", "2026-04-02"]),
+        ("src.features.first5_totals_builder", ["--target-date", "2026-04-02"]),
+        ("src.features.hits_builder", ["--target-date", "2026-04-02"]),
+        ("src.features.strikeouts_builder", ["--target-date", "2026-04-02"]),
+        ("src.models.predict_totals", ["--target-date", "2026-04-02"]),
+        ("src.models.predict_first5_totals", ["--target-date", "2026-04-02"]),
+        ("src.models.predict_hits", ["--target-date", "2026-04-02"]),
+        ("src.models.predict_strikeouts", ["--target-date", "2026-04-02"]),
+        ("src.transforms.product_surfaces", ["--target-date", "2026-04-02"]),
     ]
 
 
@@ -78,6 +91,7 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
         "src.ingestors.prepare_slate_inputs",
         "src.ingestors.lineups",
         "src.ingestors.market_totals",
+        "src.ingestors.weather",
         "src.transforms.freeze_markets",
         "src.ingestors.validator",
         "src.transforms.offense_daily",
@@ -107,6 +121,7 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
                 "src.ingestors.prepare_slate_inputs",
                 "src.ingestors.lineups",
                 "src.ingestors.market_totals",
+                "src.ingestors.weather",
                 "src.transforms.freeze_markets",
                 "src.ingestors.validator",
                 "src.transforms.offense_daily",
@@ -125,32 +140,55 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
         (
             "prepare_slate",
             "2026-04-02",
-            "Prepare slate",
+            "Prepare Slate",
             [
                 "src.ingestors.games",
                 "src.ingestors.starters",
                 "src.ingestors.prepare_slate_inputs",
+                "src.ingestors.lineups",
+                "src.ingestors.market_totals",
+                "src.ingestors.weather",
+                "src.transforms.freeze_markets",
                 "src.ingestors.validator",
+                "src.features.totals_builder",
+                "src.features.first5_totals_builder",
+                "src.features.hits_builder",
+                "src.features.strikeouts_builder",
+                "src.models.predict_totals",
+                "src.models.predict_first5_totals",
+                "src.models.predict_hits",
+                "src.models.predict_strikeouts",
+                "src.transforms.product_surfaces",
             ],
         ),
         (
             "import_manual_inputs",
             "2026-04-02",
-            "Import inputs",
+            "Update Lineups & Markets",
             [
                 "src.ingestors.lineups",
                 "src.ingestors.market_totals",
                 "src.transforms.freeze_markets",
                 "src.ingestors.validator",
+                "src.features.totals_builder",
+                "src.features.first5_totals_builder",
+                "src.features.hits_builder",
+                "src.features.strikeouts_builder",
+                "src.models.predict_totals",
+                "src.models.predict_first5_totals",
+                "src.models.predict_hits",
+                "src.models.predict_strikeouts",
+                "src.transforms.product_surfaces",
             ],
         ),
         (
             "refresh_results",
             "2026-04-02",
-            "Refresh results and stats",
+            "Refresh Daily Results",
             [
                 "src.ingestors.boxscores",
                 "src.ingestors.player_batting",
+                "src.ingestors.weather",
                 "src.transforms.offense_daily",
                 "src.transforms.bullpens_daily",
                 "src.transforms.product_surfaces",
@@ -159,7 +197,7 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
         (
             "rebuild_predictions",
             "2026-04-02",
-            "Rebuild predictions",
+            "Rebuild Predictions",
             [
                 "src.transforms.freeze_markets",
                 "src.features.totals_builder",
@@ -176,7 +214,7 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
         (
             "grade_predictions",
             "2026-04-03",
-            "Grade recent predictions",
+            "Grade Predictions",
             [
                 "src.ingestors.boxscores",
                 "src.ingestors.player_batting",
@@ -222,14 +260,14 @@ def test_update_job_grade_predictions_targets_yesterday(monkeypatch):
     payload = json.loads(response.body)
 
     assert response.status_code == 200
-    assert payload["label"] == "Grade recent predictions"
+    assert payload["label"] == "Grade Predictions"
     assert calls == [
-        ("src.ingestors.boxscores", ["--target-date", "2026-04-02"]),
-        ("src.ingestors.player_batting", ["--target-date", "2026-04-02"]),
-        ("src.ingestors.weather", ["--target-date", "2026-04-02", "--mode", "observed"]),
-        ("src.transforms.offense_daily", ["--target-date", "2026-04-02"]),
-        ("src.transforms.bullpens_daily", ["--target-date", "2026-04-02"]),
-        ("src.transforms.product_surfaces", ["--target-date", "2026-04-02"]),
+        ("src.ingestors.boxscores", ["--target-date", "2026-04-03"]),
+        ("src.ingestors.player_batting", ["--target-date", "2026-04-03"]),
+        ("src.ingestors.weather", ["--target-date", "2026-04-03", "--mode", "observed"]),
+        ("src.transforms.offense_daily", ["--target-date", "2026-04-03"]),
+        ("src.transforms.bullpens_daily", ["--target-date", "2026-04-03"]),
+        ("src.transforms.product_surfaces", ["--target-date", "2026-04-03"]),
     ]
 
 
@@ -312,7 +350,7 @@ def test_start_update_job_returns_queued_job(monkeypatch):
     assert response.status_code == 202
     assert payload["ok"] is True
     assert payload["job"]["status"] == "queued"
-    assert payload["job"]["total_steps"] == 4
+    assert payload["job"]["total_steps"] == 17
     assert launched == [payload["job"]["job_id"]]
 
 
@@ -349,13 +387,26 @@ def test_background_update_job_marks_success(monkeypatch):
 
     assert stored_job is not None
     assert stored_job["status"] == "succeeded"
-    assert stored_job["completed_steps"] == stored_job["total_steps"] == 4
+    assert stored_job["completed_steps"] == stored_job["total_steps"] == 17
     assert stored_job["status_snapshot"]["ok"] is True
     assert [module for module, _ in calls] == [
         "src.ingestors.games",
         "src.ingestors.starters",
         "src.ingestors.prepare_slate_inputs",
+        "src.ingestors.lineups",
+        "src.ingestors.market_totals",
+        "src.ingestors.weather",
+        "src.transforms.freeze_markets",
         "src.ingestors.validator",
+        "src.features.totals_builder",
+        "src.features.first5_totals_builder",
+        "src.features.hits_builder",
+        "src.features.strikeouts_builder",
+        "src.models.predict_totals",
+        "src.models.predict_first5_totals",
+        "src.models.predict_hits",
+        "src.models.predict_strikeouts",
+        "src.transforms.product_surfaces",
     ]
 
 
@@ -463,15 +514,15 @@ def test_load_persisted_update_jobs_recovers_history_and_marks_interrupted_faile
         {
             "job_id": "finished-job",
             "action": "prepare_slate",
-            "label": "Prepare slate",
+            "label": "Prepare Slate",
             "target_date": "2026-04-02",
             "status": "succeeded",
             "created_at": "2026-04-02T10:00:00+00:00",
             "started_at": "2026-04-02T10:00:01+00:00",
             "finished_at": "2026-04-02T10:00:03+00:00",
             "current_step": None,
-            "completed_steps": 4,
-            "total_steps": 4,
+            "completed_steps": 15,
+            "total_steps": 15,
             "steps": [],
             "error": None,
             "status_snapshot": {"ok": True},
@@ -479,7 +530,7 @@ def test_load_persisted_update_jobs_recovers_history_and_marks_interrupted_faile
         {
             "job_id": "interrupted-job",
             "action": "refresh_results",
-            "label": "Refresh results and stats",
+            "label": "Refresh Daily Results",
             "target_date": "2026-04-03",
             "status": "running",
             "created_at": "2026-04-02T11:00:00+00:00",
@@ -487,7 +538,7 @@ def test_load_persisted_update_jobs_recovers_history_and_marks_interrupted_faile
             "finished_at": None,
             "current_step": "src.ingestors.boxscores",
             "completed_steps": 1,
-            "total_steps": 5,
+            "total_steps": 6,
             "steps": [],
             "error": None,
             "status_snapshot": None,

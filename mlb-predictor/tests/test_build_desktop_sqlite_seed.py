@@ -3,6 +3,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 
 from scripts.build_desktop_sqlite_seed import build_sqlite_seed, main as build_seed_main
+import scripts.build_desktop_sqlite_seed as build_desktop_sqlite_seed
 from src.utils.db import query_df
 from src.utils.db_migrate import run_migrations
 
@@ -72,3 +73,29 @@ def test_build_seed_cli_rejects_sqlite_source_without_override(monkeypatch, tmp_
     )
 
     assert build_seed_main() == 1
+
+
+def test_resolve_source_database_url_falls_back_to_runtime_sqlite(monkeypatch, tmp_path):
+    source_path = tmp_path / "runtime.sqlite3"
+    _build_source_engine(source_path)
+
+    monkeypatch.setattr(
+        build_desktop_sqlite_seed,
+        "get_settings",
+        lambda: type("Settings", (), {"database_url": build_desktop_sqlite_seed.LEGACY_DEFAULT_DATABASE_URL})(),
+    )
+    monkeypatch.setattr(
+        build_desktop_sqlite_seed,
+        "_sqlite_source_candidates",
+        lambda: [source_path],
+    )
+    monkeypatch.setattr(
+        build_desktop_sqlite_seed,
+        "_database_has_accessible_tables",
+        lambda url: url.startswith("sqlite:///"),
+    )
+
+    resolved_url, auto_selected_sqlite = build_desktop_sqlite_seed._resolve_source_database_url(None)
+
+    assert resolved_url == f"sqlite:///{source_path.resolve().as_posix()}"
+    assert auto_selected_sqlite is True

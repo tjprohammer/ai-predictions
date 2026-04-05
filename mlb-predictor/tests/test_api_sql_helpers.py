@@ -19,6 +19,7 @@ def test_sqlite_helper_fragments_use_portable_casts():
     assert app_module._sql_real("metric", dialect="sqlite") == "CAST(metric AS REAL)"
     assert app_module._sql_integer("slot", dialect="sqlite") == "CAST(slot AS INTEGER)"
     assert app_module._sql_year("game_date", dialect="sqlite") == "CAST(strftime('%Y', game_date) AS INTEGER)"
+    assert app_module._sql_year_param("target_date", dialect="sqlite") == "CAST(strftime('%Y', :target_date) AS INTEGER)"
     assert app_module._sql_order_nulls_last("lineup_slot") == "CASE WHEN lineup_slot IS NULL THEN 1 ELSE 0 END, lineup_slot ASC"
 
 

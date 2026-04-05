@@ -271,7 +271,7 @@ def main() -> int:
         "first5_totals",
     )
     output_path = write_feature_snapshot(feature_frame, "first5_totals", start_date, end_date)
-    persisted = persist_first5_totals_features(feature_frame)
+    persisted = persist_first5_totals_features(feature_frame, start_date, end_date)
     log.info(
         "Built %s first-five totals rows -> %s and persisted %s DB rows",
         len(feature_frame),

@@ -16,7 +16,7 @@ from src.features.contracts import (
     TOTALS_TARGET_COLUMN,
 )
 from src.features.priors import blend_with_prior
-from src.utils.db import upsert_rows
+from src.utils.db import delete_for_date_range, upsert_rows
 from src.utils.settings import get_settings
 
 
@@ -386,10 +386,25 @@ def bullpen_snapshot(team: str, game_date: date, bullpens: pd.DataFrame) -> dict
     previous_day = game_date - timedelta(days=1)
     b2b = int((history["game_date"].dt.date == previous_day).any()) if not history.empty else 0
     outs = int(last3["innings_pitched"].apply(baseball_ip_to_outs).sum()) if not last3.empty else 0
+    earned_runs_series = last3["earned_runs"] if not last3.empty and "earned_runs" in last3.columns else pd.Series(dtype=float)
+    hits_allowed_series = last3["hits_allowed"] if not last3.empty and "hits_allowed" in last3.columns else pd.Series(dtype=float)
+    if not last3.empty and "runs_allowed" in last3.columns:
+        runs_allowed_series = last3["runs_allowed"]
+    else:
+        runs_allowed_series = earned_runs_series
+    earned_runs = int(earned_runs_series.fillna(0).sum()) if not earned_runs_series.empty else 0
+    hits_allowed = int(hits_allowed_series.fillna(0).sum()) if not hits_allowed_series.empty else 0
+    runs_allowed = int(runs_allowed_series.fillna(0).sum()) if not runs_allowed_series.empty else earned_runs
+    innings_decimal = outs / 3 if outs else 0
+    era_last3 = None if innings_decimal <= 0 else float((earned_runs * 9) / innings_decimal)
     return {
         "pitches_last3": int(last3["pitches_thrown"].fillna(0).sum()) if not last3.empty else 0,
         "innings_last3": outs_to_baseball_ip(outs),
         "b2b": b2b,
+        "runs_allowed_last3": runs_allowed,
+        "earned_runs_last3": earned_runs,
+        "hits_allowed_last3": hits_allowed,
+        "era_last3": era_last3,
     }
 
 
@@ -566,25 +581,55 @@ def _persist_feature_rows(frame: pd.DataFrame, table_name: str, meta_columns: li
     return upsert_rows(table_name, rows, ["game_id", entity_key, "feature_cutoff_ts", "feature_version"])
 
 
-def persist_totals_features(frame: pd.DataFrame) -> int:
-    return _persist_feature_rows(frame, "game_features_totals", TOTALS_META_COLUMNS, TOTALS_TARGET_COLUMN)
+def _replace_feature_rows_for_date_range(
+    frame: pd.DataFrame,
+    table_name: str,
+    meta_columns: list[str],
+    target_column: str,
+    start_date: date,
+    end_date: date,
+) -> int:
+    delete_for_date_range(table_name, start_date, end_date)
+    if frame.empty:
+        return 0
+    return _persist_feature_rows(frame, table_name, meta_columns, target_column)
 
 
-def persist_first5_totals_features(frame: pd.DataFrame) -> int:
-    return _persist_feature_rows(
+def persist_totals_features(frame: pd.DataFrame, start_date: date, end_date: date) -> int:
+    return _replace_feature_rows_for_date_range(
+        frame,
+        "game_features_totals",
+        TOTALS_META_COLUMNS,
+        TOTALS_TARGET_COLUMN,
+        start_date,
+        end_date,
+    )
+
+
+def persist_first5_totals_features(frame: pd.DataFrame, start_date: date, end_date: date) -> int:
+    return _replace_feature_rows_for_date_range(
         frame,
         "game_features_first5_totals",
         FIRST5_TOTALS_META_COLUMNS,
         FIRST5_TOTALS_TARGET_COLUMN,
+        start_date,
+        end_date,
     )
 
 
-def persist_hits_features(frame: pd.DataFrame) -> int:
-    return _persist_feature_rows(frame, "player_features_hits", HITS_META_COLUMNS, HITS_TARGET_COLUMN)
+def persist_hits_features(frame: pd.DataFrame, start_date: date, end_date: date) -> int:
+    return _replace_feature_rows_for_date_range(
+        frame,
+        "player_features_hits",
+        HITS_META_COLUMNS,
+        HITS_TARGET_COLUMN,
+        start_date,
+        end_date,
+    )
 
 
-def persist_strikeout_features(frame: pd.DataFrame) -> int:
-    return _persist_feature_rows(
+def persist_strikeout_features(frame: pd.DataFrame, start_date: date, end_date: date) -> int:
+    return _replace_feature_rows_for_date_range(
         frame,
         "game_features_pitcher_strikeouts",
         [
@@ -600,6 +645,8 @@ def persist_strikeout_features(frame: pd.DataFrame) -> int:
             "feature_version",
         ],
         "actual_strikeouts",
+        start_date,
+        end_date,
     )
 
 

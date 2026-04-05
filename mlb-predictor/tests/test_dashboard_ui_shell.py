@@ -13,6 +13,8 @@ def test_dashboard_html_contains_visible_loading_feedback():
     assert 'Loading board...' in html
     assert 'renderLoadingPanel(' in html
     assert 'summarizeUpdateJobProgress(job)' in html
+    assert 'progressVisible: true,' in html
+    assert 'progressLabel: "Queued · starting"' in html
 
 
 def test_dashboard_html_keeps_primary_update_and_button_types():
@@ -38,3 +40,22 @@ def test_dashboard_html_links_to_doctor_surface():
 
     assert 'data-app-link="doctor"' in html
     assert '>Doctor</span></a' in html
+
+
+def test_dashboard_html_links_to_matchup_page():
+    html = Path("src/api/static/index.html").read_text(encoding="utf-8")
+
+    assert '<a class="game-toggle" href="${matchupHref}">' in html
+    assert 'game?game_id=' in html
+
+
+def test_matchup_detail_page_exists():
+    html = Path("src/api/static/game.html").read_text(encoding="utf-8")
+
+    assert 'MLB Predictor Matchup Detail' in html
+    assert 'api/games/' in html
+    assert 'runs allowed' in html
+    assert 'Lineup source' in html
+    assert 'Projected template lineup' in html
+    assert 'Green = hit · red = no hit' in html
+    assert 'Last ${history.length} Games' in html
