@@ -417,3 +417,65 @@ Audit these groups in this order:
 - Which market-derived fields are calibration-only and should stay out of the primary model feature set?
 - Which streak-style hitter fields should remain product-facing but receive lower model weight?
 - Which new certainty fields belong in feature tables versus transform or API layers?
+
+## Retrain Comparison: Core-Predictor-Only Selection (April 2026)
+
+After classifying every field and wiring all four trainers to `feature_columns_for_roles(lane, [FIELD_ROLE_CORE_PREDICTOR])`, each lane was retrained on the same feature snapshots. Results below compare the old (all-fields) artifacts against the new (core-predictor-only) artifacts.
+
+### Full-Game Totals
+
+Old: 38 features (included market fields). New: 42 core predictors (gained bullpen detail, dropped market fields).
+
+| Candidate | Metric | Before | After | Delta |
+|-----------|--------|--------|-------|-------|
+| GBR (winner) | MAE | 4.927 | 5.027 | +2.0% |
+| GBR | RMSE | 5.971 | 5.987 | +0.3% |
+| Ridge | MAE | 16.452 | 5.871 | **-64%** |
+| Ridge | RMSE | 25.155 | 7.356 | **-71%** |
+
+GBR essentially flat. Ridge massively improved — market fields were causing scale/collinearity harm in the linear model.
+
+### First-Five Totals
+
+Old: 32 features (included market fields). New: 28 core predictors.
+
+| Candidate | Metric | Before | After | Delta |
+|-----------|--------|--------|-------|-------|
+| GBR (winner) | MAE | 2.410 | 2.620 | +8.7% |
+| GBR | RMSE | 3.066 | 3.278 | +6.9% |
+| Ridge | MAE | 2.468 | 3.224 | +30.6% |
+| Ridge | RMSE | 3.097 | 6.371 | +105.7% |
+
+Largest degradation across lanes. `market_total` carries non-redundant information for first-five prediction. Will recover when the Phase 2 calibration layer reintroduces market fields post-model.
+
+### Player Hits (1+ Hit Classification)
+
+Old: 26 features (included `is_confirmed_lineup`, `streak_len_capped`). New: 24 core predictors.
+
+| Candidate | Metric | Before | After | Delta |
+|-----------|--------|--------|-------|-------|
+| HGB calibrated (winner) | Log loss | 0.6869 | 0.6794 | **-1.1%** |
+| HGB calibrated | Brier | 0.2462 | 0.2424 | **-1.5%** |
+| Logistic calibrated | Log loss | 0.6891 | 0.6818 | -1.1% |
+| Logistic calibrated | Brier | 0.2468 | 0.2431 | -1.5% |
+
+Clean improvement. Removing certainty and product-only fields helped calibration.
+
+### Pitcher Strikeouts
+
+Old: 25 features (included 5 certainty/diagnostic). New: 20 core predictors.
+
+| Candidate | Metric | Before | After | Delta |
+|-----------|--------|--------|-------|-------|
+| Ridge (winner) | MAE | 1.901 | 1.964 | +3.3% |
+| Ridge | RMSE | 2.313 | 2.393 | +3.5% |
+| GBR | MAE | 2.176 | 2.026 | **-6.9%** |
+| GBR | RMSE | 2.610 | 2.514 | **-3.7%** |
+
+Ridge slightly degraded; GBR improved. The removed certainty signals (`known_hitters`, `confirmed_hitters`, etc.) had some leakage benefit for Ridge but masked real skill prediction.
+
+### Summary
+
+- **Totals and hits**: core-predictor-only selection is a clear win or neutral.
+- **Strikeouts**: small Ridge regression acceptable; certainty fields will return as trust/suppress inputs in Phase 2.
+- **First-five totals**: most sensitive to market_total removal; calibration layer is the priority follow-up for this lane.
