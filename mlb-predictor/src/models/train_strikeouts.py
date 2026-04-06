@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
-from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.ensemble import GradientBoostingRegressor, HistGradientBoostingRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.pipeline import make_pipeline
@@ -54,6 +54,8 @@ def main() -> int:
     candidates = {
         "ridge": make_pipeline(StandardScaler(), Ridge(alpha=1.0)),
         "gbr": GradientBoostingRegressor(random_state=42, learning_rate=0.05, n_estimators=300, max_depth=3),
+        "gbr_deep": GradientBoostingRegressor(random_state=42, learning_rate=0.03, n_estimators=500, max_depth=4),
+        "hgb": HistGradientBoostingRegressor(random_state=42, max_depth=4, learning_rate=0.05, max_iter=500),
     }
     best_name = None
     best_model = None
@@ -87,6 +89,11 @@ def main() -> int:
     baselines["train_mean"] = {
         "mae": float(mean_absolute_error(y_val, [train_mean] * len(y_val))),
         "rmse": float(math.sqrt(mean_squared_error(y_val, [train_mean] * len(y_val)))),
+    }
+    train_median = float(y_train.median())
+    baselines["train_median"] = {
+        "mae": float(mean_absolute_error(y_val, [train_median] * len(y_val))),
+        "rmse": float(math.sqrt(mean_squared_error(y_val, [train_median] * len(y_val)))),
     }
     log.info("Baselines: %s", baselines)
 

@@ -4,8 +4,10 @@ import math
 from datetime import datetime, timezone
 
 from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import ElasticNet, Lasso, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from src.features.contracts import (
     FIELD_ROLE_CORE_PREDICTOR,
@@ -52,6 +54,8 @@ def main() -> int:
 
     candidates = {
         "ridge": Ridge(alpha=1.0),
+        "lasso": make_pipeline(StandardScaler(), Lasso(alpha=0.1, max_iter=5000)),
+        "elasticnet": make_pipeline(StandardScaler(), ElasticNet(alpha=0.1, l1_ratio=0.5, max_iter=5000)),
         "gbr": GradientBoostingRegressor(random_state=42, learning_rate=0.05, n_estimators=300, max_depth=3),
     }
     best_name = None
@@ -68,7 +72,11 @@ def main() -> int:
     )
 
     for name, model in candidates.items():
-        model.fit(X_train, y_train, sample_weight=train_weights)
+        if hasattr(model, "steps"):
+            last_step_name = model.steps[-1][0]
+            model.fit(X_train, y_train, **{f"{last_step_name}__sample_weight": train_weights})
+        else:
+            model.fit(X_train, y_train, sample_weight=train_weights)
         predictions = model.predict(X_val)
         mae = mean_absolute_error(y_val, predictions)
         rmse = math.sqrt(mean_squared_error(y_val, predictions))
@@ -86,6 +94,22 @@ def main() -> int:
         "mae": float(mean_absolute_error(y_val, [train_mean] * len(y_val))),
         "rmse": float(math.sqrt(mean_squared_error(y_val, [train_mean] * len(y_val)))),
     }
+    train_median = float(y_train.median())
+    baselines["train_median"] = {
+        "mae": float(mean_absolute_error(y_val, [train_median] * len(y_val))),
+        "rmse": float(math.sqrt(mean_squared_error(y_val, [train_median] * len(y_val)))),
+    }
+    if "home_team" in train_frame.columns and "away_team" in train_frame.columns:
+        _home_avgs = train_frame.groupby("home_team")[TOTALS_TARGET_COLUMN].mean()
+        _away_avgs = train_frame.groupby("away_team")[TOTALS_TARGET_COLUMN].mean()
+        _matchup_pred = (
+            val_frame["home_team"].map(_home_avgs).fillna(train_mean)
+            + val_frame["away_team"].map(_away_avgs).fillna(train_mean)
+        ) / 2
+        baselines["team_average"] = {
+            "mae": float(mean_absolute_error(y_val, _matchup_pred)),
+            "rmse": float(math.sqrt(mean_squared_error(y_val, _matchup_pred))),
+        }
     if "market_total" in val_frame.columns:
         market_mask = val_frame["market_total"].notna()
         if market_mask.sum() > 0:

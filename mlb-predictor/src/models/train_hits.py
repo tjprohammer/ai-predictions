@@ -120,6 +120,7 @@ def main() -> int:
     candidates = {
         "logistic": _build_logistic_classifier(),
         "hgb": HistGradientBoostingClassifier(random_state=42, max_depth=4),
+        "hgb_shallow": HistGradientBoostingClassifier(random_state=42, max_depth=2, min_samples_leaf=50),
     }
     metrics = {}
     best_name = None
@@ -169,7 +170,19 @@ def main() -> int:
             "log_loss": float(log_loss(y_eval, np.clip([base_rate] * len(y_eval), 1e-6, 1 - 1e-6), labels=[0, 1])),
         },
     }
+    if "hit_rate_blended" in eval_frame.columns:
+        _hr = eval_frame["hit_rate_blended"].fillna(base_rate).clip(1e-6, 1 - 1e-6)
+        baselines["hit_rate_blended"] = _score_probabilities(y_eval, _hr.values)
     log.info("Baselines: %s", baselines)
+    log.info(
+        "Best model '%s' — raw: brier=%.4f log_loss=%.4f | calibrated (%s): brier=%.4f log_loss=%.4f",
+        best_name,
+        metrics[best_name]["raw"]["brier"],
+        metrics[best_name]["raw"]["log_loss"],
+        metrics[best_name]["calibration_method"],
+        metrics[best_name]["calibrated"]["brier"],
+        metrics[best_name]["calibrated"]["log_loss"],
+    )
 
     artifact_name = f"hits_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     artifact = {
