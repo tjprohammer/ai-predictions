@@ -11,6 +11,10 @@ from src.features.common import (
     build_team_priors,
     bullpen_snapshot,
     coerce_utc_timestamp_series,
+    compute_board_state,
+    compute_freshness_score,
+    compute_starter_certainty,
+    count_missing_fallbacks,
     default_cutoff,
     hitter_snapshot,
     infer_lineup_from_history,
@@ -23,7 +27,7 @@ from src.features.common import (
     projected_plate_appearances,
     write_feature_snapshot,
 )
-from src.features.contracts import HITS_FEATURE_COLUMNS, HITS_META_COLUMNS, HITS_TARGET_COLUMN, validate_columns
+from src.features.contracts import HITS_CERTAINTY_KEY_FIELDS, HITS_FEATURE_COLUMNS, HITS_META_COLUMNS, HITS_TARGET_COLUMN, validate_columns
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df
 from src.utils.logging import get_logger
@@ -173,6 +177,11 @@ def main() -> int:
             away_rows = starters[starters["side"] == "away"]
             home_starter_id = int(home_rows.iloc[0]["pitcher_id"]) if not home_rows.empty else None
             away_starter_id = int(away_rows.iloc[0]["pitcher_id"]) if not away_rows.empty else None
+            home_starter_probable = bool(home_rows.iloc[0]["is_probable"]) if not home_rows.empty else None
+            away_starter_probable = bool(away_rows.iloc[0]["is_probable"]) if not away_rows.empty else None
+        else:
+            home_starter_probable = None
+            away_starter_probable = None
 
         market = latest_market_snapshot(game.game_id, cutoff_ts, frames["markets"])
         weather = latest_weather_snapshot(game.game_id, cutoff_ts, frames["weather"])
@@ -219,6 +228,24 @@ def main() -> int:
 
         actual_hits = frames["player_batting"][frames["player_batting"]["game_id"] == game.game_id][["player_id", "hits"]].copy()
         actual_map = {int(row.player_id): int(row.hits) for row in actual_hits.itertuples(index=False)}
+
+        game_start = game.game_start_ts.to_pydatetime() if pd.notna(game.game_start_ts) else None
+        home_starter_cert = compute_starter_certainty(home_starter_id, home_starter_probable)
+        away_starter_cert = compute_starter_certainty(away_starter_id, away_starter_probable)
+        team_lineup_certainties = {}
+        for lineup_team_name in (game.home_team, game.away_team):
+            team_df = latest_lineups[latest_lineups["team"] == lineup_team_name]
+            if not team_df.empty:
+                confirmed = team_df["is_confirmed"].fillna(False).sum()
+                team_lineup_certainties[lineup_team_name] = float(confirmed) / len(team_df)
+            else:
+                team_lineup_certainties[lineup_team_name] = 0.0
+        weather_freshness = compute_freshness_score(
+            weather["weather_snapshot_ts"], game_start, decay_hours=(3, 12, 24, 48),
+        )
+        market_freshness = compute_freshness_score(
+            market["line_snapshot_ts"], game_start, decay_hours=(1, 6, 12, 24),
+        )
 
         for lineup_row in latest_lineups.itertuples(index=False):
             lineup_team = lineup_row.team
@@ -277,6 +304,15 @@ def main() -> int:
                     "got_hit": None if actual_player_hits is None else actual_player_hits > 0,
                 }
             )
+            row = rows[-1]
+            row["starter_certainty_score"] = away_starter_cert if lineup_team == game.home_team else home_starter_cert
+            row["lineup_certainty_score"] = team_lineup_certainties[lineup_team]
+            row["weather_freshness_score"] = weather_freshness
+            row["market_freshness_score"] = market_freshness
+            row["bullpen_completeness_score"] = opponent_bullpen["completeness_3"]
+            missing = count_missing_fallbacks(row, HITS_CERTAINTY_KEY_FIELDS)
+            row["missing_fallback_count"] = missing
+            row["board_state"] = compute_board_state(missing, threshold_minimal=2)
 
     feature_frame = pd.DataFrame(rows)
     if feature_frame.empty:

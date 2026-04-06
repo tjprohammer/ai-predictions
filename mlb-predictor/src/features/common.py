@@ -405,6 +405,7 @@ def bullpen_snapshot(team: str, game_date: date, bullpens: pd.DataFrame) -> dict
         "earned_runs_last3": earned_runs,
         "hits_allowed_last3": hits_allowed,
         "era_last3": era_last3,
+        "completeness_3": len(last3) / 3.0,
     }
 
 
@@ -424,7 +425,7 @@ def lineup_snapshot(
     if team_lineups.empty:
         latest = infer_lineup_from_history(team, game_date, player_batting)
         if latest.empty:
-            return {"top5_xwoba": None, "lineup_k_pct": None, "confirmed": False}
+            return {"top5_xwoba": None, "lineup_k_pct": None, "confirmed": False, "confirmed_count": 0, "total_count": 0}
     else:
         latest_snapshot = team_lineups["snapshot_ts"].max()
         latest = team_lineups[team_lineups["snapshot_ts"] == latest_snapshot].sort_values("lineup_slot")
@@ -446,6 +447,8 @@ def lineup_snapshot(
         "top5_xwoba": _safe_mean(pd.Series([row["season_prior_xwoba"] if row["xwoba_14"] is None else row["xwoba_14"] for row in top5])),
         "lineup_k_pct": _safe_mean(pd.Series([row["k_pct_14"] for row in player_rows])),
         "confirmed": bool(latest["is_confirmed"].fillna(False).any()),
+        "confirmed_count": int(latest["is_confirmed"].fillna(False).sum()),
+        "total_count": len(latest),
     }
 
 
@@ -493,13 +496,14 @@ def latest_market_snapshot(
 def latest_weather_snapshot(game_id: int, cutoff_ts: datetime, weather: pd.DataFrame) -> dict[str, Any]:
     frame = weather[(weather["game_id"] == game_id) & (weather["snapshot_ts"] <= cutoff_ts)].copy()
     if frame.empty:
-        return {"temperature_f": None, "wind_speed_mph": None, "wind_direction_deg": None, "humidity_pct": None}
+        return {"temperature_f": None, "wind_speed_mph": None, "wind_direction_deg": None, "humidity_pct": None, "weather_snapshot_ts": None}
     latest = frame.sort_values("snapshot_ts").iloc[-1]
     return {
         "temperature_f": latest.get("temperature_f"),
         "wind_speed_mph": latest.get("wind_speed_mph"),
         "wind_direction_deg": latest.get("wind_direction_deg"),
         "humidity_pct": latest.get("humidity_pct"),
+        "weather_snapshot_ts": latest.get("snapshot_ts"),
     }
 
 
@@ -519,6 +523,68 @@ def projected_plate_appearances(lineup_slot: int | float | None) -> float | None
     slot = int(lineup_slot)
     lookup = {1: 4.8, 2: 4.7, 3: 4.6, 4: 4.5, 5: 4.3, 6: 4.1, 7: 4.0, 8: 3.9, 9: 3.8}
     return lookup.get(slot, 4.0)
+
+
+# ---------------------------------------------------------------------------
+# Certainty scoring helpers
+# ---------------------------------------------------------------------------
+
+def compute_starter_certainty(starter_id: int | None, is_probable: bool | None) -> float:
+    if starter_id is None:
+        return 0.0
+    return 1.0 if is_probable else 0.5
+
+
+def compute_freshness_score(
+    snapshot_ts: Any,
+    reference_ts: Any,
+    decay_hours: tuple[float, ...] = (3, 12, 24, 48),
+) -> float:
+    if snapshot_ts is None or reference_ts is None:
+        return 0.0
+    try:
+        if pd.isna(snapshot_ts) or pd.isna(reference_ts):
+            return 0.0
+    except (TypeError, ValueError):
+        pass
+    try:
+        age_hours = max(0.0, (reference_ts - snapshot_ts).total_seconds() / 3600)
+    except (TypeError, AttributeError):
+        return 0.0
+    if age_hours <= 0:
+        return 1.0
+    thresholds = sorted(decay_hours)
+    scores = [0.9, 0.7, 0.5, 0.3]
+    for threshold, score in zip(thresholds, scores):
+        if age_hours <= threshold:
+            return score
+    return 0.1
+
+
+def count_missing_fallbacks(row_dict: dict, key_fields: list[str]) -> int:
+    count = 0
+    for field in key_fields:
+        val = row_dict.get(field)
+        if val is None:
+            count += 1
+            continue
+        try:
+            if pd.isna(val):
+                count += 1
+        except (TypeError, ValueError):
+            pass
+    return count
+
+
+def compute_board_state(
+    missing_fallback_count: int,
+    threshold_minimal: int = 3,
+) -> str:
+    if missing_fallback_count == 0:
+        return "complete"
+    if missing_fallback_count < threshold_minimal:
+        return "partial"
+    return "minimal"
 
 
 def to_native(value: Any) -> Any:

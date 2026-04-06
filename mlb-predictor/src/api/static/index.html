@@ -388,6 +388,41 @@
         flex-shrink: 0;
       }
 
+      .certainty-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 7px 1px 5px;
+        border-radius: 999px;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        vertical-align: middle;
+        margin-right: 6px;
+        cursor: default;
+      }
+      .certainty-chip .cert-bar {
+        width: 28px;
+        height: 5px;
+        border-radius: 3px;
+        background: rgba(255,255,255,0.18);
+        overflow: hidden;
+      }
+      .certainty-chip .cert-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 0.3s ease;
+      }
+      .certainty-chip.cert-high  { background: rgba(34,197,94,0.15); color: #22c55e; }
+      .certainty-chip.cert-mid   { background: rgba(234,179,8,0.15); color: #eab308; }
+      .certainty-chip.cert-low   { background: rgba(239,68,68,0.15); color: #ef4444; }
+      .certainty-chip.cert-high .cert-fill { background: #22c55e; }
+      .certainty-chip.cert-mid  .cert-fill { background: #eab308; }
+      .certainty-chip.cert-low  .cert-fill { background: #ef4444; }
+      .certainty-chip.cert-high .cert-bar  { background: rgba(34,197,94,0.18); }
+      .certainty-chip.cert-mid  .cert-bar  { background: rgba(234,179,8,0.18); }
+      .certainty-chip.cert-low  .cert-bar  { background: rgba(239,68,68,0.18); }
+
       .lock-chip {
         display: inline-flex;
         align-items: center;
@@ -4455,7 +4490,23 @@
         if (!dq) return "";
         const colors = { green: "#22c55e", yellow: "#eab308", red: "#ef4444" };
         const color = colors[dq.badge] || colors.yellow;
-        return `<span class="dq-badge" title="${dq.badge_reason}" style="background:${color}"></span>`;
+        const dot = `<span class="dq-badge" title="${dq.badge_reason}" style="background:${color}"></span>`;
+
+        // Certainty meter chip
+        const pct = dq.certainty_pct;
+        if (pct == null) return dot;
+        const tier = pct >= 75 ? "high" : pct >= 45 ? "mid" : "low";
+        const board = dq.board_state ? ` · ${dq.board_state}` : "";
+        const cert = game.certainty || {};
+        const breakdown = [
+          cert.starter_certainty != null ? `Starter ${Math.round(cert.starter_certainty * 100)}%` : null,
+          cert.lineup_certainty != null ? `Lineup ${Math.round(cert.lineup_certainty * 100)}%` : null,
+          cert.weather_freshness != null ? `Weather ${Math.round(cert.weather_freshness * 100)}%` : null,
+          cert.market_freshness != null ? `Market ${Math.round(cert.market_freshness * 100)}%` : null,
+          cert.bullpen_completeness != null ? `Bullpen ${Math.round(cert.bullpen_completeness * 100)}%` : null,
+        ].filter(Boolean).join(" | ");
+        const tip = breakdown ? `${dq.badge_reason}\n\nCertainty: ${pct}%${board}\n${breakdown}` : dq.badge_reason;
+        return `${dot}<span class="certainty-chip cert-${tier}" title="${tip}"><span class="cert-bar"><span class="cert-fill" style="width:${pct}%"></span></span>${pct}%</span>`;
       }
 
       function renderMarketLockBadge(game) {

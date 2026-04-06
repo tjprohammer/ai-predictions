@@ -10,6 +10,10 @@ from src.features.common import (
     build_pitcher_priors,
     build_team_priors,
     coerce_utc_timestamp_series,
+    compute_board_state,
+    compute_freshness_score,
+    compute_starter_certainty,
+    count_missing_fallbacks,
     default_cutoff,
     infer_lineup_from_history,
     offense_snapshot,
@@ -18,6 +22,7 @@ from src.features.common import (
     write_feature_snapshot,
 )
 from src.features.contracts import (
+    STRIKEOUTS_CERTAINTY_KEY_FIELDS,
     STRIKEOUTS_FEATURE_COLUMNS,
     STRIKEOUTS_META_COLUMNS,
     STRIKEOUTS_TARGET_COLUMN,
@@ -345,6 +350,11 @@ def main() -> int:
             projected_innings = projected_innings if projected_innings and not pd.isna(projected_innings) else None
             handedness_adjustment_applied = shares["same_hand_share"] is not None and shares["opposite_hand_share"] is not None
             handedness_data_missing = int(opponent_handedness["known_hitters"] or 0) == 0
+            game_start = game.game_start_ts.to_pydatetime() if pd.notna(game.game_start_ts) else None
+            starter_cert = compute_starter_certainty(int(starter.pitcher_id), bool(getattr(starter, "is_probable", False)))
+            market_freshness = compute_freshness_score(
+                market["line_snapshot_ts"], game_start, decay_hours=(1, 6, 12, 24),
+            )
 
             rows.append(
                 {
@@ -390,6 +400,12 @@ def main() -> int:
                     "actual_strikeouts": starter.strikeouts,
                 }
             )
+            row = rows[-1]
+            row["starter_certainty_score"] = starter_cert
+            row["market_freshness_score"] = market_freshness
+            missing = count_missing_fallbacks(row, STRIKEOUTS_CERTAINTY_KEY_FIELDS)
+            row["missing_fallback_count"] = missing
+            row["board_state"] = compute_board_state(missing, threshold_minimal=2)
 
     feature_frame = pd.DataFrame(rows)
     if feature_frame.empty:

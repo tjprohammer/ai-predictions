@@ -11,6 +11,10 @@ from src.features.common import (
     build_team_priors,
     bullpen_snapshot,
     coerce_utc_timestamp_series,
+    compute_board_state,
+    compute_freshness_score,
+    compute_starter_certainty,
+    count_missing_fallbacks,
     default_cutoff,
     latest_market_snapshot,
     latest_weather_snapshot,
@@ -21,7 +25,7 @@ from src.features.common import (
     pitcher_snapshot,
     write_feature_snapshot,
 )
-from src.features.contracts import TOTALS_FEATURE_COLUMNS, TOTALS_META_COLUMNS, TOTALS_TARGET_COLUMN, validate_columns
+from src.features.contracts import TOTALS_CERTAINTY_KEY_FIELDS, TOTALS_FEATURE_COLUMNS, TOTALS_META_COLUMNS, TOTALS_TARGET_COLUMN, validate_columns
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df, table_exists
 from src.utils.logging import get_logger
@@ -148,6 +152,11 @@ def main() -> int:
             away_rows = starters[starters["side"] == "away"]
             home_starter_id = int(home_rows.iloc[0]["pitcher_id"]) if not home_rows.empty else None
             away_starter_id = int(away_rows.iloc[0]["pitcher_id"]) if not away_rows.empty else None
+            home_starter_probable = bool(home_rows.iloc[0]["is_probable"]) if not home_rows.empty else None
+            away_starter_probable = bool(away_rows.iloc[0]["is_probable"]) if not away_rows.empty else None
+        else:
+            home_starter_probable = None
+            away_starter_probable = None
 
         home_offense = offense_snapshot(
             game.home_team,
@@ -221,6 +230,26 @@ def main() -> int:
         weather = latest_weather_snapshot(game.game_id, cutoff_ts, frames["weather"])
         park = park_snapshot(game.home_team, int(game.season or game.game_date.year), frames["parks"], settings.prior_season)
 
+        game_start = game.game_start_ts.to_pydatetime() if pd.notna(game.game_start_ts) else None
+        starter_certainty = (
+            compute_starter_certainty(home_starter_id, home_starter_probable)
+            + compute_starter_certainty(away_starter_id, away_starter_probable)
+        ) / 2.0
+        lineup_certainty = 0.0
+        home_total = home_lineup["total_count"]
+        away_total = away_lineup["total_count"]
+        if home_total or away_total:
+            home_ratio = home_lineup["confirmed_count"] / home_total if home_total else 0.0
+            away_ratio = away_lineup["confirmed_count"] / away_total if away_total else 0.0
+            lineup_certainty = (home_ratio + away_ratio) / 2.0
+        weather_freshness = compute_freshness_score(
+            weather["weather_snapshot_ts"], game_start, decay_hours=(3, 12, 24, 48),
+        )
+        market_freshness = compute_freshness_score(
+            market["line_snapshot_ts"], game_start, decay_hours=(1, 6, 12, 24),
+        )
+        bullpen_completeness = (home_bullpen["completeness_3"] + away_bullpen["completeness_3"]) / 2.0
+
         rows.append(
             {
                 "game_id": int(game.game_id),
@@ -282,6 +311,15 @@ def main() -> int:
                 "actual_total_runs": game.total_runs,
             }
         )
+        row = rows[-1]
+        missing = count_missing_fallbacks(row, TOTALS_CERTAINTY_KEY_FIELDS)
+        row["starter_certainty_score"] = starter_certainty
+        row["lineup_certainty_score"] = lineup_certainty
+        row["weather_freshness_score"] = weather_freshness
+        row["market_freshness_score"] = market_freshness
+        row["bullpen_completeness_score"] = bullpen_completeness
+        row["missing_fallback_count"] = missing
+        row["board_state"] = compute_board_state(missing, threshold_minimal=3)
 
     feature_frame = pd.DataFrame(rows)
     validate_columns(feature_frame, TOTALS_META_COLUMNS + TOTALS_FEATURE_COLUMNS + [TOTALS_TARGET_COLUMN], "totals")

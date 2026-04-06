@@ -70,6 +70,13 @@ TOTALS_FEATURE_COLUMNS = [
     "market_over_price",
     "market_under_price",
     "line_movement",
+    "starter_certainty_score",
+    "lineup_certainty_score",
+    "weather_freshness_score",
+    "market_freshness_score",
+    "bullpen_completeness_score",
+    "missing_fallback_count",
+    "board_state",
 ]
 
 TOTALS_TARGET_COLUMN = "actual_total_runs"
@@ -120,6 +127,12 @@ FIRST5_TOTALS_FEATURE_COLUMNS = [
     "market_over_price",
     "market_under_price",
     "line_movement",
+    "starter_certainty_score",
+    "lineup_certainty_score",
+    "weather_freshness_score",
+    "market_freshness_score",
+    "missing_fallback_count",
+    "board_state",
 ]
 
 FIRST5_TOTALS_TARGET_COLUMN = "actual_total_runs_first5"
@@ -164,6 +177,13 @@ HITS_FEATURE_COLUMNS = [
     "wind_speed_mph",
     "team_run_environment",
     "streak_len_capped",
+    "starter_certainty_score",
+    "lineup_certainty_score",
+    "weather_freshness_score",
+    "market_freshness_score",
+    "bullpen_completeness_score",
+    "missing_fallback_count",
+    "board_state",
 ]
 
 HITS_TARGET_COLUMN = "got_hit"
@@ -208,6 +228,10 @@ STRIKEOUTS_FEATURE_COLUMNS = [
     "total_hitters",
     "handedness_adjustment_applied",
     "handedness_data_missing",
+    "starter_certainty_score",
+    "market_freshness_score",
+    "missing_fallback_count",
+    "board_state",
 ]
 
 STRIKEOUTS_TARGET_COLUMN = "actual_strikeouts"
@@ -260,6 +284,13 @@ TOTALS_FIELD_ROLES = {
     "market_over_price": FIELD_ROLE_CALIBRATION_INPUT,
     "market_under_price": FIELD_ROLE_CALIBRATION_INPUT,
     "line_movement": FIELD_ROLE_CALIBRATION_INPUT,
+    "starter_certainty_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "lineup_certainty_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "weather_freshness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "market_freshness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "bullpen_completeness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "missing_fallback_count": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "board_state": FIELD_ROLE_CERTAINTY_SIGNAL,
 }
 
 FIRST5_TOTALS_FIELD_ROLES = {
@@ -295,6 +326,12 @@ FIRST5_TOTALS_FIELD_ROLES = {
     "market_over_price": FIELD_ROLE_CALIBRATION_INPUT,
     "market_under_price": FIELD_ROLE_CALIBRATION_INPUT,
     "line_movement": FIELD_ROLE_CALIBRATION_INPUT,
+    "starter_certainty_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "lineup_certainty_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "weather_freshness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "market_freshness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "missing_fallback_count": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "board_state": FIELD_ROLE_CERTAINTY_SIGNAL,
 }
 
 HITS_FIELD_ROLES = {
@@ -324,6 +361,13 @@ HITS_FIELD_ROLES = {
     "wind_speed_mph": FIELD_ROLE_CORE_PREDICTOR,
     "team_run_environment": FIELD_ROLE_CORE_PREDICTOR,
     "streak_len_capped": FIELD_ROLE_PRODUCT_ONLY,
+    "starter_certainty_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "lineup_certainty_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "weather_freshness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "market_freshness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "bullpen_completeness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "missing_fallback_count": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "board_state": FIELD_ROLE_CERTAINTY_SIGNAL,
 }
 
 STRIKEOUTS_FIELD_ROLES = {
@@ -353,6 +397,10 @@ STRIKEOUTS_FIELD_ROLES = {
     "total_hitters": FIELD_ROLE_CERTAINTY_SIGNAL,
     "handedness_adjustment_applied": FIELD_ROLE_DIAGNOSTIC_FLAG,
     "handedness_data_missing": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "starter_certainty_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "market_freshness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "missing_fallback_count": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "board_state": FIELD_ROLE_CERTAINTY_SIGNAL,
 }
 
 LANE_FEATURE_COLUMNS = {
@@ -368,6 +416,27 @@ LANE_FIELD_ROLES = {
     "hits": HITS_FIELD_ROLES,
     "strikeouts": STRIKEOUTS_FIELD_ROLES,
 }
+
+TOTALS_CERTAINTY_KEY_FIELDS = [
+    "home_starter_xwoba_blended", "away_starter_xwoba_blended",
+    "home_lineup_top5_xwoba", "away_lineup_top5_xwoba",
+    "temperature_f", "market_total", "venue_run_factor",
+]
+
+FIRST5_TOTALS_CERTAINTY_KEY_FIELDS = [
+    "home_starter_xwoba_blended", "away_starter_xwoba_blended",
+    "home_lineup_top5_xwoba", "away_lineup_top5_xwoba",
+    "temperature_f", "market_total", "venue_run_factor",
+]
+
+HITS_CERTAINTY_KEY_FIELDS = [
+    "opposing_starter_xwoba", "xwoba_14",
+    "temperature_f", "venue_run_factor",
+]
+
+STRIKEOUTS_CERTAINTY_KEY_FIELDS = [
+    "recent_avg_strikeouts_5", "baseline_strikeouts", "opponent_k_pct_blended",
+]
 
 
 def feature_field_roles(lane: str) -> dict[str, str]:

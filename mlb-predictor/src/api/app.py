@@ -1817,7 +1817,14 @@ def _fetch_game_board(
             CAST(f.feature_payload ->> 'wind_speed_mph' AS DOUBLE PRECISION) AS wind_speed_mph,
             CAST(f.feature_payload ->> 'wind_direction_deg' AS DOUBLE PRECISION) AS wind_direction_deg,
             CAST(f.feature_payload ->> 'humidity_pct' AS DOUBLE PRECISION) AS humidity_pct,
-            CAST(f.feature_payload ->> 'line_movement' AS DOUBLE PRECISION) AS line_movement
+            CAST(f.feature_payload ->> 'line_movement' AS DOUBLE PRECISION) AS line_movement,
+            CAST(f.feature_payload ->> 'starter_certainty_score' AS DOUBLE PRECISION) AS starter_certainty_score,
+            CAST(f.feature_payload ->> 'lineup_certainty_score' AS DOUBLE PRECISION) AS lineup_certainty_score,
+            CAST(f.feature_payload ->> 'weather_freshness_score' AS DOUBLE PRECISION) AS weather_freshness_score,
+            CAST(f.feature_payload ->> 'market_freshness_score' AS DOUBLE PRECISION) AS market_freshness_score,
+            CAST(f.feature_payload ->> 'bullpen_completeness_score' AS DOUBLE PRECISION) AS bullpen_completeness_score,
+            CAST(f.feature_payload ->> 'missing_fallback_count' AS INTEGER) AS missing_fallback_count,
+            f.feature_payload ->> 'board_state' AS board_state
         FROM games g
         LEFT JOIN dim_venues v ON v.venue_id = g.venue_id
         LEFT JOIN ranked_predictions p ON p.game_id = g.game_id AND p.row_rank = 1
@@ -2145,6 +2152,15 @@ def _fetch_game_board(
                 "venue_run_factor": record["venue_run_factor"],
                 "venue_hr_factor": record["venue_hr_factor"],
                 "line_movement": record["line_movement"],
+            },
+            "certainty": {
+                "starter_certainty": record["starter_certainty_score"],
+                "lineup_certainty": record["lineup_certainty_score"],
+                "weather_freshness": record["weather_freshness_score"],
+                "market_freshness": record["market_freshness_score"],
+                "bullpen_completeness": record["bullpen_completeness_score"],
+                "missing_fallback_count": record["missing_fallback_count"],
+                "board_state": record["board_state"],
             },
             "starters": {
                 "away": None,
@@ -2783,6 +2799,18 @@ def _compute_data_quality_badge(
 
     has_prediction = game["totals"].get("predicted_total_runs") is not None
 
+    # --- Certainty composite score (0-100) from feature builder signals ---
+    cert = game.get("certainty") or {}
+    cert_components = [
+        cert.get("starter_certainty"),
+        cert.get("lineup_certainty"),
+        cert.get("weather_freshness"),
+        cert.get("market_freshness"),
+        cert.get("bullpen_completeness"),
+    ]
+    present = [v for v in cert_components if v is not None]
+    certainty_pct = round(100 * sum(present) / len(present)) if present else None
+
     return {
         "badge": badge,
         "badge_label": badge_label,
@@ -2795,6 +2823,8 @@ def _compute_data_quality_badge(
         "has_confirmed_lineup": has_confirmed_lineup,
         "checks_passed": checks_passed,
         "checks_total": checks_total,
+        "certainty_pct": certainty_pct,
+        "board_state": cert.get("board_state"),
         "freshness": {
             "schedule": ingest_freshness.get("mlb_statsapi"),
             "weather": ingest_freshness.get("open_meteo"),
@@ -3544,7 +3574,14 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             CAST(f.feature_payload ->> 'wind_speed_mph' AS DOUBLE PRECISION) AS wind_speed_mph,
             CAST(f.feature_payload ->> 'wind_direction_deg' AS DOUBLE PRECISION) AS wind_direction_deg,
             CAST(f.feature_payload ->> 'humidity_pct' AS DOUBLE PRECISION) AS humidity_pct,
-            CAST(f.feature_payload ->> 'line_movement' AS DOUBLE PRECISION) AS line_movement
+            CAST(f.feature_payload ->> 'line_movement' AS DOUBLE PRECISION) AS line_movement,
+            CAST(f.feature_payload ->> 'starter_certainty_score' AS DOUBLE PRECISION) AS starter_certainty_score,
+            CAST(f.feature_payload ->> 'lineup_certainty_score' AS DOUBLE PRECISION) AS lineup_certainty_score,
+            CAST(f.feature_payload ->> 'weather_freshness_score' AS DOUBLE PRECISION) AS weather_freshness_score,
+            CAST(f.feature_payload ->> 'market_freshness_score' AS DOUBLE PRECISION) AS market_freshness_score,
+            CAST(f.feature_payload ->> 'bullpen_completeness_score' AS DOUBLE PRECISION) AS bullpen_completeness_score,
+            CAST(f.feature_payload ->> 'missing_fallback_count' AS INTEGER) AS missing_fallback_count,
+            f.feature_payload ->> 'board_state' AS board_state
         FROM games g
         LEFT JOIN dim_venues v ON v.venue_id = g.venue_id
         LEFT JOIN ranked_predictions p ON p.game_id = g.game_id AND p.row_rank = 1
@@ -3899,6 +3936,15 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             "venue_run_factor": game["venue_run_factor"],
             "venue_hr_factor": game["venue_hr_factor"],
             "line_movement": game["line_movement"],
+        },
+        "certainty": {
+            "starter_certainty": game["starter_certainty_score"],
+            "lineup_certainty": game["lineup_certainty_score"],
+            "weather_freshness": game["weather_freshness_score"],
+            "market_freshness": game["market_freshness_score"],
+            "bullpen_completeness": game["bullpen_completeness_score"],
+            "missing_fallback_count": game["missing_fallback_count"],
+            "board_state": game["board_state"],
         },
         "starters": {"away": None, "home": None},
         "teams": {
