@@ -81,6 +81,8 @@ TOTALS_FEATURE_COLUMNS = [
 ]
 
 TOTALS_TARGET_COLUMN = "actual_total_runs"
+TOTALS_HOME_RUNS_COLUMN = "actual_home_runs"
+TOTALS_AWAY_RUNS_COLUMN = "actual_away_runs"
 
 FIRST5_TOTALS_META_COLUMNS = [
     "game_id",

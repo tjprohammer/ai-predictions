@@ -40,7 +40,8 @@ def _load_frames(start_date, end_date, settings):
     frames = {
         "games": query_df(
             """
-            SELECT game_id, game_date, game_start_ts, status, home_team, away_team, total_runs, season
+            SELECT game_id, game_date, game_start_ts, status, home_team, away_team,
+                   home_runs, away_runs, total_runs, season
             FROM games
             WHERE game_date BETWEEN :start_date AND :end_date
             ORDER BY game_date, game_id
@@ -309,6 +310,8 @@ def main() -> int:
                 "market_under_price": market["market_under_price"],
                 "line_movement": market["line_movement"],
                 "actual_total_runs": game.total_runs,
+                "actual_home_runs": game.home_runs,
+                "actual_away_runs": game.away_runs,
             }
         )
         row = rows[-1]
