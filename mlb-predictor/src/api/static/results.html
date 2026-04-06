@@ -666,6 +666,11 @@
             <button class="primary" id="refreshButton" type="button">
               Refresh daily results
             </button>
+            <button class="secondary" id="updateScoresButton" type="button">
+              &#x21bb; Update Scores
+            </button>
+          </div>
+          <div class="control-row" id="updateJobStatus" style="font-size: 0.85rem; color: var(--muted); min-height: 0;">
           </div>
         </aside>
       </section>
@@ -1198,10 +1203,95 @@
       const totalsCount = document.getElementById("totalsCount");
       const hittersCount = document.getElementById("hittersCount");
       const strikeoutsCount = document.getElementById("strikeoutsCount");
+      const updateScoresButton = document.getElementById("updateScoresButton");
+      const updateJobStatus = document.getElementById("updateJobStatus");
+      let updateJobPollTimer = null;
 
       applyAppLinks();
       targetDateInput.value = localDateValue();
       updateSectionVisibility();
+
+      async function startUpdateScores() {
+        const dateValue = targetDateInput.value || localDateValue();
+        updateScoresButton.disabled = true;
+        updateScoresButton.textContent = "Updating…";
+        updateJobStatus.textContent = "Starting score update…";
+        updateJobStatus.style.color = "var(--accent)";
+        try {
+          const startResponse = await fetch(appUrl("api/update-jobs/start"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "refresh_results",
+              target_date: dateValue,
+            }),
+          });
+          const startPayload = await startResponse.json().catch(() => ({}));
+          if (!startResponse.ok) {
+            throw new Error(
+              startPayload.message || `Failed to start: ${startResponse.status}`,
+            );
+          }
+          const jobId = (startPayload.job || {}).job_id;
+          if (!jobId) {
+            throw new Error("No job ID returned.");
+          }
+          await pollUpdateJob(jobId);
+        } catch (error) {
+          updateJobStatus.textContent = `Update failed: ${error.message}`;
+          updateJobStatus.style.color = "var(--danger, #c62828)";
+          updateScoresButton.disabled = false;
+          updateScoresButton.innerHTML = "&#x21bb; Update Scores";
+        }
+      }
+
+      async function pollUpdateJob(jobId) {
+        const poll = async () => {
+          try {
+            const response = await fetch(
+              appUrl(`api/update-jobs/${encodeURIComponent(jobId)}`),
+            );
+            if (!response.ok) {
+              throw new Error(`Poll failed: ${response.status}`);
+            }
+            const job = await response.json();
+            const status = (job.status || "").toLowerCase();
+            const completed = job.completed_steps || 0;
+            const total = job.total_steps || 1;
+            const currentStep = job.current_step || "";
+            const stepLabel = currentStep
+              ? currentStep.replace(/^src\./, "").replaceAll("_", " ")
+              : "";
+            if (status === "running" || status === "queued") {
+              updateJobStatus.textContent = `Step ${completed}/${total}${stepLabel ? ": " + stepLabel : ""}…`;
+              updateJobStatus.style.color = "var(--accent)";
+              updateJobPollTimer = setTimeout(poll, 1500);
+            } else if (status === "succeeded") {
+              updateJobStatus.textContent = `Score update completed (${total} steps).`;
+              updateJobStatus.style.color = "var(--success, #2e7d32)";
+              updateScoresButton.disabled = false;
+              updateScoresButton.innerHTML = "&#x21bb; Update Scores";
+              refreshButton.click();
+            } else {
+              throw new Error(job.error || `Job ended with status: ${status}`);
+            }
+          } catch (error) {
+            updateJobStatus.textContent = `Update failed: ${error.message}`;
+            updateJobStatus.style.color = "var(--danger, #c62828)";
+            updateScoresButton.disabled = false;
+            updateScoresButton.innerHTML = "&#x21bb; Update Scores";
+          }
+        };
+        await poll();
+      }
+
+      updateScoresButton.addEventListener("click", () => {
+        if (updateJobPollTimer) {
+          clearTimeout(updateJobPollTimer);
+          updateJobPollTimer = null;
+        }
+        startUpdateScores();
+      });
 
       refreshButton.addEventListener("click", () => {
         refreshResults().catch((error) => {
