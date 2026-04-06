@@ -8,6 +8,8 @@ import subprocess
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from scripts.windows_signing import SigningConfig, SigningConfigurationError, discover_signable_files, resolve_signing_config, sign_file, sign_files
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER_DIR = ROOT / "installer" / "windows"
@@ -31,6 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--release-dir", default=str(DEFAULT_RELEASE_DIR), help="Installer output directory")
     parser.add_argument("--app-version", default="0.1.0", help="Installer app version label")
     parser.add_argument("--exe-name", help="Executable name inside the built app directory (defaults to <app-name>.exe)")
+    parser.add_argument(
+        "--sign",
+        action="store_true",
+        help=(
+            "Sign Windows executables with signtool.exe using WINDOWS_SIGN_* environment variables "
+            "for certificate and timestamp configuration"
+        ),
+    )
     parser.add_argument("--portable-only", action="store_true", help="Skip Inno Setup and build only the portable installer bundle")
     parser.add_argument("--require-inno", action="store_true", help="Fail instead of falling back to the portable bundle when Inno Setup is unavailable")
     return parser
@@ -84,6 +94,7 @@ def build_inno_installer(
     display_name: str,
     exe_name: str,
     install_dir_name: str,
+    signing_config: SigningConfig | None = None,
 ) -> Path:
     release_dir.mkdir(parents=True, exist_ok=True)
     script_path = INSTALLER_DIR / "MLBPredictor.iss"
@@ -103,16 +114,28 @@ def build_inno_installer(
     completed = subprocess.run(command, cwd=ROOT)
     if completed.returncode != 0:
         raise SystemExit(completed.returncode)
-    return release_dir / f"{output_base_filename}.exe"
+    artifact = release_dir / f"{output_base_filename}.exe"
+    if signing_config is not None:
+        sign_file(artifact, signing_config)
+    return artifact
 
 
-def build_portable_installer_bundle(app_name: str, dist_dir: Path, release_dir: Path, app_version: str) -> Path:
+def build_portable_installer_bundle(
+    app_name: str,
+    dist_dir: Path,
+    release_dir: Path,
+    app_version: str,
+    signing_config: SigningConfig | None = None,
+) -> Path:
     release_dir.mkdir(parents=True, exist_ok=True)
     bundle_dir = release_dir / _release_artifact_base_name(app_name, app_version, "Portable")
     if bundle_dir.exists():
         shutil.rmtree(bundle_dir)
     (bundle_dir / app_name).parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(dist_dir, bundle_dir / app_name)
+    if signing_config is not None:
+        signable_files = discover_signable_files(bundle_dir / app_name)
+        sign_files(signable_files, signing_config)
     for installer_name in PORTABLE_INSTALLER_FILES:
         shutil.copy2(INSTALLER_DIR / installer_name, bundle_dir / installer_name)
 
@@ -128,6 +151,12 @@ def build_portable_installer_bundle(app_name: str, dist_dir: Path, release_dir: 
 
 def main() -> int:
     args = build_parser().parse_args()
+    try:
+        signing_config = resolve_signing_config(getattr(args, "sign", False))
+    except SigningConfigurationError as exc:
+        print(str(exc))
+        return 1
+
     dist_dir = Path(args.dist_dir).resolve()
     if args.dist_dir == str(DEFAULT_DIST_DIR):
         dist_dir = (ROOT / "dist" / args.app_name).resolve()
@@ -141,7 +170,13 @@ def main() -> int:
         return 1
 
     if args.portable_only:
-        artifact = build_portable_installer_bundle(args.app_name, dist_dir, release_dir, args.app_version)
+        artifact = build_portable_installer_bundle(
+            args.app_name,
+            dist_dir,
+            release_dir,
+            args.app_version,
+            signing_config=signing_config,
+        )
         print(f"Built portable installer bundle: {artifact}")
         return 0
 
@@ -156,6 +191,7 @@ def main() -> int:
             args.display_name,
             exe_name,
             args.app_name,
+            signing_config=signing_config,
         )
         print(f"Built Inno Setup installer: {artifact}")
         return 0
@@ -164,7 +200,13 @@ def main() -> int:
         print("Inno Setup was not found. Install Inno Setup 6 or set ISCC_PATH/INNO_SETUP_HOME, then rerun the build.")
         return 1
 
-    artifact = build_portable_installer_bundle(args.app_name, dist_dir, release_dir, args.app_version)
+    artifact = build_portable_installer_bundle(
+        args.app_name,
+        dist_dir,
+        release_dir,
+        args.app_version,
+        signing_config=signing_config,
+    )
     print(f"Inno Setup not found. Built portable installer bundle instead: {artifact}")
     return 0
 

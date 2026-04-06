@@ -207,3 +207,96 @@ def test_fetch_clv_review_payload_sorts_best_and_worst(monkeypatch):
     assert payload["summary"]["positive_clv_rate"] == 2 / 3
     assert payload["best_clv"][0]["clv_side_value"] == 1.0
     assert payload["worst_clv"][0]["game_id"] == 12
+
+
+def test_summarize_team_lineup_prefers_confirmed_rows_when_available():
+    summary = app_module._summarize_team_lineup(
+        [
+            {
+                "player_name": "Confirmed One",
+                "is_confirmed_lineup": True,
+                "has_lineup_snapshot": True,
+                "is_inferred_lineup": False,
+                "lineup_source_name": "mlb_statsapi",
+            },
+            {
+                "player_name": "Projected Extra",
+                "is_confirmed_lineup": False,
+                "has_lineup_snapshot": False,
+                "is_inferred_lineup": True,
+                "lineup_source_name": None,
+            },
+        ]
+    )
+
+    assert summary["lineup_scope"] == "confirmed"
+    assert [row["player_name"] for row in summary["lineup"]] == ["Confirmed One"]
+    assert summary["lineup_source_summary"] == "Confirmed lineup"
+    assert summary["lineup_counts"] == {
+        "total_rows": 2,
+        "displayed_rows": 1,
+        "confirmed_rows": 1,
+        "snapshot_rows": 1,
+        "inferred_rows": 1,
+    }
+
+
+def test_summarize_team_lineup_prefers_snapshot_rows_before_inferred_rows():
+    summary = app_module._summarize_team_lineup(
+        [
+            {
+                "player_name": "Snapshot One",
+                "is_confirmed_lineup": False,
+                "has_lineup_snapshot": True,
+                "is_inferred_lineup": False,
+                "lineup_source_name": "rotowire",
+            },
+            {
+                "player_name": "Projected Extra",
+                "is_confirmed_lineup": False,
+                "has_lineup_snapshot": False,
+                "is_inferred_lineup": True,
+                "lineup_source_name": "projected_template",
+            },
+        ]
+    )
+
+    assert summary["lineup_scope"] == "snapshot"
+    assert [row["player_name"] for row in summary["lineup"]] == ["Snapshot One"]
+    assert summary["lineup_source_summary"] == "Rotowire lineup snapshot"
+
+
+def test_fetch_pitcher_recent_starts_returns_prior_outings(monkeypatch):
+    frame = pd.DataFrame(
+        [
+            {
+                "game_date": "2026-04-03",
+                "game_id": 100,
+                "team": "SEA",
+                "ip": 6.0,
+                "strikeouts": 8,
+                "pitch_count": 94,
+                "opponent": "LAA",
+            },
+            {
+                "game_date": "2026-03-28",
+                "game_id": 90,
+                "team": "SEA",
+                "ip": 5.1,
+                "strikeouts": 6,
+                "pitch_count": 88,
+                "opponent": "CLE",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(app_module, "_table_exists", lambda name: name in {"pitcher_starts", "games"})
+    monkeypatch.setattr(app_module, "_safe_frame", lambda *_args, **_kwargs: frame)
+
+    rows = app_module._fetch_pitcher_recent_starts(123, app_module.date(2026, 4, 4), limit=5)
+
+    assert len(rows) == 2
+    assert rows[0]["game_date"] == "2026-04-03"
+    assert rows[0]["strikeouts"] == 8
+    assert rows[0]["pitch_count"] == 94
+    assert rows[1]["opponent"] == "CLE"

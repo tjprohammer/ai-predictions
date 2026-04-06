@@ -7,13 +7,19 @@ import pandas as pd
 app_module = importlib.import_module("src.api.app")
 
 
-def test_hot_hitters_html_has_team_sort_and_recent_history_strip():
+def test_hot_hitters_html_has_streak_sort_and_recent_history_chart():
     html = Path("src/api/static/hot-hitters.html").read_text(encoding="utf-8")
 
-    assert '<option value="team" selected>Team</option>' in html
-    assert 'Last 10 Games' in html
+    assert '<option value="streak" selected>Hit streak</option>' in html
+    assert 'history-block' in html
+    assert 'history-filter' in html
+    assert 'function parseDisplayDate(value)' in html
+    assert 'history-baseline-label">1</span>' in html
     assert 'Green = hit · red = no hit' in html
-    assert 'history-tile' in html
+    assert 'taller bars = multi-hit' in html
+    assert 'const chartHits = Math.max(hits, 0);' in html
+    assert 'l15' not in html.lower()
+    assert 'function filteredHistory(player, history)' in html
     assert 'function renderRecentHistory(row)' in html
     assert '<input id="hideStartedOnly" type="checkbox" />' in html
 

@@ -403,6 +403,68 @@ def _annotate_lineup_confidence(
     return records
 
 
+def _format_lineup_source_name(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return "Snapshot"
+    if normalized == "projected_template":
+        return "Projected template"
+    if normalized == "manual_template":
+        return "Manual template"
+    return normalized.replace("_", " ").replace("-", " ").title()
+
+
+def _summarize_team_lineup(records: list[dict[str, Any]]) -> dict[str, Any]:
+    confirmed_records = [record for record in records if record.get("is_confirmed_lineup")]
+    snapshot_records = [record for record in records if record.get("has_lineup_snapshot")]
+
+    if confirmed_records:
+        displayed_records = confirmed_records
+        scope = "confirmed"
+    elif snapshot_records:
+        displayed_records = snapshot_records
+        scope = "snapshot"
+    elif records:
+        displayed_records = list(records)
+        scope = "projected"
+    else:
+        displayed_records = []
+        scope = "empty"
+
+    displayed_source_names = {
+        str(record.get("lineup_source_name") or "").strip().lower()
+        for record in displayed_records
+        if str(record.get("lineup_source_name") or "").strip()
+    }
+    if scope == "confirmed":
+        source_summary = "Confirmed lineup"
+    elif "projected_template" in displayed_source_names:
+        source_summary = "Projected template lineup"
+    elif "manual_template" in displayed_source_names:
+        source_summary = "Manual template lineup"
+    elif scope == "snapshot" and len(displayed_source_names) == 1:
+        source_summary = f"{_format_lineup_source_name(next(iter(displayed_source_names)))} lineup snapshot"
+    elif scope == "snapshot":
+        source_summary = "Latest lineup snapshot"
+    elif scope == "projected":
+        source_summary = "Projected lineup"
+    else:
+        source_summary = "Lineup pending"
+
+    return {
+        "lineup": displayed_records,
+        "lineup_scope": scope,
+        "lineup_source_summary": source_summary,
+        "lineup_counts": {
+            "total_rows": len(records),
+            "displayed_rows": len(displayed_records),
+            "confirmed_rows": len(confirmed_records),
+            "snapshot_rows": len(snapshot_records),
+            "inferred_rows": sum(1 for record in records if record.get("is_inferred_lineup")),
+        },
+    }
+
+
 def _is_final_game_status(status: Any) -> bool:
     normalized = str(status or "").strip().lower()
     if not normalized:
@@ -1421,6 +1483,50 @@ def _fetch_pitcher_trend(pitcher_id: int, target_date: date, limit: int = 10) ->
         {"pitcher_id": pitcher_id, "target_date": target_date, "limit": limit},
     )
     return _frame_records(frame)
+
+
+def _fetch_pitcher_recent_starts(pitcher_id: int | None, target_date: date, limit: int = 5) -> list[dict[str, Any]]:
+    if pitcher_id is None or not _table_exists("pitcher_starts"):
+        return []
+    history_frame = _safe_frame(
+        """
+        SELECT
+            ps.game_date,
+            ps.game_id,
+            ps.team,
+            ps.ip,
+            ps.strikeouts,
+            ps.pitch_count,
+            CASE
+                WHEN g.home_team = ps.team THEN g.away_team
+                WHEN g.away_team = ps.team THEN g.home_team
+                ELSE NULL
+            END AS opponent
+        FROM pitcher_starts ps
+        LEFT JOIN games g
+          ON g.game_id = ps.game_id
+         AND g.game_date = ps.game_date
+        WHERE ps.pitcher_id = :pitcher_id
+          AND ps.game_date < :target_date
+        ORDER BY ps.game_date DESC, ps.game_id DESC
+        LIMIT :history_limit
+        """,
+        {"pitcher_id": pitcher_id, "target_date": target_date, "history_limit": limit},
+    )
+    return [
+        {
+            "game_date": row.get("game_date"),
+            "game_id": row.get("game_id"),
+            "team": row.get("team"),
+            "opponent": row.get("opponent"),
+            "ip": _coerce_float(row.get("ip")),
+            "strikeouts": int(row.get("strikeouts") or 0),
+            "pitch_count": int(row.get("pitch_count") or 0)
+            if row.get("pitch_count") is not None
+            else None,
+        }
+        for row in _frame_records(history_frame)
+    ]
 
 
 def _fetch_model_scorecards(target_date: date, window_days: int = 14) -> dict[str, Any]:
@@ -3329,6 +3435,7 @@ def _fetch_starter_recent_form(pitcher_id: int | None, target_date: date) -> dic
         "whiff_pct": None,
         "avg_fb_velo": None,
         "last_start_date": None,
+        "recent_starts": [],
     }
     if pitcher_id is None or not _table_exists("pitcher_starts"):
         return default
@@ -3360,7 +3467,8 @@ def _fetch_starter_recent_form(pitcher_id: int | None, target_date: date) -> dic
     if frame.empty:
         return default
     record = _frame_records(frame)[0]
-    return {**default, **record}
+    recent_starts = _fetch_pitcher_recent_starts(pitcher_id, target_date, limit=5)
+    return {**default, **record, "recent_starts": recent_starts}
 
 
 def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool = False) -> dict[str, Any] | None:
@@ -3849,8 +3957,13 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         detail["teams"][side]["lineup"].append(player)
 
     for side in ("away", "home"):
+        team_summary = _summarize_team_lineup(detail["teams"][side]["lineup"])
+        detail["teams"][side]["lineup"] = team_summary["lineup"]
+        detail["teams"][side]["lineup_scope"] = team_summary["lineup_scope"]
+        detail["teams"][side]["lineup_source_summary"] = team_summary["lineup_source_summary"]
+        detail["teams"][side]["lineup_counts"] = team_summary["lineup_counts"]
         team_lineup = detail["teams"][side]["lineup"]
-        detail["teams"][side]["confirmed_lineup"] = any(player.get("is_confirmed_lineup") for player in team_lineup)
+        detail["teams"][side]["confirmed_lineup"] = team_summary["lineup_scope"] == "confirmed"
         detail["teams"][side]["lineup_handedness"] = _summarize_lineup_handedness(
             team_lineup,
             confirmed_key="is_confirmed_lineup",
@@ -5151,6 +5264,17 @@ def player_trend(player_id: int, target_date: date = Query(default_factory=date.
 @app.get("/api/trends/pitchers/{pitcher_id}")
 def pitcher_trend(pitcher_id: int, target_date: date = Query(default_factory=date.today), limit: int = Query(default=10, ge=1, le=30)) -> JSONResponse:
     return _json_response({"target_date": target_date.isoformat(), "pitcher_id": pitcher_id, "rows": _fetch_pitcher_trend(pitcher_id, target_date, limit)})
+
+
+@app.get("/api/pitchers/{pitcher_id}/recent-starts")
+def pitcher_recent_starts(pitcher_id: int, target_date: date = Query(default_factory=date.today), limit: int = Query(default=5, ge=1, le=15)) -> JSONResponse:
+    return _json_response(
+        {
+            "target_date": target_date.isoformat(),
+            "pitcher_id": pitcher_id,
+            "rows": _fetch_pitcher_recent_starts(pitcher_id, target_date, limit),
+        }
+    )
 
 
 @app.get("/api/games/board")

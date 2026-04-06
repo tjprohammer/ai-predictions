@@ -438,6 +438,163 @@
         gap: 8px;
       }
 
+      .history-block {
+        display: grid;
+        gap: 10px;
+        margin-top: 2px;
+        padding: 12px 14px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(24, 30, 37, 0.98), rgba(29, 35, 43, 0.94));
+        border: 1px solid rgba(53, 65, 81, 0.78);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+
+      .history-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .history-caption {
+        color: #9ca3af;
+        font-size: 0.74rem;
+        line-height: 1.45;
+      }
+
+      .history-caption strong {
+        color: #f3f4f6;
+        font-weight: 800;
+      }
+
+      .history-filters {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.96);
+        border: 1px solid rgba(55, 65, 81, 0.92);
+      }
+
+      .history-filter {
+        min-height: 0;
+        padding: 5px 10px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #9ca3af;
+        font-size: 0.66rem;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .history-filter.active {
+        background: rgba(75, 85, 99, 0.9);
+        color: #f9fafb;
+      }
+
+      .history-chart {
+        --history-value-row: 14px;
+        --history-bar-max: 62px;
+        --history-gap: 4px;
+        --history-baseline-offset: 0px;
+        position: relative;
+      }
+
+      .history-baseline {
+        position: absolute;
+        top: calc(var(--history-value-row) + var(--history-gap) + var(--history-baseline-offset));
+        left: 0;
+        right: 0;
+        border-top: 1px dashed rgba(229, 231, 235, 0.65);
+        pointer-events: none;
+      }
+
+      .history-baseline-label {
+        position: absolute;
+        right: 0;
+        top: -12px;
+        padding-left: 6px;
+        background: rgba(29, 35, 43, 0.96);
+        color: #d1d5db;
+        font-size: 0.62rem;
+        font-weight: 800;
+      }
+
+      .history-grid {
+        display: grid;
+        gap: 6px;
+      }
+
+      .history-game {
+        display: grid;
+        grid-template-rows: var(--history-value-row) var(--history-bar-max) auto auto;
+        gap: var(--history-gap);
+        justify-items: center;
+        min-width: 0;
+      }
+
+      .history-value {
+        height: var(--history-value-row);
+        color: #f3f4f6;
+        font-size: 0.78rem;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .history-bar-wrap {
+        width: 100%;
+        height: var(--history-bar-max);
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+      }
+
+      .history-bar {
+        width: 100%;
+        height: 0;
+        min-height: 14px;
+        border-radius: 8px 8px 6px 6px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+
+      .history-bar.hit {
+        background: linear-gradient(180deg, #14b8a6, #10b981);
+        border-color: rgba(16, 185, 129, 0.34);
+      }
+
+      .history-bar.miss {
+        background: linear-gradient(180deg, #f87171, #ef4444);
+        border-color: rgba(239, 68, 68, 0.36);
+      }
+
+      .history-date {
+        color: #d1d5db;
+        font-size: 0.56rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        line-height: 1;
+      }
+
+      .history-opponent {
+        color: #93c5fd;
+        font-size: 0.5rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        line-height: 1;
+      }
+
+      .history-empty {
+        padding: 12px 0 4px;
+        color: #9ca3af;
+        font-size: 0.76rem;
+      }
+
       .data-row {
         display: flex;
         justify-content: space-between;
@@ -612,7 +769,7 @@
               Probable starters only
             </label>
             <label class="checkbox-row" for="hideStartedOnly">
-              <input id="hideStartedOnly" type="checkbox" checked />
+              <input id="hideStartedOnly" type="checkbox" />
               Hide started games
             </label>
             <button class="primary" id="refreshButton">
@@ -733,7 +890,7 @@
 
       applyAppLinks();
 
-      const state = { rows: [] };
+      const state = { rows: [], historyFilters: {}, historyCache: {} };
       const targetDateInput = document.getElementById("targetDate");
       const sortModeInput = document.getElementById("sortMode");
       const marketBackedOnlyInput = document.getElementById("marketBackedOnly");
@@ -768,6 +925,195 @@
           hour: "numeric",
           minute: "2-digit",
         });
+      }
+
+      function parseDisplayDate(value) {
+        if (!value) return null;
+        if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+          const [year, month, day] = value.split("-").map(Number);
+          return new Date(year, month - 1, day);
+        }
+        return new Date(value);
+      }
+
+      function formatShortDate(value) {
+        if (!value) return "-";
+        const parsed = parseDisplayDate(value);
+        if (Number.isNaN(parsed.getTime())) return String(value);
+        return parsed.toLocaleDateString([], {
+          month: "short",
+          day: "numeric",
+        });
+      }
+
+      function formatOpponentTag(opponent) {
+        const value = String(opponent || "TBD").trim();
+        if (!value) return "TBD";
+        if (value.length <= 3) return value.toUpperCase();
+        return value.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "TBD";
+      }
+
+      function pitcherHistoryFilterOptions() {
+        return [
+          { key: "h2h", label: "H2H" },
+          { key: "l3", label: "L3" },
+          { key: "l5", label: "L5" },
+        ];
+      }
+
+      function getPitcherHistoryFilter(row) {
+        const pitcherKey = String(row?.pitcher_id || row?.pitcher_name || "pitcher");
+        return state.historyFilters[pitcherKey] || "l5";
+      }
+
+      function filteredPitcherHistory(row, history) {
+        const filterKey = getPitcherHistoryFilter(row);
+        const targetOpponent = String(row?.opponent || "").trim().toUpperCase();
+        if (filterKey === "h2h") {
+          return history.filter(
+            (start) => String(start.opponent || "").trim().toUpperCase() === targetOpponent,
+          );
+        }
+        if (filterKey === "l3") {
+          return history.slice(0, 3);
+        }
+        return history.slice(0, 5);
+      }
+
+      function normalizePitcherTrendRows(row, trendRows) {
+        return (Array.isArray(trendRows) ? trendRows : [])
+          .filter((entry) => String(entry?.game_date || "") !== String(row?.game_date || ""))
+          .slice(0, 5)
+          .map((entry) => ({
+            game_date: entry.game_date,
+            game_id: entry.game_id,
+            opponent: entry.opponent,
+            ip: numberOr(entry.ip ?? entry.innings_pitched),
+            strikeouts: numberOr(entry.strikeouts, 0) ?? 0,
+            pitch_count: numberOr(entry.pitch_count ?? entry.pitches_thrown),
+          }));
+      }
+
+      async function hydratePitcherHistory(rows) {
+        const pendingRows = (rows || []).filter((row) => {
+          if (row?.pitcher_id == null) return false;
+          const existingHistory = row?.recent_form?.recent_starts;
+          if (Array.isArray(existingHistory) && existingHistory.length) return false;
+          return true;
+        });
+        if (!pendingRows.length) {
+          return;
+        }
+        await Promise.all(
+          pendingRows.map(async (row) => {
+            const cacheKey = `${targetDateInput.value}:${row.pitcher_id}`;
+            if (!(cacheKey in state.historyCache)) {
+              try {
+                let response = await fetch(
+                  appUrl(`api/pitchers/${row.pitcher_id}/recent-starts?target_date=${targetDateInput.value}&limit=5`),
+                );
+                if (response.ok) {
+                  const payload = await response.json();
+                  state.historyCache[cacheKey] = normalizePitcherTrendRows(row, payload.rows || []);
+                }
+                if (!state.historyCache[cacheKey]?.length) {
+                  response = await fetch(
+                    appUrl(`api/trends/pitchers/${row.pitcher_id}?target_date=${targetDateInput.value}&limit=10`),
+                  );
+                  if (response.ok) {
+                    const payload = await response.json();
+                    state.historyCache[cacheKey] = normalizePitcherTrendRows(row, payload.rows || []);
+                  }
+                }
+                if (!state.historyCache[cacheKey]) {
+                  state.historyCache[cacheKey] = [];
+                }
+              } catch (_error) {
+                state.historyCache[cacheKey] = [];
+              }
+            }
+            if (!row.recent_form) {
+              row.recent_form = {};
+            }
+            row.recent_form.recent_starts = state.historyCache[cacheKey] || [];
+          }),
+        );
+      }
+
+      function recentStrikeoutChart(row) {
+        const history = Array.isArray(row?.recent_form?.recent_starts)
+          ? row.recent_form.recent_starts
+          : [];
+        if (!history.length) {
+          return `
+            <div class="history-block">
+              <div class="history-head">
+                <div class="history-caption"><strong>Last 5 Starts</strong> · Recent strikeout game logs pending</div>
+              </div>
+            </div>
+          `;
+        }
+        const filterKey = getPitcherHistoryFilter(row);
+        const shownHistory = filteredPitcherHistory(row, history);
+        const marketLine = numberOr(row?.k_projection?.market?.consensus_line);
+        const projectedLine = numberOr(row?.k_projection?.projected_strikeouts);
+        const recentAvg = numberOr(row?.recent_form?.avg_strikeouts);
+        const referenceValue = marketLine ?? projectedLine ?? recentAvg ?? 0;
+        const referenceLabel = marketLine != null
+          ? `Line ${formatNumber(marketLine, 1)}`
+          : projectedLine != null
+            ? `Proj ${formatNumber(projectedLine, 1)}`
+            : `Avg ${formatNumber(recentAvg, 1)}`;
+        const clearedStarts = shownHistory.filter(
+          (start) => (numberOr(start.strikeouts, 0) ?? 0) >= referenceValue,
+        ).length;
+        const maxStrikeouts = Math.max(
+          1,
+          Math.ceil(referenceValue),
+          ...shownHistory.map((start) => numberOr(start.strikeouts, 0) ?? 0),
+        );
+        const historyBarMaxHeight = 62;
+        const clampedReference = Math.max(0, Math.min(referenceValue, maxStrikeouts));
+        const baselineOffset = ((maxStrikeouts - clampedReference) / maxStrikeouts) * historyBarMaxHeight;
+        const defaultTitle = `Last ${Math.min(history.length, 5)} Starts`;
+        const filterTitle = pitcherHistoryFilterOptions().find((item) => item.key === filterKey)?.label || "L5";
+        const pitcherKey = escapeHtml(String(row?.pitcher_id || row?.pitcher_name || "pitcher"));
+        const captionTail = marketLine != null
+          ? `Green = cleared line · red = under line`
+          : `Green = above reference · red = below reference`;
+        return `
+          <div class="history-block">
+            <div class="history-head">
+              <div class="history-caption"><strong>${filterKey === "h2h" ? filterTitle : defaultTitle}</strong>${filterKey === "h2h" ? ` · ${filterTitle}` : ""} · newest on left · ${clearedStarts}/${shownHistory.length || 0} starts at or above ${referenceLabel} · ${captionTail}</div>
+              <div class="history-filters">
+                ${pitcherHistoryFilterOptions().map((item) => `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-pitcher-key="${pitcherKey}">${item.label}</button>`).join("")}
+              </div>
+            </div>
+            ${shownHistory.length ? `
+            <div class="history-chart" style="--history-baseline-offset:${baselineOffset}px;">
+              <div class="history-baseline"><span class="history-baseline-label">${escapeHtml(referenceLabel)}</span></div>
+              <div class="history-grid" style="grid-template-columns: repeat(${shownHistory.length}, minmax(0, 1fr));">
+              ${shownHistory.map((start) => {
+                const strikeouts = numberOr(start.strikeouts, 0) ?? 0;
+                const barHeight = Math.max(14, (Math.max(strikeouts, 0) / maxStrikeouts) * historyBarMaxHeight);
+                const cleared = strikeouts >= referenceValue;
+                const title = `${formatShortDate(start.game_date)} vs ${start.opponent || "TBD"} · ${strikeouts} K · ${formatNumber(start.ip, 1)} IP${start.pitch_count == null ? "" : ` · ${start.pitch_count} pitches`}`;
+                return `
+                  <div class="history-game" title="${escapeHtml(title)}">
+                    <div class="history-value">${strikeouts}</div>
+                    <div class="history-bar-wrap">
+                      <div class="history-bar ${cleared ? "hit" : "miss"}" style="height:${barHeight}px;"></div>
+                    </div>
+                    <div class="history-date">${escapeHtml(formatShortDate(start.game_date).replace(/\s+/g, ""))}</div>
+                    <div class="history-opponent">${escapeHtml(formatOpponentTag(start.opponent))}</div>
+                  </div>
+                `;
+              }).join("")}
+              </div>
+            </div>
+            ` : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(row?.opponent))} starts found for this filter.</div>`}
+          </div>
+        `;
       }
 
       function probabilityEdge(projection) {
@@ -990,6 +1336,8 @@
               </div>
             </div>
 
+            ${recentStrikeoutChart(row)}
+
             <div class="data-stack">
               <div class="data-row">
                 <span class="data-label">Best Bet</span>
@@ -1070,6 +1418,7 @@
         pageStatus.textContent = `Loading ${targetDateInput.value}`;
         try {
           await loadPitchers();
+          await hydratePitcherHistory(state.rows);
           renderRows();
         } catch (error) {
           cardsGrid.innerHTML = `<div class="empty-state">${escapeHtml(String(error))}</div>`;
@@ -1086,6 +1435,19 @@
       probableOnlyInput.addEventListener("change", renderRows);
       hideStartedOnlyInput.addEventListener("change", renderRows);
       targetDateInput.addEventListener("change", refreshPage);
+      cardsGrid.addEventListener("click", (event) => {
+        const filterButton = event.target.closest("[data-history-filter]");
+        if (!filterButton) {
+          return;
+        }
+        const pitcherKey = String(filterButton.dataset.pitcherKey || "");
+        const filterKey = String(filterButton.dataset.historyFilter || "l5");
+        if (!pitcherKey) {
+          return;
+        }
+        state.historyFilters[pitcherKey] = filterKey;
+        renderRows();
+      });
 
       refreshPage();
     </script>

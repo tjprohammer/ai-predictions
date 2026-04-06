@@ -89,3 +89,34 @@ def test_build_command_allows_override_for_incomplete_sqlite_seed(monkeypatch):
 
     assert result == 0
     assert captured["cwd"] == build_windows_app.ROOT
+
+
+def test_build_command_signs_artifacts_when_requested(monkeypatch):
+    captured = {"signed": None}
+
+    class FakeCompletedProcess:
+        returncode = 0
+
+    monkeypatch.setattr(build_windows_app, "_validate_sqlite_seed", lambda _path: None)
+    monkeypatch.setattr(
+        build_windows_app.subprocess,
+        "run",
+        lambda command, cwd: captured.update({"command": command, "cwd": cwd}) or FakeCompletedProcess(),
+    )
+    monkeypatch.setattr(build_windows_app, "resolve_signing_config", lambda enabled: object() if enabled else None)
+    monkeypatch.setattr(
+        build_windows_app,
+        "discover_signable_files",
+        lambda path: [path / "MLBPredictor.exe"],
+    )
+    monkeypatch.setattr(
+        build_windows_app,
+        "sign_files",
+        lambda paths, _config: captured.update({"signed": paths}),
+    )
+    monkeypatch.setattr(build_windows_app.sys, "argv", ["build_windows_app.py", "--sign"])
+
+    result = build_windows_app.main()
+
+    assert result == 0
+    assert captured["signed"] == [build_windows_app.ROOT / "dist" / "MLBPredictor" / "MLBPredictor.exe"]

@@ -42,6 +42,15 @@ def test_dashboard_html_links_to_doctor_surface():
     assert '>Doctor</span></a' in html
 
 
+def test_dashboard_html_exposes_board_and_review_workspaces():
+    html = Path("src/api/static/index.html").read_text(encoding="utf-8")
+
+    assert 'data-dashboard-view="board"' in html
+    assert 'data-dashboard-view="review"' in html
+    assert 'Review Workspace' in html
+    assert 'Live Board' in html
+
+
 def test_dashboard_html_links_to_matchup_page():
     html = Path("src/api/static/index.html").read_text(encoding="utf-8")
 
@@ -57,5 +66,6 @@ def test_matchup_detail_page_exists():
     assert 'runs allowed' in html
     assert 'Lineup source' in html
     assert 'Projected template lineup' in html
+    assert 'Snapshot order' in html
     assert 'Green = hit · red = no hit' in html
     assert 'Last ${history.length} Games' in html

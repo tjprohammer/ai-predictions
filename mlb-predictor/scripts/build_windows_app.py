@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from scripts.windows_signing import SigningConfigurationError, discover_signable_files, resolve_signing_config, sign_files
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ADD_DATA_SEPARATOR = ";" if os.name == "nt" else ":"
@@ -55,6 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--name", default="MLBPredictor", help="Executable/app directory name")
     parser.add_argument("--onefile", action="store_true", help="Build a one-file executable instead of the default one-folder app")
     parser.add_argument(
+        "--sign",
+        action="store_true",
+        help=(
+            "Sign built .exe/.dll files with signtool.exe using WINDOWS_SIGN_* environment variables "
+            "for certificate and timestamp configuration"
+        ),
+    )
+    parser.add_argument(
         "--allow-incomplete-sqlite-seed",
         action="store_true",
         help="Skip the bundled desktop SQLite seed completeness check before packaging",
@@ -101,6 +111,12 @@ def _validate_sqlite_seed(seed_path: Path) -> str | None:
 
 def main() -> int:
     args = build_parser().parse_args()
+    try:
+        signing_config = resolve_signing_config(getattr(args, "sign", False))
+    except SigningConfigurationError as exc:
+        print(str(exc))
+        return 1
+
     if not args.allow_incomplete_sqlite_seed:
         validation_error = _validate_sqlite_seed(SQLITE_SEED_PATH)
         if validation_error is not None:
@@ -142,7 +158,17 @@ def main() -> int:
     command.append(str(launcher_path))
 
     completed = subprocess.run(command, cwd=ROOT)
-    return int(completed.returncode)
+    if completed.returncode != 0:
+        return int(completed.returncode)
+
+    if signing_config is not None:
+        build_output = ROOT / "dist" / (f"{args.name}.exe" if args.onefile else args.name)
+        try:
+            sign_files(discover_signable_files(build_output), signing_config)
+        except SigningConfigurationError as exc:
+            print(str(exc))
+            return 1
+    return 0
 
 
 if __name__ == "__main__":

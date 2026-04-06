@@ -3,6 +3,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import scripts.build_windows_installer as build_windows_installer
+from scripts.windows_signing import SigningConfig
 
 
 def test_release_artifact_base_name_normalizes_version_label():
@@ -60,6 +61,35 @@ def test_build_inno_installer_passes_dynamic_defines(monkeypatch, tmp_path):
     assert any(arg == "/DOutputBaseFilename=MLBPredictor-Windows-v0.2.0-Setup" for arg in commands[0])
 
 
+def test_build_inno_installer_signs_setup_when_requested(monkeypatch, tmp_path):
+    signed = {}
+
+    class FakeCompletedProcess:
+        def __init__(self, returncode=0):
+            self.returncode = returncode
+
+    monkeypatch.setattr(build_windows_installer.subprocess, "run", lambda command, cwd: FakeCompletedProcess(0))
+    monkeypatch.setattr(
+        build_windows_installer,
+        "sign_file",
+        lambda path, _config: signed.update({"path": path}),
+    )
+
+    artifact = build_windows_installer.build_inno_installer(
+        tmp_path / "ISCC.exe",
+        "MLBPredictor",
+        tmp_path / "dist" / "MLBPredictor",
+        tmp_path / "release",
+        "0.2.0",
+        "MLB Predictor",
+        "MLBPredictor.exe",
+        "MLBPredictor",
+        signing_config=SigningConfig(signtool_path=tmp_path / "signtool.exe"),
+    )
+
+    assert signed["path"] == artifact
+
+
 def test_portable_installer_bundle_includes_cmd_wrappers(tmp_path, monkeypatch):
     dist_dir = tmp_path / "dist" / "MLBPredictor"
     dist_dir.mkdir(parents=True)
@@ -85,6 +115,40 @@ def test_portable_installer_bundle_includes_cmd_wrappers(tmp_path, monkeypatch):
     assert "MLBPredictor-Windows-v0.2.0-beta1-Portable/uninstall_mlb_predictor.cmd" in names
     assert "MLBPredictor-Windows-v0.2.0-beta1-Portable/uninstall_mlb_predictor.ps1" in names
     assert "MLBPredictor-Windows-v0.2.0-beta1-Portable/MLBPredictor/MLBPredictor.exe" in names
+
+
+def test_portable_installer_bundle_signs_nested_app_files(monkeypatch, tmp_path):
+    dist_dir = tmp_path / "dist" / "MLBPredictor"
+    dist_dir.mkdir(parents=True)
+    (dist_dir / "MLBPredictor.exe").write_text("exe", encoding="utf-8")
+
+    installer_dir = tmp_path / "installer"
+    installer_dir.mkdir()
+    for name in build_windows_installer.PORTABLE_INSTALLER_FILES:
+        (installer_dir / name).write_text(name, encoding="utf-8")
+
+    signed = {}
+    monkeypatch.setattr(build_windows_installer, "INSTALLER_DIR", installer_dir)
+    monkeypatch.setattr(
+        build_windows_installer,
+        "discover_signable_files",
+        lambda path: [path / "MLBPredictor.exe"],
+    )
+    monkeypatch.setattr(
+        build_windows_installer,
+        "sign_files",
+        lambda paths, _config: signed.update({"paths": paths}),
+    )
+
+    build_windows_installer.build_portable_installer_bundle(
+        "MLBPredictor",
+        dist_dir,
+        tmp_path / "release",
+        "0.2.0-beta1",
+        signing_config=SigningConfig(signtool_path=tmp_path / "signtool.exe"),
+    )
+
+    assert signed["paths"] == [tmp_path / "release" / "MLBPredictor-Windows-v0.2.0-beta1-Portable" / "MLBPredictor" / "MLBPredictor.exe"]
 
 
 def test_install_script_succeeds_when_launch_is_canceled(tmp_path):

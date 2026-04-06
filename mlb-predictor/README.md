@@ -20,6 +20,12 @@ For the longer-term product and UI roadmap, including compact game cards, expand
 historical outcome review, hitter heat and streak tracking, richer starter context, and a future
 pitcher strikeout prediction lane, see `PRODUCT_EXCELLENCE_PLAN.md`.
 
+## Architecture Docs
+
+- `PRODUCT_EXCELLENCE_PLAN.md` for long-term product and UX direction
+- `MODEL_REWORK_PLAN.md` for the certainty-aware modeling plan across totals, hits, first-five totals, and strikeouts
+- `FEATURE_DICTIONARY.md` for the seeded feature inventory and contract scaffold used by the rework audit
+
 ## Opinionated Rules
 
 - Every feature row must be time-safe.

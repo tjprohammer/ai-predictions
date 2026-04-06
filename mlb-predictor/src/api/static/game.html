@@ -200,15 +200,152 @@
       .lineup-main { display: grid; gap: 4px; }
       .lineup-title { font-weight: 800; font-size: 1rem; }
       .lineup-meta { color: var(--muted); font-size: 0.92rem; }
-      .history-block { display: grid; gap: 8px; margin-top: 10px; }
-      .history-caption { color: var(--muted); font-size: 0.8rem; }
-      .history-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 8px; }
-      .history-tile { padding: 9px 10px; border-radius: 14px; border: 1px solid var(--line); display: grid; gap: 4px; }
-      .history-tile.hit { background: rgba(22, 101, 52, 0.12); border-color: rgba(22, 101, 52, 0.22); }
-      .history-tile.miss { background: rgba(153, 27, 27, 0.08); border-color: rgba(153, 27, 27, 0.18); }
-      .history-date { color: var(--muted); font-size: 0.72rem; font-weight: 700; }
-      .history-result { font-size: 0.95rem; font-weight: 800; }
-      .history-detail { color: var(--muted); font-size: 0.72rem; }
+      .history-block {
+        display: grid;
+        gap: 10px;
+        margin-top: 10px;
+        padding: 12px 14px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(24, 30, 37, 0.98), rgba(29, 35, 43, 0.94));
+        border: 1px solid rgba(53, 65, 81, 0.78);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+      .history-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .history-caption {
+        color: #9ca3af;
+        font-size: 0.74rem;
+        line-height: 1.45;
+      }
+      .history-caption strong {
+        color: #f3f4f6;
+        font-weight: 800;
+      }
+      .history-caption.hot strong {
+        color: #d1fae5;
+        font-weight: 900;
+      }
+      .history-caption.cold strong {
+        color: #fed7aa;
+        font-weight: 900;
+      }
+      .history-filters {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.96);
+        border: 1px solid rgba(55, 65, 81, 0.92);
+      }
+      .history-filter {
+        min-height: 0;
+        padding: 5px 10px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #9ca3af;
+        font-size: 0.66rem;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .history-filter.active {
+        background: rgba(75, 85, 99, 0.9);
+        color: #f9fafb;
+      }
+      .history-chart {
+        --history-value-row: 14px;
+        --history-bar-max: 62px;
+        --history-miss-bar-height: 16px;
+        --history-gap: 4px;
+        --history-baseline-offset: 0px;
+        position: relative;
+      }
+      .history-baseline {
+        position: absolute;
+        top: calc(var(--history-value-row) + var(--history-gap) + var(--history-baseline-offset));
+        left: 0;
+        right: 0;
+        border-top: 1px dashed rgba(229, 231, 235, 0.65);
+        pointer-events: none;
+      }
+      .history-baseline-label {
+        position: absolute;
+        right: 0;
+        top: -12px;
+        padding-left: 6px;
+        background: rgba(29, 35, 43, 0.96);
+        color: #d1d5db;
+        font-size: 0.62rem;
+        font-weight: 800;
+      }
+      .history-grid {
+        display: grid;
+        gap: 6px;
+      }
+      .history-game {
+        display: grid;
+        grid-template-rows: var(--history-value-row) var(--history-bar-max) auto auto;
+        gap: var(--history-gap);
+        justify-items: center;
+        min-width: 0;
+      }
+      .history-value {
+        height: var(--history-value-row);
+        color: #f3f4f6;
+        font-size: 0.78rem;
+        font-weight: 900;
+        line-height: 1;
+      }
+      .history-bar-wrap {
+        width: 100%;
+        height: var(--history-bar-max);
+        display: flex;
+        align-items: end;
+        justify-content: center;
+      }
+      .history-bar {
+        width: 100%;
+        height: 0;
+        border-radius: 8px 8px 6px 6px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+      .history-bar.hit {
+        background: linear-gradient(180deg, #14b8a6, #10b981);
+        border-color: rgba(16, 185, 129, 0.34);
+      }
+      .history-bar.miss {
+        min-height: var(--history-miss-bar-height);
+        background: linear-gradient(180deg, #f87171, #ef4444);
+        border-color: rgba(239, 68, 68, 0.36);
+      }
+      .history-date {
+        color: #d1d5db;
+        font-size: 0.56rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        line-height: 1;
+      }
+      .history-opponent {
+        color: #6ee7b7;
+        font-size: 0.5rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        line-height: 1;
+      }
+      .history-empty {
+        padding: 12px 0 4px;
+        color: #9ca3af;
+        font-size: 0.76rem;
+      }
       .loading-card { padding: 28px; text-align: center; }
 
       @media (max-width: 1100px) {
@@ -289,6 +426,11 @@
       }
 
       const appBase = detectAppBase();
+      const pageState = {
+        detail: null,
+        historyFilters: {},
+      };
+
       function appUrl(path = "") {
         const normalizedBase = appBase.endsWith("/") ? appBase : `${appBase}/`;
         return new URL(path, `${window.location.origin}${normalizedBase}`).toString();
@@ -329,9 +471,18 @@
         return number == null ? "-" : number.toFixed(3).replace(/^0/, "");
       }
 
+      function parseDisplayDate(value) {
+        if (!value) return null;
+        if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+          const [year, month, day] = value.split("-").map(Number);
+          return new Date(year, month - 1, day);
+        }
+        return new Date(value);
+      }
+
       function formatShortDate(value) {
         if (!value) return "-";
-        const parsed = new Date(value);
+        const parsed = parseDisplayDate(value);
         if (Number.isNaN(parsed.getTime())) return String(value);
         return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
       }
@@ -344,9 +495,22 @@
       }
 
       function lineupStatusChip(player) {
-        if (player.is_confirmed_lineup) return '<span class="status-chip good">Confirmed</span>';
-        if (player.is_inferred_lineup) return '<span class="status-chip warn">Inferred</span>';
-        return '<span class="status-chip warn">Projected</span>';
+        const meta = playerLineupStateMeta(player);
+        return `<span class="status-chip ${meta.tone}">${meta.label}</span>`;
+      }
+
+      function playerLineupStateMeta(player) {
+        if (player?.is_confirmed_lineup) return { label: "Confirmed", tone: "good" };
+        if (player?.has_lineup_snapshot) return { label: "Snapshot", tone: "" };
+        if (player?.is_inferred_lineup) return { label: "Inferred", tone: "warn" };
+        return { label: "Projected", tone: "warn" };
+      }
+
+      function teamLineupStateMeta(teamDetail) {
+        if (teamDetail?.lineup_scope === "confirmed") return { label: "Confirmed order", tone: "good" };
+        if (teamDetail?.lineup_scope === "snapshot") return { label: "Snapshot order", tone: "" };
+        if (teamDetail?.lineup_scope === "projected") return { label: "Projected order", tone: "warn" };
+        return { label: "Lineup pending", tone: "warn" };
       }
 
       function formatLineupSourceName(value) {
@@ -368,6 +532,7 @@
       }
 
       function summarizeLineupSource(teamDetail) {
+        if (teamDetail?.lineup_source_summary) return String(teamDetail.lineup_source_summary);
         if (teamDetail?.confirmed_lineup) return "Confirmed lineup";
         const lineup = Array.isArray(teamDetail?.lineup) ? teamDetail.lineup : [];
         const sourceNames = [...new Set(lineup.map((player) => String(player.lineup_source_name || "").trim().toLowerCase()).filter(Boolean))];
@@ -379,29 +544,127 @@
         return "Projected lineup";
       }
 
+      function playerFormTone(player) {
+        const hitRate7 = numberOr(player?.hit_rate_7);
+        const hitRate30 = numberOr(player?.hit_rate_30);
+        const xwoba14 = numberOr(player?.xwoba_14);
+        const hardHit14 = numberOr(player?.hard_hit_pct_14);
+        const streak = numberOr(player?.streak_len_capped, 0) ?? 0;
+        const hitDelta =
+          hitRate7 == null || hitRate30 == null ? null : hitRate7 - hitRate30;
+        if (
+          (hitDelta != null && hitDelta >= 0.12) ||
+          (xwoba14 != null && xwoba14 >= 0.38) ||
+          (hardHit14 != null && hardHit14 >= 0.48) ||
+          streak >= 4
+        ) {
+          return "hot";
+        }
+        if (
+          (hitDelta != null && hitDelta <= -0.12) ||
+          (xwoba14 != null && xwoba14 <= 0.285)
+        ) {
+          return "cold";
+        }
+        return "steady";
+      }
+
+      function formatOpponentTag(opponent) {
+        const value = String(opponent || "TBD").trim();
+        if (!value) return "TBD";
+        if (value.length <= 3) return value.toUpperCase();
+        return value.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "TBD";
+      }
+
+      function historyFilterOptions() {
+        return [
+          { key: "h2h", label: "H2H" },
+          { key: "l5", label: "L5" },
+          { key: "l10", label: "L10" },
+          { key: "l15", label: "L15" },
+        ];
+      }
+
+      function getHistoryFilter(player) {
+        const playerKey = String(player?.player_id || player?.player_name || "player");
+        return pageState.historyFilters[playerKey] || "l15";
+      }
+
+      function filteredHistory(player, history) {
+        const filterKey = getHistoryFilter(player);
+        const targetOpponent = String(player?.opponent || "").trim().toUpperCase();
+        if (filterKey === "h2h") {
+          return history.filter((game) => String(game.opponent || "").trim().toUpperCase() === targetOpponent);
+        }
+        if (filterKey === "l5") {
+          return history.slice(0, 5);
+        }
+        if (filterKey === "l10") {
+          return history.slice(0, 10);
+        }
+        return history.slice(0, 15);
+      }
+
       function recentHistoryStrip(player) {
         const history = Array.isArray(player?.recent_hit_history) ? player.recent_hit_history : [];
         if (!history.length) return "";
-        const hitGames = history.filter((game) => game.had_hit).length;
-        const totalBases = history.reduce((sum, game) => sum + (numberOr(game.total_bases, 0) ?? 0), 0);
-        const homeRuns = history.reduce((sum, game) => sum + (numberOr(game.home_runs, 0) ?? 0), 0);
+        const defaultHistoryTitle = `Last ${history.length} Games`;
+        const filterKey = getHistoryFilter(player);
+        const shownHistory = filteredHistory(player, history);
+        const hitGames = shownHistory.filter((game) => game.had_hit).length;
+        const formTone = playerFormTone(player);
+        const playerKey = escapeHtml(String(player?.player_id || player?.player_name || "player"));
+        const filterTitle = historyFilterOptions().find((item) => item.key === filterKey)?.label || "L15";
         return `
           <div class="history-block">
-            <div class="history-caption">Last ${history.length} Games · ${hitGames}/${history.length} hit games · ${formatInteger(totalBases)} TB · ${formatInteger(homeRuns)} HR · Green = hit · red = no hit</div>
-            <div class="history-grid">
-              ${history.map((game) => {
+            <div class="history-head">
+              <div class="history-caption ${formTone}"><strong>${filterKey === "h2h" ? filterTitle : defaultHistoryTitle}</strong>${filterKey === "h2h" ? ` · ${filterTitle}` : ""} · newest on left · ${hitGames}/${shownHistory.length || 0} hit games · Green = hit · red = no hit · taller bars = multi-hit</div>
+              <div class="history-filters">
+                ${historyFilterOptions().map((item) => `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`).join("")}
+              </div>
+            </div>
+            ${shownHistory.length ? `
+            <div class="history-chart" style="--history-baseline-offset:${(() => {
+              const historyBarMaxHeight = 62;
+              const maxHits = Math.max(
+                1,
+                ...shownHistory.map((game) => numberOr(game.hits, 0) ?? 0),
+              );
+              return maxHits <= 1
+                ? 0
+                : ((maxHits - 1) / maxHits) * historyBarMaxHeight;
+            })()}px;">
+              <div class="history-baseline"><span class="history-baseline-label">1</span></div>
+              <div class="history-grid" style="grid-template-columns: repeat(${shownHistory.length}, minmax(0, 1fr));">
+              ${shownHistory.map((game) => {
+                const historyBarMaxHeight = 62;
+                const missBarHeight = 16;
+                const maxHits = Math.max(
+                  1,
+                  ...shownHistory.map((entry) => numberOr(entry.hits, 0) ?? 0),
+                );
                 const hits = numberOr(game.hits, 0) ?? 0;
+                const chartHits = Math.max(hits, 0);
                 const totalBasesValue = numberOr(game.total_bases, 0) ?? 0;
                 const homeRunsValue = numberOr(game.home_runs, 0) ?? 0;
+                const barHeight = chartHits > 0
+                  ? (chartHits / maxHits) * historyBarMaxHeight
+                  : missBarHeight;
+                const title = `${formatShortDate(game.game_date)} vs ${game.opponent || "TBD"} · ${hits} H · ${totalBasesValue} TB${homeRunsValue > 0 ? ` · ${homeRunsValue} HR` : ""}`;
                 return `
-                  <div class="history-tile ${game.had_hit ? "hit" : "miss"}">
-                    <div class="history-date">${escapeHtml(formatShortDate(game.game_date))}</div>
-                    <div class="history-result">${hits > 0 ? `${hits}H` : "0H"}</div>
-                    <div class="history-detail">${formatInteger(totalBasesValue)} TB${homeRunsValue > 0 ? ` · ${formatInteger(homeRunsValue)} HR` : ""}</div>
+                  <div class="history-game" title="${escapeHtml(title)}">
+                    <div class="history-value">${chartHits}</div>
+                    <div class="history-bar-wrap">
+                      <div class="history-bar ${game.had_hit ? "hit" : "miss"}" style="height:${barHeight}px;"></div>
+                    </div>
+                    <div class="history-date">${escapeHtml(formatShortDate(game.game_date).replace(/\s+/g, ""))}</div>
+                    <div class="history-opponent">${escapeHtml(formatOpponentTag(game.opponent))}</div>
                   </div>
                 `;
               }).join("")}
+              </div>
             </div>
+            ` : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(player?.opponent))} games found for this filter.</div>`}
           </div>
         `;
       }
@@ -436,6 +699,8 @@
         const lineup = Array.isArray(teamDetail?.lineup) ? teamDetail.lineup : [];
         const lineupSource = summarizeLineupSource(teamDetail);
         const lineupSnapshot = latestLineupSnapshot(teamDetail);
+        const lineupState = teamLineupStateMeta(teamDetail);
+        const lineupCounts = teamDetail?.lineup_counts || {};
         return `
           <article class="lineup-panel">
             <div class="lineup-head">
@@ -443,11 +708,12 @@
                 <div class="section-tag">${escapeHtml(teamDetail?.team || "Team")}</div>
                 <h2>Lineup and hitter context</h2>
               </div>
-              <span class="chip ${teamDetail?.confirmed_lineup ? "good" : "warn"}">${teamDetail?.confirmed_lineup ? "Confirmed order" : "Projected or snapshot order"}</span>
+              <span class="chip ${lineupState.tone}">${lineupState.label}</span>
             </div>
             <div class="data-stack">
               <div class="data-row"><span class="data-label">Recent offense</span><span class="data-value">${formatNumber(teamDetail?.recent_offense?.runs_per_game, 2)} RPG · ${formatNumber(teamDetail?.recent_offense?.xwoba, 3)} xwOBA · ${formatPercent(teamDetail?.recent_offense?.k_pct)}</span></div>
               <div class="data-row"><span class="data-label">Lineup source</span><span class="data-value">${escapeHtml(lineupSource)}${lineupSnapshot ? ` · ${escapeHtml(formatDateTime(lineupSnapshot))}` : ""}</span></div>
+              <div class="data-row"><span class="data-label">Lineup certainty</span><span class="data-value">${escapeHtml(lineupState.label)} · ${escapeHtml(`${lineupCounts.displayed_rows ?? lineup.length}/${lineupCounts.total_rows ?? lineup.length} rows shown`)}</span></div>
               <div class="data-row"><span class="data-label">Last result</span><span class="data-value">${escapeHtml(teamDetail?.last_result?.summary || "No recent result loaded")}</span></div>
             </div>
             <div class="lineup-list">
@@ -456,7 +722,7 @@
                   <div class="lineup-main">
                     <div class="lineup-title">${escapeHtml(player.lineup_slot ?? "-")} · ${escapeHtml(player.player_name || "Player")}</div>
                     <div class="lineup-meta">${escapeHtml([player.position || "-", player.bats ? `${player.bats}HB` : "Bats -", player.opponent ? `vs ${player.opponent}` : "Opp TBD"].join(" | "))}</div>
-                    <div class="lineup-meta">Hit prob ${formatPercent(player.predicted_hit_probability)} · Season BA ${formatBattingAverage(player.batting_avg_season)} · Last 7 BA ${formatBattingAverage(player.batting_avg_last7)}</div>
+                    <div class="lineup-meta">${escapeHtml(`${playerLineupStateMeta(player).label} row · Hit prob ${formatPercent(player.predicted_hit_probability)} · Season BA ${formatBattingAverage(player.batting_avg_season)} · Last 7 BA ${formatBattingAverage(player.batting_avg_last7)}`)}</div>
                     ${recentHistoryStrip(player)}
                   </div>
                   ${lineupStatusChip(player)}
@@ -467,7 +733,15 @@
         `;
       }
 
+      function renderLineupPanels(detail) {
+        document.getElementById("lineupGrid").innerHTML = [
+          lineupPanel(detail.teams?.away || {}),
+          lineupPanel(detail.teams?.home || {}),
+        ].join("");
+      }
+
       function renderSummary(detail) {
+        pageState.detail = detail;
         const totals = detail.totals || {};
         const actual = detail.actual_result || {};
         const weather = detail.weather || {};
@@ -489,10 +763,7 @@
           starterCard(detail.starters?.away, detail.away_team, detail.home_team),
           starterCard(detail.starters?.home, detail.home_team, detail.away_team),
         ].join("");
-        document.getElementById("lineupGrid").innerHTML = [
-          lineupPanel(detail.teams?.away || {}),
-          lineupPanel(detail.teams?.home || {}),
-        ].join("");
+        renderLineupPanels(detail);
         const notes = [
           `Venue run factor ${formatNumber(totals.venue_run_factor, 2)} and HR factor ${formatNumber(totals.venue_hr_factor, 2)} are already baked into the totals context.`,
           `Bullpen snapshot: away ${formatNumber(totals.away_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.away_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_runs_allowed_last3, 0)} runs allowed, home ${formatNumber(totals.home_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.home_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_runs_allowed_last3, 0)} runs allowed.`,
@@ -530,6 +801,19 @@
 
       applyAppLinks();
       document.getElementById("targetDate").addEventListener("change", refreshForDate);
+      document.getElementById("lineupGrid").addEventListener("click", (event) => {
+        const filterButton = event.target.closest("[data-history-filter]");
+        if (!filterButton || !pageState.detail) {
+          return;
+        }
+        const playerKey = String(filterButton.dataset.playerKey || "");
+        const filterKey = String(filterButton.dataset.historyFilter || "l15");
+        if (!playerKey) {
+          return;
+        }
+        pageState.historyFilters[playerKey] = filterKey;
+        renderLineupPanels(pageState.detail);
+      });
       document.getElementById("summaryGrid").innerHTML = '<article class="summary-card loading-card">Loading matchup summary…</article>';
       document.getElementById("starterGrid").innerHTML = '<article class="starter-card loading-card">Loading starter detail…</article>';
       document.getElementById("lineupGrid").innerHTML = '<article class="lineup-panel loading-card">Loading lineup detail…</article>';

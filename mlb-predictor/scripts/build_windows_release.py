@@ -24,6 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build the Windows desktop app and installer bundle")
     parser.add_argument("--name", default="MLBPredictor", help="Desktop executable/app directory name")
     parser.add_argument("--onefile", action="store_true", help="Build the desktop app as a single executable")
+    parser.add_argument(
+        "--sign",
+        action="store_true",
+        help="Sign the built desktop app and installer using signtool.exe and WINDOWS_SIGN_* environment variables",
+    )
     parser.add_argument("--app-version", default="0.1.0", help="Installer app version label")
     parser.add_argument("--release-dir", default=str(ROOT / "release"), help="Directory where release artifacts are written")
     parser.add_argument("--require-inno", action="store_true", help="Fail the release build if Inno Setup is unavailable instead of falling back to the portable installer bundle")
@@ -150,6 +155,7 @@ def main() -> int:
     args = build_parser().parse_args()
     release_dir = Path(args.release_dir).resolve()
     artifact_prefix = _release_artifact_prefix(args.name, args.app_version)
+    sign_requested = getattr(args, "sign", False)
 
     seed_result = _run_step([sys.executable, "scripts/build_desktop_sqlite_seed.py"])
     if seed_result != 0:
@@ -158,6 +164,8 @@ def main() -> int:
     desktop_command = [sys.executable, "scripts/build_windows_app.py", "--name", args.name]
     if args.onefile:
         desktop_command.append("--onefile")
+    if sign_requested:
+        desktop_command.append("--sign")
     desktop_result = _run_step(desktop_command)
     if desktop_result != 0:
         return desktop_result
@@ -174,6 +182,8 @@ def main() -> int:
         "--app-version",
         args.app_version,
     ]
+    if sign_requested:
+        installer_command.append("--sign")
     if args.require_inno:
         installer_command.append("--require-inno")
     before_snapshot = _snapshot_release_artifacts(release_dir, artifact_prefix)

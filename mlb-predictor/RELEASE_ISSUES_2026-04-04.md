@@ -177,6 +177,14 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - stale data handling
   - fallback precedence
   - manual overrides vs automated ingest
+- Investigation update:
+  - current source hierarchy is now confirmed in code: The Odds API is primary when `THE_ODDS_API_KEY` is configured, with Covers and Rotowire scraping as fallbacks and manual CSV overrides as the last operator-controlled layer
+  - the current The Odds API path uses 1 paid `totals` call for the slate plus 1 per-game event-odds call for player props across 2 markets in 1 region, which is effectively about 2 credits per matched game
+  - on a typical full MLB slate, one refresh is roughly `1 + (games_on_slate * 2)` credits, so a 15-game day is about 31 credits for a single refresh
+  - at that rate, the free 500-credit monthly plan is not enough for shared/operator use during the season if refreshes happen daily or multiple times per day
+- Follow-up needed:
+  - add quota-aware throttling and logging from The Odds API response headers so the app can show remaining credits before refreshes burn the budget
+  - decide whether free-tier mode should disable player-prop pulls, reduce refresh frequency, or treat The Odds API as a manual operator-only action instead of a default shared refresh path
 
 ### 9. Add inning-aware late-game bullpen quality metrics
 - Status: open
@@ -194,7 +202,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - totals and matchup detail UI
 
 ### 10. Matchup page hitter stats and lineup accuracy are not trustworthy
-- Status: verified in app
+- Status: open
 - Priority: high
 - GitHub: #11
 - Reported problems:
@@ -217,6 +225,14 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - running `Update Lineups & Markets` on the desktop runtime for `2026-04-04` wrote confirmed `mlb_statsapi_lineups` rows into the runtime SQLite database for `game_id = 824295`
   - live `/api/games/824295/detail` now returns confirmed `mlb_statsapi_lineups` players in batting-order sequence for both teams while preserving season BA and 15-game hit history
   - when StatsAPI does not expose a full nine-man order yet, the page still labels the lineup clearly as projected rather than presenting it as confirmed
+- Reopened investigation update:
+  - current-slate checks for `2026-04-05` showed this is not fully resolved across the board yet
+  - before rerunning lineup ingest, the desktop runtime only had partial confirmed coverage for the slate and still showed many `projected_template` lineups, so freshness is one remaining issue
+  - after rerunning `python -m src.ingestors.lineups --target-date 2026-04-05` against the desktop runtime, confirmed `mlb_statsapi_lineups` rows expanded materially, which shows MLB StatsAPI is still the right primary lineup source
+  - however, matchup detail for sampled games still returned 11 to 13 players and mixed `mlb_statsapi_lineups` with `projected_template`, which means the detail payload is still blending confirmed and inferred rows instead of fully preferring the confirmed nine-man order
+- Remaining verification:
+  - make `src/api/app.py` return only the confirmed lineup set when confirmed rows exist for a team/game
+  - improve current-slate lineup freshness so operator flows do not leave stale projected rows in place when upstream confirmed lineups are already available
 - Likely areas:
   - matchup detail payload shaping in `src/api/app.py`
   - matchup page rendering in `src/api/static/game.html`
@@ -248,6 +264,26 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - `src/api/app.py`
   - `src/ingestors/weather.py`
   - doctor/readiness payloads used by the desktop release verification flow
+
+### 12. Windows SmartScreen warns that the installer is unrecognized
+- Status: open
+- Priority: high
+- GitHub: pending
+- Reported behavior:
+  - Windows shows `Windows protected your PC` and blocks the installer as an unrecognized app during launch
+- Expected behavior:
+  - the Windows installer should present as a signed, trusted publisher instead of triggering the default SmartScreen warning for an unknown executable
+- Investigation summary:
+  - this is expected for an unsigned or low-reputation Windows installer even when the binary itself is legitimate
+  - shipping unsigned setup executables will keep creating install friction and make the app look suspicious to new users
+- Follow-up needed:
+  - add Authenticode code signing for the installer and primary executable in the Windows release pipeline
+  - prefer an EV code-signing certificate if the goal is immediate SmartScreen trust; a standard code-signing certificate is cheaper but usually requires reputation to build over time
+  - timestamp signatures in the release pipeline and verify the signed publisher metadata before publishing
+- Likely areas:
+  - `scripts/build_windows_app.py`
+  - `scripts/build_windows_installer.py`
+  - Windows release packaging and signing secrets/process
 
 ### 8. Refresh Daily Results is not working on mixed-status slates
 - Status: closed

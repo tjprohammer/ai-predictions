@@ -35,6 +35,21 @@ cd S:\Projects\AI_Predictions\mlb-predictor
 python scripts\build_windows_release.py --app-version 0.1.0-beta1 --require-inno
 ```
 
+If you have a code-signing certificate configured and want a signed installer/app build:
+
+```powershell
+$env:WINDOWS_SIGN_CERT_FILE = 'C:\path\to\certificate.pfx'
+$env:WINDOWS_SIGN_CERT_PASSWORD = '***'
+$env:WINDOWS_SIGN_TIMESTAMP_URL = 'http://timestamp.digicert.com'
+python scripts\build_windows_release.py --app-version 0.1.0-beta1 --require-inno --sign
+```
+
+Notes:
+
+- `--sign` uses `signtool.exe` plus `WINDOWS_SIGN_*` environment variables
+- you can use `WINDOWS_SIGN_CERT_SUBJECT` or `WINDOWS_SIGN_CERT_SHA1` instead of `WINDOWS_SIGN_CERT_FILE` when the certificate already exists in the Windows certificate store
+- signing the installer and app executable is the primary fix for the Windows SmartScreen `unrecognized app` warning shown to testers
+
 If Inno Setup is not installed yet, build the portable beta bundle:
 
 ```powershell

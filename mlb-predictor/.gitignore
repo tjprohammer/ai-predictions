@@ -3,6 +3,8 @@ dist/
 release/
 packaged-smoke/
 .tmp/
+.env
+config/.env
 *.spec
 __pycache__/
 *.pyc

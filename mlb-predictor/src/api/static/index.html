@@ -1203,6 +1203,19 @@
         margin-bottom: 18px;
       }
 
+      .workspace-toggle-panel {
+        margin-bottom: 18px;
+      }
+
+      .dashboard-workspace {
+        display: grid;
+        gap: 18px;
+      }
+
+      .dashboard-workspace[hidden] {
+        display: none;
+      }
+
       .review-grid {
         grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
         margin-bottom: 0;
@@ -1838,169 +1851,208 @@
         </article>
       </section>
 
-      <section class="panel review-panel" id="hitterDataWarning" hidden>
+      <section class="panel workspace-toggle-panel">
         <div class="panel-head">
           <div>
-            <div class="section-tag">Hitter Data Warning</div>
-            <h2 class="panel-title">Why hitter stats are missing</h2>
-          </div>
-          <span class="panel-subtitle" id="hitterDataWarningMeta"
-            >Waiting for board data</span
-          >
-        </div>
-        <div class="summary-copy" id="hitterDataWarningCopy">
-          Waiting for board data.
-        </div>
-        <div class="control-row" style="margin-top: 14px">
-          <button
-            class="secondary"
-            id="showProjectedHittersButton"
-            type="button"
-          >
-            Show projected anyway
-          </button>
-        </div>
-      </section>
-
-      <section class="panel review-panel">
-        <div class="panel-head">
-          <div>
-            <div class="section-tag" id="reviewTag">Slate Review</div>
-            <h2 class="panel-title" id="reviewTitle">
-              Selected date grading and trust summary
+            <div class="section-tag" id="dashboardViewTag">Live Board</div>
+            <h2 class="panel-title" id="dashboardViewTitle">
+              Keep the live slate clean and decision-first
             </h2>
           </div>
-          <span class="panel-subtitle" id="reviewSubtitle"
-            >Waiting for board data</span
+          <span class="panel-subtitle" id="dashboardViewMeta"
+            >Compact matchup cards stay front and center.</span
           >
         </div>
-        <div class="summary-grid review-grid" id="reviewGrid">
-          <div class="summary-card">
-            <div class="summary-copy">
-              Load a slate to review completed games, totals grading, and
-              displayed hit-target outcomes.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel review-panel">
-        <div class="panel-head">
-          <div>
-            <div class="section-tag" id="scorecardTag">Model Scorecards</div>
-            <h2 class="panel-title" id="scorecardTitle">
-              Rolling quality by market
-            </h2>
-          </div>
-          <span class="panel-subtitle" id="scorecardSubtitle"
-            >Waiting for scorecard data</span
-          >
-        </div>
-        <div class="summary-grid review-grid" id="scorecardGrid">
-          <div class="summary-card">
-            <div class="summary-copy">
-              Run the product surfaces build to populate scorecards for totals,
-              hits, and strikeouts.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel review-panel">
-        <div class="panel-head">
-          <div>
-            <div class="section-tag" id="pickReviewTag">Pick Review</div>
-            <h2 class="panel-title" id="pickReviewTitle">
-              Top misses and best calls for the selected date
-            </h2>
-          </div>
-          <span class="panel-subtitle" id="pickReviewSubtitle"
-            >Waiting for graded totals review</span
-          >
-        </div>
-        <div class="summary-grid review-grid" id="pickReviewGrid">
-          <div class="summary-card">
-            <div class="summary-copy">
-              Load a completed slate to review the biggest totals misses and the
-              strongest winning calls.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel review-panel">
-        <div class="panel-head">
-          <div>
-            <div class="section-tag" id="clvReviewTag">CLV Review</div>
-            <h2 class="panel-title" id="clvReviewTitle">
-              Best and worst closing-line value over the recent window
-            </h2>
-          </div>
-          <span class="panel-subtitle" id="clvReviewSubtitle"
-            >Waiting for CLV rows</span
-          >
-        </div>
-        <div class="summary-grid review-grid" id="clvReviewGrid">
-          <div class="summary-card">
-            <div class="summary-copy">
-              Run grading plus product surfaces to compare recommendation lines
-              against the selected close.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel historical-panel">
-        <div class="panel-head">
-          <div>
-            <div class="section-tag" id="historicalTag">
-              Historical Day View
-            </div>
-            <h2 class="panel-title" id="historicalTitle">
-              Sortable final outcomes for the selected date
-            </h2>
-          </div>
-          <span class="panel-subtitle" id="historicalSubtitle"
-            >Waiting for board data</span
-          >
-        </div>
-        <div class="lineup-toolbar" id="historicalToolbar"></div>
-        <div class="historical-grid" id="historicalGrid">
-          <div class="empty-state">
-            Load a slate to review final game outcomes.
-          </div>
-        </div>
-      </section>
-
-      <section class="panel legend-panel">
-        <div>
-          <div class="section-tag">Compact Legend</div>
-          <h2 class="panel-title">
-            Hit-result pills are now icon-coded for faster reads
-          </h2>
-        </div>
-        <div class="legend-row">
-          <div class="legend-chips">
-            <span class="compact-hit-grade good"
-              ><span class="compact-hit-icon">H</span> Hit</span
+        <div class="lineup-toolbar">
+          <div class="segmented-control">
+            <button
+              class="segmented-button active"
+              type="button"
+              data-dashboard-view="board"
             >
-            <span class="compact-hit-grade warn"
-              ><span class="compact-hit-icon">0</span> No hit</span
+              Live Board
+            </button>
+            <button
+              class="segmented-button"
+              type="button"
+              data-dashboard-view="review"
             >
-            <span class="compact-hit-grade neutral"
-              ><span class="compact-hit-icon">?</span> Pending</span
+              Review Workspace
+            </button>
+          </div>
+        </div>
+        <div class="summary-copy" id="dashboardViewCopy">
+          Use Live Board for pregame decisions and Review Workspace for scorecards, misses, CLV, and final outcomes.
+        </div>
+      </section>
+
+      <div class="dashboard-workspace" id="boardWorkspace">
+        <section class="panel review-panel" id="hitterDataWarning" hidden>
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Hitter Data Warning</div>
+              <h2 class="panel-title">Why hitter stats are missing</h2>
+            </div>
+            <span class="panel-subtitle" id="hitterDataWarningMeta"
+              >Waiting for board data</span
             >
           </div>
-          <span
-            >Starter K pills show model projection first, then any live market
-            line or a fallback warning when handedness context is missing.</span
-          >
-        </div>
-      </section>
+          <div class="summary-copy" id="hitterDataWarningCopy">
+            Waiting for board data.
+          </div>
+          <div class="control-row" style="margin-top: 14px">
+            <button
+              class="secondary"
+              id="showProjectedHittersButton"
+              type="button"
+            >
+              Show projected anyway
+            </button>
+          </div>
+        </section>
 
-      <section class="games-board" id="gamesBoard">
-        <div class="empty-state">Loading game sections...</div>
-      </section>
+        <section class="panel legend-panel">
+          <div>
+            <div class="section-tag">Compact Legend</div>
+            <h2 class="panel-title">
+              Hit-result pills are now icon-coded for faster reads
+            </h2>
+          </div>
+          <div class="legend-row">
+            <div class="legend-chips">
+              <span class="compact-hit-grade good"
+                ><span class="compact-hit-icon">H</span> Hit</span
+              >
+              <span class="compact-hit-grade warn"
+                ><span class="compact-hit-icon">0</span> No hit</span
+              >
+              <span class="compact-hit-grade neutral"
+                ><span class="compact-hit-icon">?</span> Pending</span
+              >
+            </div>
+            <span
+              >Starter K pills show model projection first, then any live market
+              line or a fallback warning when handedness context is missing.</span
+            >
+          </div>
+        </section>
+
+        <section class="games-board" id="gamesBoard">
+          <div class="empty-state">Loading game sections...</div>
+        </section>
+      </div>
+
+      <div class="dashboard-workspace" id="reviewWorkspace" hidden>
+        <section class="panel review-panel">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag" id="reviewTag">Slate Review</div>
+              <h2 class="panel-title" id="reviewTitle">
+                Selected date grading and trust summary
+              </h2>
+            </div>
+            <span class="panel-subtitle" id="reviewSubtitle"
+              >Waiting for board data</span
+            >
+          </div>
+          <div class="summary-grid review-grid" id="reviewGrid">
+            <div class="summary-card">
+              <div class="summary-copy">
+                Load a slate to review completed games, totals grading, and
+                displayed hit-target outcomes.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel review-panel">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag" id="scorecardTag">Model Scorecards</div>
+              <h2 class="panel-title" id="scorecardTitle">
+                Rolling quality by market
+              </h2>
+            </div>
+            <span class="panel-subtitle" id="scorecardSubtitle"
+              >Waiting for scorecard data</span
+            >
+          </div>
+          <div class="summary-grid review-grid" id="scorecardGrid">
+            <div class="summary-card">
+              <div class="summary-copy">
+                Run the product surfaces build to populate scorecards for totals,
+                hits, and strikeouts.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel review-panel">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag" id="pickReviewTag">Pick Review</div>
+              <h2 class="panel-title" id="pickReviewTitle">
+                Top misses and best calls for the selected date
+              </h2>
+            </div>
+            <span class="panel-subtitle" id="pickReviewSubtitle"
+              >Waiting for graded totals review</span
+            >
+          </div>
+          <div class="summary-grid review-grid" id="pickReviewGrid">
+            <div class="summary-card">
+              <div class="summary-copy">
+                Load a completed slate to review the biggest totals misses and the
+                strongest winning calls.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel review-panel">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag" id="clvReviewTag">CLV Review</div>
+              <h2 class="panel-title" id="clvReviewTitle">
+                Best and worst closing-line value over the recent window
+              </h2>
+            </div>
+            <span class="panel-subtitle" id="clvReviewSubtitle"
+              >Waiting for CLV rows</span
+            >
+          </div>
+          <div class="summary-grid review-grid" id="clvReviewGrid">
+            <div class="summary-card">
+              <div class="summary-copy">
+                Run grading plus product surfaces to compare recommendation lines
+                against the selected close.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel historical-panel">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag" id="historicalTag">
+                Historical Day View
+              </div>
+              <h2 class="panel-title" id="historicalTitle">
+                Sortable final outcomes for the selected date
+              </h2>
+            </div>
+            <span class="panel-subtitle" id="historicalSubtitle"
+              >Waiting for board data</span
+            >
+          </div>
+          <div class="lineup-toolbar" id="historicalToolbar"></div>
+          <div class="historical-grid" id="historicalGrid">
+            <div class="empty-state">
+              Load a slate to review final game outcomes.
+            </div>
+          </div>
+        </section>
+      </div>
 
       <section class="panel">
         <div class="panel-head">
@@ -2075,7 +2127,10 @@
       const activityProgressLabel = document.getElementById("activityProgressLabel");
       const activityProgressValue = document.getElementById("activityProgressValue");
       const activityProgressStep = document.getElementById("activityProgressStep");
+      const boardWorkspace = document.getElementById("boardWorkspace");
+      const reviewWorkspace = document.getElementById("reviewWorkspace");
       const LINEUP_CONTROLS_STORAGE_KEY = "mlbPredictor.lineupControls.v2";
+      const DASHBOARD_VIEW_STORAGE_KEY = "mlbPredictor.dashboardView.v1";
       let updateJobPollTimer = null;
 
       function loadStoredLineupControls() {
@@ -2102,6 +2157,28 @@
         }
       }
 
+      function loadStoredDashboardView() {
+        try {
+          const raw = window.localStorage.getItem(DASHBOARD_VIEW_STORAGE_KEY);
+          return raw === "board" || raw === "review" ? raw : null;
+        } catch {
+          return null;
+        }
+      }
+
+      function persistDashboardView() {
+        try {
+          window.localStorage.setItem(
+            DASHBOARD_VIEW_STORAGE_KEY,
+            state.dashboardView,
+          );
+        } catch {
+          // Ignore storage failures and keep the in-memory preference working.
+        }
+      }
+
+      const storedDashboardView = loadStoredDashboardView();
+
       const state = {
         status: null,
         games: [],
@@ -2113,12 +2190,17 @@
         expandedGames: {},
         historySortMode: "time",
         lineupControls: loadStoredLineupControls(),
+        dashboardView: storedDashboardView || "board",
+        dashboardViewPinned: Boolean(storedDashboardView),
         activeUpdateJobId: null,
       };
 
       applyAppLinks();
 
       targetDateInput.value = today;
+      if (!storedDashboardView) {
+        state.dashboardView = "board";
+      }
 
       const updateActionMeta = {
         refresh_everything: {
@@ -3451,16 +3533,87 @@
           .join(" · ");
       }
 
+      function lineupStateMeta(key) {
+        if (key === "confirmed") {
+          return { key, label: "Confirmed", tone: "good", icon: "C" };
+        }
+        if (key === "snapshot") {
+          return { key, label: "Snapshot", tone: "neutral", icon: "S" };
+        }
+        if (key === "inferred") {
+          return { key, label: "Inferred", tone: "warn", icon: "I" };
+        }
+        return { key: "projected", label: "Projected", tone: "warn", icon: "P" };
+      }
+
+      function playerLineupStateMeta(player) {
+        if (player?.is_confirmed_lineup) {
+          return lineupStateMeta("confirmed");
+        }
+        if (player?.has_lineup_snapshot) {
+          return lineupStateMeta("snapshot");
+        }
+        if (player?.is_inferred_lineup) {
+          return lineupStateMeta("inferred");
+        }
+        return lineupStateMeta("projected");
+      }
+
+      function teamLineupScopeMeta(teamDetail) {
+        const scope = teamDetail?.lineup_scope;
+        if (scope === "confirmed") {
+          return { label: "Confirmed order", tone: "good", icon: "C" };
+        }
+        if (scope === "snapshot") {
+          return { label: "Snapshot order", tone: "neutral", icon: "S" };
+        }
+        if (scope === "projected") {
+          return { label: "Projected order", tone: "warn", icon: "P" };
+        }
+        return { label: "Lineup pending", tone: "warn", icon: "?" };
+      }
+
+      function summarizeDisplayedLineupState(players) {
+        if (!players.length) {
+          return { label: "No targets", tone: "neutral", icon: "?" };
+        }
+        const counts = { confirmed: 0, snapshot: 0, inferred: 0, projected: 0 };
+        players.forEach((player) => {
+          counts[playerLineupStateMeta(player).key] += 1;
+        });
+        const activeStates = Object.entries(counts).filter(([, count]) => count > 0);
+        if (activeStates.length === 1) {
+          const [key, count] = activeStates[0];
+          const meta = lineupStateMeta(key);
+          return {
+            label: `${meta.label} ${count}/${players.length}`,
+            tone: meta.tone,
+            icon: meta.icon,
+          };
+        }
+        if (counts.confirmed > 0) {
+          return {
+            label: `${counts.confirmed}/${players.length} confirmed`,
+            tone: "warn",
+            icon: "M",
+          };
+        }
+        if (counts.snapshot > 0) {
+          return {
+            label: `${counts.snapshot}/${players.length} snapshot`,
+            tone: "neutral",
+            icon: "M",
+          };
+        }
+        return { label: "Mixed inputs", tone: "warn", icon: "M" };
+      }
+
       function compactHitStatusCopy(player) {
         const projectedPlateAppearances = formatNumber(
           player.projected_plate_appearances,
           1,
         );
-        const lineupStatus = player.is_confirmed_lineup
-          ? "Confirmed"
-          : player.is_inferred_lineup
-            ? "Inferred"
-            : "Projected";
+        const lineupStatus = playerLineupStateMeta(player).label;
         return `${lineupStatus} lineup · ${projectedPlateAppearances} PA`;
       }
 
@@ -3772,6 +3925,7 @@
         `;
         }
         const needsRefresh = selectedDateIsPast() && !isFinal;
+        const lineupState = summarizeDisplayedLineupState(players);
         if (!isFinal) {
           return `
           <div class="compact-hit-line">
@@ -3780,7 +3934,10 @@
                 <div class="team-tag">${team} Hit Targets</div>
                 <div class="compact-hit-count">${players.length} shown on board</div>
               </div>
-              <span class="compact-hit-grade ${needsRefresh ? "warn" : "neutral"}"><span class="compact-hit-icon">${needsRefresh ? "!" : players.length}</span>${needsRefresh ? "Refresh" : "Live board"}</span>
+              <div class="compact-hit-summary">
+                <span class="compact-hit-grade ${lineupState.tone}"><span class="compact-hit-icon">${lineupState.icon}</span>${lineupState.label}</span>
+                <span class="compact-hit-grade ${needsRefresh ? "warn" : "neutral"}"><span class="compact-hit-icon">${needsRefresh ? "!" : players.length}</span>${needsRefresh ? "Refresh" : "Live board"}</span>
+              </div>
             </div>
             <div class="compact-hit-copy">${needsRefresh ? "This past date still has pregame data in the database, so hitter outcomes have not posted yet." : compactHitSummary(players)}</div>
             <div class="compact-hit-player-list">${players.map((player) => renderCompactHitPlayer(player, false)).join("")}</div>
@@ -3811,6 +3968,7 @@
               <div class="compact-hit-count">${players.length} shown on board</div>
             </div>
             <div class="compact-hit-summary">
+              <span class="compact-hit-grade ${lineupState.tone}"><span class="compact-hit-icon">${lineupState.icon}</span>${lineupState.label}</span>
               <span class="compact-hit-grade ${summaryTone}"><span class="compact-hit-icon">${graded.length ? hitsLanded : "?"}</span>${graded.length ? `${hitsLanded}/${graded.length} Hit` : "Final posted"}</span>
             </div>
           </div>
@@ -4083,6 +4241,7 @@
       function renderLineupCard(player) {
         const form = classifyPlayerForm(player);
         const platoonTag = playerPlatoonTag(player);
+        const lineupState = playerLineupStateMeta(player);
         const actualStatus = playerOutcomeStatus(player);
         const actualHits =
           actualStatus === "pending"
@@ -4114,6 +4273,7 @@
             </div>
             <div class="control-row">
               <span class="form-chip ${form.tone}">${form.label}</span>
+              <span class="chip ${lineupState.tone}">${lineupState.label} row</span>
               ${platoonTag}
               ${actualHits}
             </div>
@@ -4169,16 +4329,14 @@
             <span class="data-label">Streak / Last 7 Games</span>
             <span class="data-value">${player.streak_len_capped ?? 0} / ${player.hit_games_last7 ?? 0} with a hit</span>
           </div>
-          <div class="data-row">
-            <span class="data-label">Lineup Status</span>
-            <span class="data-value">${player.is_confirmed_lineup ? "Confirmed" : player.is_inferred_lineup ? "Inferred" : "Projected"}</span>
-          </div>
         </article>
       `;
       }
 
       function renderLineupSection(teamDetail, gameId) {
         const controls = getLineupControls(gameId);
+        const lineupScope = teamLineupScopeMeta(teamDetail);
+        const lineupCounts = teamDetail.lineup_counts || {};
         const filtered = (teamDetail.lineup || []).filter(
           (player) => !controls.confirmedOnly || player.is_confirmed_lineup,
         );
@@ -4188,9 +4346,10 @@
           <div class="team-header">
             <div>
               <div class="team-tag">${teamDetail.team} Lineup</div>
-              <h3 class="team-title">${teamDetail.confirmed_lineup ? "Confirmed lineup context" : "Awaiting confirmed lineup"}</h3>
+              <h3 class="team-title">${lineupScope.label}</h3>
+              <div class="summary-copy">${teamDetail.lineup_source_summary || "Lineup pending"} · ${lineupCounts.displayed_rows ?? (teamDetail.lineup || []).length}/${lineupCounts.total_rows ?? (teamDetail.lineup || []).length} rows shown</div>
             </div>
-            <span class="chip ${teamDetail.confirmed_lineup ? "good" : "warn"}">${(teamDetail.lineup || []).filter((player) => player.is_confirmed_lineup).length}/${(teamDetail.lineup || []).length} confirmed</span>
+            <span class="chip ${lineupScope.tone}">${lineupScope.label}</span>
           </div>
           <div class="lineup-grid">
             ${lineup.length ? lineup.map(renderLineupCard).join("") : `<div class="empty-state">${controls.confirmedOnly ? `No confirmed lineup detail is available for ${teamDetail.team} yet.` : `No lineup detail is available for ${teamDetail.team} yet.`}</div>`}
@@ -4373,6 +4532,62 @@
         gamesBoard.innerHTML = games.map(safeRenderGameSection).join("");
       }
 
+      function recommendedDashboardView() {
+        return selectedDateIsPast() ? "review" : "board";
+      }
+
+      function dashboardViewMeta(view) {
+        const summary = state.boardSummary || {};
+        const finalGames = Number(summary.final_games || 0);
+        const totalGames = Number(summary.total_games || state.games.length || 0);
+        if (view === "review") {
+          return {
+            tag: "Review Workspace",
+            title: "Use grading surfaces after the slate settles",
+            meta: finalGames
+              ? `${finalGames}/${totalGames} games are final for the selected date.`
+              : `No finals yet for ${targetDateInput.value}. Review tools stay ready when grading arrives.`,
+            copy: "Scorecards, top misses, CLV, and final outcomes live here so the main board stays focused on current decisions.",
+          };
+        }
+        return {
+          tag: "Live Board",
+          title: "Keep the live slate clean and decision-first",
+          meta: state.games.length
+            ? `${state.games.length} games loaded with compact matchup cards.`
+            : "Compact matchup cards stay front and center.",
+          copy: "Use Live Board for pregame scanning, lineup certainty, totals rationale, and starter context before first pitch.",
+        };
+      }
+
+      function applyDashboardView() {
+        const view = state.dashboardView === "review" ? "review" : "board";
+        boardWorkspace.hidden = view !== "board";
+        reviewWorkspace.hidden = view !== "review";
+        const meta = dashboardViewMeta(view);
+        document.getElementById("dashboardViewTag").textContent = meta.tag;
+        document.getElementById("dashboardViewTitle").textContent = meta.title;
+        document.getElementById("dashboardViewMeta").textContent = meta.meta;
+        document.getElementById("dashboardViewCopy").textContent = meta.copy;
+        document
+          .querySelectorAll("[data-dashboard-view]")
+          .forEach((button) => {
+            button.classList.toggle(
+              "active",
+              button.dataset.dashboardView === view,
+            );
+          });
+      }
+
+      function setDashboardView(view, { persist = true } = {}) {
+        state.dashboardView = view === "review" ? "review" : "board";
+        if (persist) {
+          state.dashboardViewPinned = true;
+          persistDashboardView();
+        }
+        applyDashboardView();
+      }
+
       function renderBoard() {
         updateHeroMetrics();
         updateStatusStrip();
@@ -4383,6 +4598,7 @@
         renderClvReviewPanel();
         renderHistoricalReview();
         renderGames();
+        applyDashboardView();
       }
 
       async function loadStatus() {
@@ -4872,6 +5088,14 @@
       });
 
       document.body.addEventListener("click", (event) => {
+        const dashboardViewButton = event.target.closest(
+          "[data-dashboard-view]",
+        );
+        if (dashboardViewButton) {
+          setDashboardView(dashboardViewButton.dataset.dashboardView || "board");
+          return;
+        }
+
         const historySortButton = event.target.closest("[data-history-sort]");
         if (!historySortButton) {
           return;
@@ -4898,7 +5122,12 @@
       hitLimitInput.addEventListener("change", refreshBoard);
       confirmedOnlyInput.addEventListener("change", refreshBoard);
       includeInferredInput.addEventListener("change", refreshBoard);
-      targetDateInput.addEventListener("change", refreshBoard);
+      targetDateInput.addEventListener("change", () => {
+        if (!state.dashboardViewPinned) {
+          setDashboardView(recommendedDashboardView(), { persist: false });
+        }
+        refreshBoard();
+      });
       showProjectedHittersButton.addEventListener("click", (event) => {
         event.preventDefault();
         confirmedOnlyInput.checked = false;

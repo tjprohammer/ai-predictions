@@ -417,7 +417,7 @@
       }
 
       .cards-grid {
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
         margin-top: 18px;
       }
 
@@ -441,7 +441,7 @@
       .team-group-grid {
         display: grid;
         gap: 18px;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
       }
 
       .player-card {
@@ -515,55 +515,172 @@
         gap: 8px;
       }
 
-      .history-strip {
+      .history-block {
         display: grid;
         gap: 10px;
+        margin-top: 2px;
+        padding: 12px 14px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(24, 30, 37, 0.98), rgba(29, 35, 43, 0.94));
+        border: 1px solid rgba(53, 65, 81, 0.78);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
       }
 
-      .history-strip-head {
+      .history-head {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .history-caption {
+        color: #9ca3af;
+        font-size: 0.74rem;
+        line-height: 1.45;
+      }
+
+      .history-caption strong {
+        color: #f3f4f6;
+        font-weight: 800;
+      }
+
+      .history-caption.hot strong {
+        color: #d1fae5;
+        font-weight: 900;
+      }
+
+      .history-caption.cold strong {
+        color: #fed7aa;
+        font-weight: 900;
+      }
+
+      .history-filters {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.96);
+        border: 1px solid rgba(55, 65, 81, 0.92);
+      }
+
+      .history-filter {
+        min-height: 0;
+        padding: 5px 10px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #9ca3af;
+        font-size: 0.66rem;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .history-filter.active {
+        background: rgba(75, 85, 99, 0.9);
+        color: #f9fafb;
+      }
+
+      .history-chart {
+        --history-value-row: 14px;
+        --history-bar-max: 62px;
+        --history-miss-bar-height: 16px;
+        --history-gap: 4px;
+        --history-baseline-offset: 0px;
+        position: relative;
+      }
+
+      .history-baseline {
+        position: absolute;
+        top: calc(var(--history-value-row) + var(--history-gap) + var(--history-baseline-offset));
+        left: 0;
+        right: 0;
+        border-top: 1px dashed rgba(229, 231, 235, 0.65);
+        pointer-events: none;
+      }
+
+      .history-baseline-label {
+        position: absolute;
+        right: 0;
+        top: -12px;
+        padding-left: 6px;
+        background: rgba(29, 35, 43, 0.96);
+        color: #d1d5db;
+        font-size: 0.62rem;
+        font-weight: 800;
       }
 
       .history-grid {
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 8px;
+        gap: 6px;
       }
 
-      .history-tile {
+      .history-game {
         display: grid;
-        gap: 4px;
-        align-items: center;
+        grid-template-rows: var(--history-value-row) var(--history-bar-max) auto auto;
+        gap: var(--history-gap);
         justify-items: center;
-        padding: 10px 6px;
-        border-radius: 14px;
-        border: 1px solid var(--line);
-        text-align: center;
+        min-width: 0;
       }
 
-      .history-tile.hit {
-        background: rgba(22, 101, 52, 0.12);
-        border-color: rgba(22, 101, 52, 0.22);
+      .history-value {
+        height: var(--history-value-row);
+        color: #f3f4f6;
+        font-size: 0.78rem;
+        font-weight: 900;
+        line-height: 1;
       }
 
-      .history-tile.miss {
-        background: rgba(185, 28, 28, 0.10);
-        border-color: rgba(185, 28, 28, 0.18);
+      .history-bar-wrap {
+        width: 100%;
+        height: var(--history-bar-max);
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+      }
+
+      .history-bar {
+        width: 100%;
+        height: 0;
+        border-radius: 8px 8px 6px 6px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+
+      .history-bar.hit {
+        background: linear-gradient(180deg, #14b8a6, #10b981);
+        border-color: rgba(16, 185, 129, 0.34);
+      }
+
+      .history-bar.miss {
+        min-height: var(--history-miss-bar-height);
+        background: linear-gradient(180deg, #f87171, #ef4444);
+        border-color: rgba(239, 68, 68, 0.36);
       }
 
       .history-date {
-        font-size: 0.74rem;
-        font-weight: 700;
-        color: var(--muted);
+        color: #d1d5db;
+        font-size: 0.56rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        line-height: 1;
       }
 
-      .history-result {
-        font-size: 0.88rem;
-        font-weight: 800;
-        color: var(--ink);
+      .history-opponent {
+        color: #6ee7b7;
+        font-size: 0.5rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        line-height: 1;
+      }
+
+      .history-empty {
+        padding: 12px 0 4px;
+        color: #9ca3af;
+        font-size: 0.76rem;
       }
 
       .data-row {
@@ -762,9 +879,9 @@
             <div class="field">
               <label for="sortMode">Sort By</label>
               <select id="sortMode">
-                <option value="team" selected>Team</option>
+                <option value="team">Team</option>
                 <option value="heat">Heat score</option>
-                <option value="streak">Hit streak</option>
+                <option value="streak" selected>Hit streak</option>
                 <option value="probability">Model probability</option>
                 <option value="edge">Betting edge</option>
                 <option value="lineup">Lineup slot</option>
@@ -971,9 +1088,18 @@
         });
       }
 
+      function parseDisplayDate(value) {
+        if (!value) return null;
+        if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+          const [year, month, day] = value.split("-").map(Number);
+          return new Date(year, month - 1, day);
+        }
+        return new Date(value);
+      }
+
       function formatShortDate(value) {
         if (!value) return "-";
-        const parsed = new Date(value);
+        const parsed = parseDisplayDate(value);
         if (Number.isNaN(parsed.getTime())) return String(value);
         return parsed.toLocaleDateString([], {
           month: "short",
@@ -1056,6 +1182,7 @@
       const state = {
         rows: [],
         summary: null,
+        historyFilters: {},
       };
 
       applyAppLinks();
@@ -1097,8 +1224,70 @@
         return parsed.getTime() <= Date.now();
       }
 
+      function playerFormTone(player) {
+        const hitRate7 = numberOr(player?.hit_rate_7);
+        const hitRate30 = numberOr(player?.hit_rate_30);
+        const xwoba14 = numberOr(player?.xwoba_14);
+        const hardHit14 = numberOr(player?.hard_hit_pct_14);
+        const streak = numberOr(player?.streak_len_capped, 0) ?? 0;
+        const hitDelta =
+          hitRate7 == null || hitRate30 == null ? null : hitRate7 - hitRate30;
+        if (
+          (hitDelta != null && hitDelta >= 0.12) ||
+          (xwoba14 != null && xwoba14 >= 0.38) ||
+          (hardHit14 != null && hardHit14 >= 0.48) ||
+          streak >= 4
+        ) {
+          return "hot";
+        }
+        if (
+          (hitDelta != null && hitDelta <= -0.12) ||
+          (xwoba14 != null && xwoba14 <= 0.285)
+        ) {
+          return "cold";
+        }
+        return "steady";
+      }
+
+      function formatOpponentTag(opponent) {
+        const value = String(opponent || "TBD").trim();
+        if (!value) return "TBD";
+        if (value.length <= 3) return value.toUpperCase();
+        return value.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "TBD";
+      }
+
+      function historyFilterOptions() {
+        return [
+          { key: "h2h", label: "H2H" },
+          { key: "l5", label: "L5" },
+          { key: "l10", label: "L10" },
+        ];
+      }
+
+      function getHistoryFilter(player) {
+        const playerKey = String(player?.player_id || player?.player_name || "player");
+        return state.historyFilters[playerKey] || "l10";
+      }
+
+      function filteredHistory(player, history) {
+        const filterKey = getHistoryFilter(player);
+        const targetOpponent = String(player?.opponent || "").trim().toUpperCase();
+        if (filterKey === "h2h") {
+          return history.filter(
+            (game) => String(game.opponent || "").trim().toUpperCase() === targetOpponent,
+          );
+        }
+        if (filterKey === "l5") {
+          return history.slice(0, 5);
+        }
+        if (filterKey === "l10") {
+          return history.slice(0, 10);
+        }
+        return history.slice(0, 10);
+      }
+
       function sortRows(rows) {
-        const sortMode = sortModeInput.value;
+        const sortMode = sortModeInput.value || "streak";
         const sorted = [...rows];
         if (sortMode === "team") {
           return sorted.sort(
@@ -1146,8 +1335,21 @@
                 numberOr(left.form?.heat_score, -1),
           );
         }
+        if (sortMode === "heat") {
+          return sorted.sort(
+            (left, right) =>
+              numberOr(right.form?.heat_score, -1) -
+                numberOr(left.form?.heat_score, -1) ||
+              numberOr(right.streak_len_capped, -1) -
+                numberOr(left.streak_len_capped, -1) ||
+              numberOr(right.predicted_hit_probability, -1) -
+                numberOr(left.predicted_hit_probability, -1),
+          );
+        }
         return sorted.sort(
           (left, right) =>
+            numberOr(right.streak_len_capped, -1) -
+              numberOr(left.streak_len_capped, -1) ||
             numberOr(right.form?.heat_score, -1) -
               numberOr(left.form?.heat_score, -1) ||
             numberOr(right.predicted_hit_probability, -1) -
@@ -1161,29 +1363,73 @@
           : [];
         if (!history.length) {
           return `
-            <div class="history-strip">
-              <div class="history-strip-head">
-                <span class="data-label">Last 10 Games</span>
-                <span class="small-copy">Recent game logs pending</span>
+            <div class="history-block">
+              <div class="history-head">
+                <div class="history-caption"><strong>Last 10 Games</strong> · Recent game logs pending</div>
               </div>
             </div>
           `;
         }
+        const defaultHistoryTitle = `Last ${history.length} Games`;
+        const filterKey = getHistoryFilter(row);
+        const shownHistory = filteredHistory(row, history);
+        const hitGames = shownHistory.filter((game) => game.had_hit).length;
+        const formTone = playerFormTone(row);
+        const playerKey = escapeHtml(String(row?.player_id || row?.player_name || "player"));
+        const filterTitle = historyFilterOptions().find((item) => item.key === filterKey)?.label || "L10";
         return `
-          <div class="history-strip">
-            <div class="history-strip-head">
-              <span class="data-label">Last 10 Games</span>
-              <span class="small-copy">Green = hit · red = no hit</span>
+          <div class="history-block">
+            <div class="history-head">
+              <div class="history-caption ${formTone}"><strong>${filterKey === "h2h" ? filterTitle : defaultHistoryTitle}</strong>${filterKey === "h2h" ? ` · ${filterTitle}` : ""} · newest on left · ${hitGames}/${shownHistory.length || 0} hit games · Green = hit · red = no hit · taller bars = multi-hit</div>
+              <div class="history-filters">
+                ${historyFilterOptions().map((item) => `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`).join("")}
+              </div>
             </div>
-            <div class="history-grid">
-              ${history
+            ${shownHistory.length ? `
+            <div class="history-chart" style="--history-baseline-offset:${(() => {
+              const historyBarMaxHeight = 62;
+              const maxHits = Math.max(
+                1,
+                ...shownHistory.map((game) => numberOr(game.hits, 0) ?? 0),
+              );
+              return maxHits <= 1
+                ? 0
+                : ((maxHits - 1) / maxHits) * historyBarMaxHeight;
+            })()}px;">
+              <div class="history-baseline"><span class="history-baseline-label">1</span></div>
+              <div class="history-grid" style="grid-template-columns: repeat(${shownHistory.length}, minmax(0, 1fr));">
+              ${shownHistory
                 .map((entry) => {
+                  const historyBarMaxHeight = 62;
+                  const missBarHeight = 16;
+                  const maxHits = Math.max(
+                    1,
+                    ...shownHistory.map((game) => numberOr(game.hits, 0) ?? 0),
+                  );
                   const hadHit = Boolean(entry.had_hit);
-                  const title = `${formatShortDate(entry.game_date)} vs ${entry.opponent || "TBD"} · ${entry.hits ?? 0} H in ${entry.at_bats ?? 0} AB`;
-                  return `<div class="history-tile ${hadHit ? "hit" : "miss"}" title="${escapeHtml(title)}"><span class="history-date">${escapeHtml(formatShortDate(entry.game_date))}</span><span class="history-result">${escapeHtml(hadHit ? "H" : "0")}</span></div>`;
+                  const hits = numberOr(entry.hits, 0) ?? 0;
+                  const chartHits = Math.max(hits, 0);
+                  const totalBasesValue = numberOr(entry.total_bases, 0) ?? 0;
+                  const homeRunsValue = numberOr(entry.home_runs, 0) ?? 0;
+                  const barHeight = chartHits > 0
+                    ? (chartHits / maxHits) * historyBarMaxHeight
+                    : missBarHeight;
+                  const title = `${formatShortDate(entry.game_date)} vs ${entry.opponent || "TBD"} · ${hits} H · ${totalBasesValue} TB${homeRunsValue > 0 ? ` · ${homeRunsValue} HR` : ""}`;
+                  return `
+                    <div class="history-game" title="${escapeHtml(title)}">
+                      <div class="history-value">${chartHits}</div>
+                      <div class="history-bar-wrap">
+                        <div class="history-bar ${hadHit ? "hit" : "miss"}" style="height:${barHeight}px;"></div>
+                      </div>
+                      <div class="history-date">${escapeHtml(formatShortDate(entry.game_date).replace(/\s+/g, ""))}</div>
+                      <div class="history-opponent">${escapeHtml(formatOpponentTag(entry.opponent))}</div>
+                    </div>
+                  `;
                 })
                 .join("")}
+              </div>
             </div>
+            ` : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(row?.opponent))} games found for this filter.</div>`}
           </div>
         `;
       }
@@ -1494,6 +1740,19 @@
       streakOnlyInput.addEventListener("change", renderRows);
       hideStartedOnlyInput.addEventListener("change", renderRows);
       targetDateInput.addEventListener("change", refreshPage);
+      cardsGrid.addEventListener("click", (event) => {
+        const filterButton = event.target.closest("[data-history-filter]");
+        if (!filterButton) {
+          return;
+        }
+        const playerKey = String(filterButton.dataset.playerKey || "");
+        const filterKey = String(filterButton.dataset.historyFilter || "l10");
+        if (!playerKey) {
+          return;
+        }
+        state.historyFilters[playerKey] = filterKey;
+        renderRows();
+      });
       showProjectedHittersButton.addEventListener("click", () => {
         confirmedOnlyInput.checked = false;
         includeInferredInput.checked = true;

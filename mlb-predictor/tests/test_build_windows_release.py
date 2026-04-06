@@ -199,3 +199,43 @@ def test_build_windows_release_script_runs_directly_with_help():
 
     assert completed.returncode == 0
     assert "Build the Windows desktop app and installer bundle" in completed.stdout
+
+
+def test_build_windows_release_passes_sign_to_app_and_installer(monkeypatch):
+    commands: list[list[str]] = []
+
+    class FakeCompletedProcess:
+        def __init__(self, returncode=0):
+            self.returncode = returncode
+
+    def fake_run(command, cwd):
+        commands.append(command)
+        return FakeCompletedProcess(0)
+
+    monkeypatch.setattr(build_windows_release.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        build_windows_release.sys,
+        "argv",
+        ["build_windows_release.py", "--sign"],
+    )
+    monkeypatch.setattr(build_windows_release, "_snapshot_release_artifacts", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        build_windows_release,
+        "_detect_built_release_artifacts",
+        lambda *_args, **_kwargs: [build_windows_release.ROOT / "release" / "MLBPredictor-Windows-v0.1.0-Setup.exe"],
+    )
+    monkeypatch.setattr(
+        build_windows_release,
+        "_write_release_sidecars",
+        lambda *_args, **_kwargs: {
+            "manifest": build_windows_release.ROOT / "release" / "manifest.json",
+            "checksums": build_windows_release.ROOT / "release" / "checksums.txt",
+            "release_notes": build_windows_release.ROOT / "release" / "release-notes.md",
+        },
+    )
+
+    result = build_windows_release.main()
+
+    assert result == 0
+    assert "--sign" in commands[1]
+    assert "--sign" in commands[2]

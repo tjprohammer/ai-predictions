@@ -1175,6 +1175,18 @@ def main() -> int:
             _write_market_snapshot_versions(odds_rows)
             if odds_rows:
                 log.info("Imported %s market rows from the Odds API", len(odds_rows))
+    else:
+        try:
+            covers_rows = _timed_fetch("covers_totals", _fetch_covers_rows, start_date, end_date)
+        except requests.RequestException as exc:
+            log.warning("Covers market pull failed: %s", exc)
+        else:
+            inserted += upsert_rows("game_markets", covers_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
+            _write_market_snapshot_versions(covers_rows)
+            if covers_rows:
+                log.info("Imported %s market rows from Covers totals HTML", len(covers_rows))
+
+    if settings.odds_api_key:
         try:
             odds_prop_rows = _timed_fetch(
                 "odds_api_player_props",
@@ -1195,15 +1207,6 @@ def main() -> int:
                 )
                 log.info("Imported %s player prop rows from the Odds API", len(odds_prop_rows))
     else:
-        try:
-            covers_rows = _timed_fetch("covers_totals", _fetch_covers_rows, start_date, end_date)
-        except requests.RequestException as exc:
-            log.warning("Covers market pull failed: %s", exc)
-        else:
-            inserted += upsert_rows("game_markets", covers_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
-            _write_market_snapshot_versions(covers_rows)
-            if covers_rows:
-                log.info("Imported %s market rows from Covers totals HTML", len(covers_rows))
         try:
             covers_prop_rows = _timed_fetch(
                 "covers_player_props",
