@@ -7,7 +7,13 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-from src.features.contracts import FIRST5_TOTALS_META_COLUMNS, FIRST5_TOTALS_TARGET_COLUMN
+from src.features.contracts import (
+    FIELD_ROLE_CORE_PREDICTOR,
+    FIRST5_TOTALS_META_COLUMNS,
+    FIRST5_TOTALS_TARGET_COLUMN,
+    feature_columns_for_roles,
+    feature_field_roles,
+)
 from src.models.common import chronological_split, encode_frame, load_feature_snapshots, save_artifact, save_report
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
@@ -33,9 +39,11 @@ def main() -> int:
         log.info("Not enough first-five totals rows for validation split")
         return 0
 
-    feature_columns = [
-        column for column in trainable.columns if column not in set(FIRST5_TOTALS_META_COLUMNS + [FIRST5_TOTALS_TARGET_COLUMN])
-    ]
+    feature_columns = feature_columns_for_roles(
+        "first5_totals",
+        [FIELD_ROLE_CORE_PREDICTOR],
+        available_columns=list(trainable.columns),
+    )
     category_columns = []
     X_train = encode_frame(train_frame[feature_columns], category_columns)
     X_val = encode_frame(val_frame[feature_columns], category_columns, training_columns=list(X_train.columns))
@@ -71,6 +79,8 @@ def main() -> int:
         "model_name": best_name,
         "model_version": artifact_name,
         "trained_at": datetime.now(timezone.utc),
+        "field_roles": feature_field_roles("first5_totals"),
+        "selected_feature_roles": [FIELD_ROLE_CORE_PREDICTOR],
         "feature_columns": feature_columns,
         "training_columns": list(X_train.columns),
         "category_columns": category_columns,

@@ -485,10 +485,10 @@ Deliverables:
 
 Current decisions from the audit so far:
 
-- full-game totals should be treated as a run-environment model built from team scoring baselines, starter quality, lineup quality, and bullpen workload first
+- full-game totals should be treated as a run-environment model built from team scoring baselines, starter quality, lineup quality, and bullpen availability or workload first
 - first-five totals should be treated as a starter-plus-top-of-lineup model first, with park, weather, and market inputs in supporting roles
 - player hits should be treated as an opportunity-plus-contact-quality model first, with lineup slot, projected plate appearances, xBA, xwOBA, hard-hit rate, and opposing starter context ahead of streak metrics
-- pitcher strikeouts should be treated as a leash-plus-whiff-skill model first, then adjusted by opponent strikeout tendency and lineup-handedness context
+- pitcher strikeouts should be treated as a leash-plus-bat-missing-skill model first, then adjusted by opponent strikeout tendency and lineup handedness or confirmation
 - bullpen workload features survive for full-game totals, but short-run bullpen outcome summaries should be downweighted or retired
 - market level and line movement remain calibration inputs; side prices stay secondary and should not drive the raw projection layer
 - projected and inferred lineups are pregame-safe but should feed certainty scoring and actionability, not be treated as equivalent to confirmed lineups
@@ -497,7 +497,7 @@ Current decisions from the audit so far:
 Immediate implementation sequence implied by the audit:
 
 1. preserve and formalize the core surviving features for each lane
-2. split direct model features from certainty and audit flags
+2. classify every field as core predictor, calibration input, certainty signal, diagnostic flag, or product-only field
 3. retire or downweight noisy bullpen outcomes, raw streak fields, and weak weather or price-detail features
 4. replace proxy features such as hits-side `team_run_environment` with clearer opportunity-aware versions
 5. build certainty scores around starter identity, lineup completeness, market freshness, weather freshness, and fallback counts

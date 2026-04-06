@@ -3,6 +3,13 @@ from __future__ import annotations
 import pandas as pd
 
 
+FIELD_ROLE_CORE_PREDICTOR = "core predictor"
+FIELD_ROLE_CALIBRATION_INPUT = "calibration input"
+FIELD_ROLE_CERTAINTY_SIGNAL = "certainty signal"
+FIELD_ROLE_DIAGNOSTIC_FLAG = "diagnostic flag"
+FIELD_ROLE_PRODUCT_ONLY = "product-only field"
+
+
 TOTALS_META_COLUMNS = [
     "game_id",
     "game_date",
@@ -204,6 +211,203 @@ STRIKEOUTS_FEATURE_COLUMNS = [
 ]
 
 STRIKEOUTS_TARGET_COLUMN = "actual_strikeouts"
+
+
+TOTALS_FIELD_ROLES = {
+    "home_runs_rate_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_runs_rate_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_hits_rate_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_hits_rate_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_xwoba_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_xwoba_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_iso_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_iso_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_bb_pct_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_bb_pct_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_k_pct_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_k_pct_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_starter_xwoba_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_starter_xwoba_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_starter_csw_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_starter_csw_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_starter_rest_days": FIELD_ROLE_CORE_PREDICTOR,
+    "away_starter_rest_days": FIELD_ROLE_CORE_PREDICTOR,
+    "home_bullpen_pitches_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "away_bullpen_pitches_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "home_bullpen_innings_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "away_bullpen_innings_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "home_bullpen_b2b": FIELD_ROLE_CORE_PREDICTOR,
+    "away_bullpen_b2b": FIELD_ROLE_CORE_PREDICTOR,
+    "home_bullpen_runs_allowed_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "away_bullpen_runs_allowed_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "home_bullpen_earned_runs_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "away_bullpen_earned_runs_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "home_bullpen_hits_allowed_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "away_bullpen_hits_allowed_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "home_bullpen_era_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "away_bullpen_era_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "home_lineup_top5_xwoba": FIELD_ROLE_CORE_PREDICTOR,
+    "away_lineup_top5_xwoba": FIELD_ROLE_CORE_PREDICTOR,
+    "home_lineup_k_pct": FIELD_ROLE_CORE_PREDICTOR,
+    "away_lineup_k_pct": FIELD_ROLE_CORE_PREDICTOR,
+    "venue_run_factor": FIELD_ROLE_CORE_PREDICTOR,
+    "venue_hr_factor": FIELD_ROLE_CORE_PREDICTOR,
+    "temperature_f": FIELD_ROLE_CORE_PREDICTOR,
+    "wind_speed_mph": FIELD_ROLE_CORE_PREDICTOR,
+    "wind_direction_deg": FIELD_ROLE_CORE_PREDICTOR,
+    "humidity_pct": FIELD_ROLE_CORE_PREDICTOR,
+    "market_total": FIELD_ROLE_CALIBRATION_INPUT,
+    "market_over_price": FIELD_ROLE_CALIBRATION_INPUT,
+    "market_under_price": FIELD_ROLE_CALIBRATION_INPUT,
+    "line_movement": FIELD_ROLE_CALIBRATION_INPUT,
+}
+
+FIRST5_TOTALS_FIELD_ROLES = {
+    "home_runs_rate_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_runs_rate_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_hits_rate_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_hits_rate_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_xwoba_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_xwoba_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_iso_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_iso_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_bb_pct_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_bb_pct_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_k_pct_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_k_pct_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_starter_xwoba_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_starter_xwoba_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_starter_csw_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "away_starter_csw_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "home_starter_rest_days": FIELD_ROLE_CORE_PREDICTOR,
+    "away_starter_rest_days": FIELD_ROLE_CORE_PREDICTOR,
+    "home_lineup_top5_xwoba": FIELD_ROLE_CORE_PREDICTOR,
+    "away_lineup_top5_xwoba": FIELD_ROLE_CORE_PREDICTOR,
+    "home_lineup_k_pct": FIELD_ROLE_CORE_PREDICTOR,
+    "away_lineup_k_pct": FIELD_ROLE_CORE_PREDICTOR,
+    "venue_run_factor": FIELD_ROLE_CORE_PREDICTOR,
+    "venue_hr_factor": FIELD_ROLE_CORE_PREDICTOR,
+    "temperature_f": FIELD_ROLE_CORE_PREDICTOR,
+    "wind_speed_mph": FIELD_ROLE_CORE_PREDICTOR,
+    "wind_direction_deg": FIELD_ROLE_CORE_PREDICTOR,
+    "humidity_pct": FIELD_ROLE_CORE_PREDICTOR,
+    "market_total": FIELD_ROLE_CALIBRATION_INPUT,
+    "market_over_price": FIELD_ROLE_CALIBRATION_INPUT,
+    "market_under_price": FIELD_ROLE_CALIBRATION_INPUT,
+    "line_movement": FIELD_ROLE_CALIBRATION_INPUT,
+}
+
+HITS_FIELD_ROLES = {
+    "player_name": FIELD_ROLE_PRODUCT_ONLY,
+    "home_away": FIELD_ROLE_CORE_PREDICTOR,
+    "lineup_slot": FIELD_ROLE_CORE_PREDICTOR,
+    "is_confirmed_lineup": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "projected_plate_appearances": FIELD_ROLE_CORE_PREDICTOR,
+    "hit_rate_7": FIELD_ROLE_CORE_PREDICTOR,
+    "hit_rate_14": FIELD_ROLE_CORE_PREDICTOR,
+    "hit_rate_30": FIELD_ROLE_CORE_PREDICTOR,
+    "hit_rate_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "xba_14": FIELD_ROLE_CORE_PREDICTOR,
+    "xwoba_14": FIELD_ROLE_CORE_PREDICTOR,
+    "hard_hit_pct_14": FIELD_ROLE_CORE_PREDICTOR,
+    "k_pct_14": FIELD_ROLE_CORE_PREDICTOR,
+    "season_prior_hit_rate": FIELD_ROLE_CORE_PREDICTOR,
+    "season_prior_xba": FIELD_ROLE_CORE_PREDICTOR,
+    "season_prior_xwoba": FIELD_ROLE_CORE_PREDICTOR,
+    "opposing_starter_xwoba": FIELD_ROLE_CORE_PREDICTOR,
+    "opposing_starter_csw": FIELD_ROLE_CORE_PREDICTOR,
+    "opposing_bullpen_pitches_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "opposing_bullpen_innings_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "venue_run_factor": FIELD_ROLE_CORE_PREDICTOR,
+    "park_hr_factor": FIELD_ROLE_CORE_PREDICTOR,
+    "temperature_f": FIELD_ROLE_CORE_PREDICTOR,
+    "wind_speed_mph": FIELD_ROLE_CORE_PREDICTOR,
+    "team_run_environment": FIELD_ROLE_CORE_PREDICTOR,
+    "streak_len_capped": FIELD_ROLE_PRODUCT_ONLY,
+}
+
+STRIKEOUTS_FIELD_ROLES = {
+    "throws": FIELD_ROLE_DIAGNOSTIC_FLAG,
+    "days_rest": FIELD_ROLE_CORE_PREDICTOR,
+    "projected_innings": FIELD_ROLE_CORE_PREDICTOR,
+    "recent_avg_ip_3": FIELD_ROLE_CORE_PREDICTOR,
+    "recent_avg_ip_5": FIELD_ROLE_CORE_PREDICTOR,
+    "recent_avg_strikeouts_3": FIELD_ROLE_CORE_PREDICTOR,
+    "recent_avg_strikeouts_5": FIELD_ROLE_CORE_PREDICTOR,
+    "recent_k_per_batter_3": FIELD_ROLE_CORE_PREDICTOR,
+    "recent_k_per_batter_5": FIELD_ROLE_CORE_PREDICTOR,
+    "recent_avg_pitch_count_3": FIELD_ROLE_CORE_PREDICTOR,
+    "recent_whiff_pct_5": FIELD_ROLE_CORE_PREDICTOR,
+    "recent_csw_pct_5": FIELD_ROLE_CORE_PREDICTOR,
+    "recent_xwoba_5": FIELD_ROLE_CORE_PREDICTOR,
+    "baseline_strikeouts": FIELD_ROLE_CORE_PREDICTOR,
+    "opponent_k_pct_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "same_hand_share": FIELD_ROLE_CORE_PREDICTOR,
+    "opposite_hand_share": FIELD_ROLE_CORE_PREDICTOR,
+    "switch_share": FIELD_ROLE_CORE_PREDICTOR,
+    "lineup_right_count": FIELD_ROLE_CORE_PREDICTOR,
+    "lineup_left_count": FIELD_ROLE_CORE_PREDICTOR,
+    "lineup_switch_count": FIELD_ROLE_CORE_PREDICTOR,
+    "known_hitters": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "confirmed_hitters": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "total_hitters": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "handedness_adjustment_applied": FIELD_ROLE_DIAGNOSTIC_FLAG,
+    "handedness_data_missing": FIELD_ROLE_CERTAINTY_SIGNAL,
+}
+
+LANE_FEATURE_COLUMNS = {
+    "totals": TOTALS_FEATURE_COLUMNS,
+    "first5_totals": FIRST5_TOTALS_FEATURE_COLUMNS,
+    "hits": HITS_FEATURE_COLUMNS,
+    "strikeouts": STRIKEOUTS_FEATURE_COLUMNS,
+}
+
+LANE_FIELD_ROLES = {
+    "totals": TOTALS_FIELD_ROLES,
+    "first5_totals": FIRST5_TOTALS_FIELD_ROLES,
+    "hits": HITS_FIELD_ROLES,
+    "strikeouts": STRIKEOUTS_FIELD_ROLES,
+}
+
+
+def feature_field_roles(lane: str) -> dict[str, str]:
+    try:
+        return dict(LANE_FIELD_ROLES[lane])
+    except KeyError as exc:
+        raise ValueError(f"Unsupported lane for field roles: {lane}") from exc
+
+
+def feature_columns_for_roles(
+    lane: str,
+    allowed_roles: list[str] | tuple[str, ...],
+    available_columns: list[str] | None = None,
+) -> list[str]:
+    try:
+        feature_columns = LANE_FEATURE_COLUMNS[lane]
+        field_roles = LANE_FIELD_ROLES[lane]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported lane for field roles: {lane}") from exc
+
+    allowed_role_set = set(allowed_roles)
+    selected = [column for column in feature_columns if field_roles[column] in allowed_role_set]
+    if available_columns is None:
+        return selected
+    available_column_set = set(available_columns)
+    return [column for column in selected if column in available_column_set]
+
+
+def _validate_field_role_maps() -> None:
+    for lane, feature_columns in LANE_FEATURE_COLUMNS.items():
+        role_map = LANE_FIELD_ROLES[lane]
+        missing = [column for column in feature_columns if column not in role_map]
+        extras = [column for column in role_map if column not in feature_columns]
+        if missing or extras:
+            raise ValueError(
+                f"Field role map mismatch for {lane}: missing={missing}, extras={extras}"
+            )
+
+
+_validate_field_role_maps()
 
 
 def validate_columns(frame: pd.DataFrame, required_columns: list[str], label: str) -> None:

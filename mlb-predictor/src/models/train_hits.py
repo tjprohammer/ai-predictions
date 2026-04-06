@@ -10,7 +10,12 @@ from sklearn.metrics import brier_score_loss, log_loss
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from src.features.contracts import HITS_META_COLUMNS, HITS_TARGET_COLUMN
+from src.features.contracts import (
+    FIELD_ROLE_CORE_PREDICTOR,
+    HITS_TARGET_COLUMN,
+    feature_columns_for_roles,
+    feature_field_roles,
+)
 from src.models.common import chronological_split, encode_frame, load_feature_snapshots, save_artifact, save_report
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
@@ -98,8 +103,11 @@ def main() -> int:
     if eval_frame.empty:
         eval_frame = calibration_frame.copy()
 
-    excluded_columns = set(HITS_META_COLUMNS + [HITS_TARGET_COLUMN, "player_name"])
-    feature_columns = [column for column in trainable.columns if column not in excluded_columns]
+    feature_columns = feature_columns_for_roles(
+        "hits",
+        [FIELD_ROLE_CORE_PREDICTOR],
+        available_columns=list(trainable.columns),
+    )
     category_columns = [column for column in ["team", "opponent", "home_away"] if column in feature_columns]
     X_train = encode_frame(train_frame[feature_columns], category_columns)
     training_columns = list(X_train.columns)
@@ -151,6 +159,8 @@ def main() -> int:
         "model_name": best_name,
         "model_version": artifact_name,
         "trained_at": datetime.now(timezone.utc),
+        "field_roles": feature_field_roles("hits"),
+        "selected_feature_roles": [FIELD_ROLE_CORE_PREDICTOR],
         "feature_columns": feature_columns,
         "training_columns": training_columns,
         "category_columns": category_columns,

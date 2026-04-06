@@ -40,6 +40,16 @@ Use the following audit outcomes during Phase 1:
 
 These decisions are initial directional calls, not final verdicts. Phase 1 should confirm or change them as formulas, fallback behavior, and leakage risk are verified.
 
+## Field Role Tags
+
+In addition to the audit outcome above, each field should eventually be classified into one implementation role:
+
+- `core predictor`: belongs in the raw model feature set
+- `calibration input`: belongs after the raw model for calibration, disagreement handling, or edge interpretation
+- `certainty signal`: belongs in trust, publish, downgrade, or suppress logic
+- `diagnostic flag`: belongs in audit, debugging, and explanation support, not the core model
+- `product-only field`: belongs in UI, labels, explanations, or sorting, not model training
+
 ## Required Contract Fields
 
 Every feature should define the following fields before it is considered production-trusted:
@@ -56,6 +66,7 @@ Every feature should define the following fields before it is considered product
 - pregame-safe flag
 - missing-data fallback
 - leakage risk
+- field role
 - downstream consumers
 - action
 - priority
@@ -173,7 +184,7 @@ This pass audits the current full-game totals formulas against `src/features/tot
 
 The rows above still retain their current status labels for now, but the feature families below now have explicit code-level formulas, cadence notes, fallback behavior, and leakage notes recorded.
 
-After the code audit, the full-game totals lane should be treated as a run-environment model built from team scoring baselines, starter quality, lineup quality, and bullpen workload first, with park, weather, and market-price fields kept in supporting or calibration roles.
+After the code audit, the full-game totals lane should be treated as a run-environment model built from team scoring baselines, starter quality, lineup quality, and bullpen availability or workload first, with park, weather, and market-price fields kept in supporting or calibration roles.
 
 | Feature family | Applies to | Exact current formula | Refresh cadence | Pregame-safe | Missing-data fallback | Leakage risk |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -364,7 +375,7 @@ This pass audits the current hits formulas against `src/features/hits_builder.py
 
 This pass audits the current strikeout formulas against `src/features/strikeouts_builder.py`, `src/features/common.py`, and `src/features/contracts.py`.
 
-After the code audit, the strikeout lane should be treated as a leash-plus-whiff-skill model first, then adjusted by opponent strikeout tendency and lineup-handedness context, with completeness and interpretability flags kept secondary.
+After the code audit, the strikeout lane should be treated as a leash-plus-bat-missing-skill model first, then adjusted by opponent strikeout tendency and lineup handedness or confirmation, with completeness and interpretability flags kept secondary.
 
 | Feature family | Applies to | Exact current formula | Refresh cadence | Pregame-safe | Missing-data fallback | Leakage risk |
 | --- | --- | --- | --- | --- | --- | --- |
