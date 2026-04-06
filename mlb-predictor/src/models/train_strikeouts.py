@@ -15,7 +15,7 @@ from src.features.contracts import (
     feature_columns_for_roles,
     feature_field_roles,
 )
-from src.models.common import chronological_split, encode_frame, load_feature_snapshots, save_artifact, save_report
+from src.models.common import chronological_split, compute_sample_weights, encode_frame, load_feature_snapshots, save_artifact, save_report
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -61,8 +61,16 @@ def main() -> int:
     best_predictions = None
     metrics = {}
 
+    # Time-decay sample weights: recent games count more
+    train_weights = compute_sample_weights(train_frame["game_date"])
+
     for name, model in candidates.items():
-        model.fit(X_train, y_train)
+        # Pipeline models need the weight prefixed with the step name
+        if hasattr(model, "steps"):
+            last_step_name = model.steps[-1][0]
+            model.fit(X_train, y_train, **{f"{last_step_name}__sample_weight": train_weights})
+        else:
+            model.fit(X_train, y_train, sample_weight=train_weights)
         predictions = model.predict(X_val)
         mae = mean_absolute_error(y_val, predictions)
         rmse = math.sqrt(mean_squared_error(y_val, predictions))
@@ -72,6 +80,15 @@ def main() -> int:
             best_model = model
             best_rmse = rmse
             best_predictions = predictions
+
+    # --- Baseline benchmarks ---
+    baselines = {}
+    train_mean = float(y_train.mean())
+    baselines["train_mean"] = {
+        "mae": float(mean_absolute_error(y_val, [train_mean] * len(y_val))),
+        "rmse": float(math.sqrt(mean_squared_error(y_val, [train_mean] * len(y_val)))),
+    }
+    log.info("Baselines: %s", baselines)
 
     artifact_name = f"strikeouts_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     residual_std = float((y_val - best_predictions).std()) if len(y_val) else 1.0
@@ -86,6 +103,7 @@ def main() -> int:
         "training_columns": list(X_train.columns),
         "category_columns": category_columns,
         "metrics": metrics,
+        "baselines": baselines,
         "residual_std": residual_std if residual_std > 0 else 1.0,
         "model": best_model,
     }

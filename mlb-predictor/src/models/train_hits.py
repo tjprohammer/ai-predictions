@@ -16,7 +16,7 @@ from src.features.contracts import (
     feature_columns_for_roles,
     feature_field_roles,
 )
-from src.models.common import chronological_split, encode_frame, load_feature_snapshots, save_artifact, save_report
+from src.models.common import chronological_split, compute_sample_weights, encode_frame, load_feature_snapshots, save_artifact, save_report
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -127,8 +127,16 @@ def main() -> int:
     best_calibration_method = "identity"
     best_calibrator = None
     best_log_loss = float("inf")
+    # Time-decay sample weights: recent games count more
+    train_weights = compute_sample_weights(train_frame["game_date"])
+
     for name, model in candidates.items():
-        model.fit(X_train, y_train)
+        # Pipeline models need the weight prefixed with the step name
+        if hasattr(model, "steps"):
+            last_step_name = model.steps[-1][0]
+            model.fit(X_train, y_train, **{f"{last_step_name}__sample_weight": train_weights})
+        else:
+            model.fit(X_train, y_train, sample_weight=train_weights)
         calibration_probabilities = model.predict_proba(X_calibration)[:, 1]
         evaluation_probabilities = model.predict_proba(X_eval)[:, 1]
         calibration_method, calibrator, calibration_metrics = _fit_best_calibrator(
@@ -153,6 +161,16 @@ def main() -> int:
             best_calibration_method = calibration_method
             best_calibrator = calibrator
 
+    # --- Baseline benchmarks ---
+    base_rate = float(y_train.mean())
+    baselines = {
+        "base_rate": {
+            "brier": float(brier_score_loss(y_eval, [base_rate] * len(y_eval))),
+            "log_loss": float(log_loss(y_eval, np.clip([base_rate] * len(y_eval), 1e-6, 1 - 1e-6), labels=[0, 1])),
+        },
+    }
+    log.info("Baselines: %s", baselines)
+
     artifact_name = f"hits_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     artifact = {
         "lane": "hits",
@@ -166,6 +184,7 @@ def main() -> int:
         "category_columns": category_columns,
         "calibration_method": best_calibration_method,
         "metrics": metrics,
+        "baselines": baselines,
         "calibrator": best_calibrator,
         "model": best_model,
     }

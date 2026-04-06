@@ -190,6 +190,38 @@ def chronological_split(frame: pd.DataFrame, validation_fraction: float = 0.2) -
 
 
 # ---------------------------------------------------------------------------
+# Time-decay sample weights
+# ---------------------------------------------------------------------------
+
+def compute_sample_weights(
+    game_dates: pd.Series,
+    *,
+    half_life_days: int = 180,
+    min_weight: float = 0.25,
+) -> np.ndarray:
+    """Compute exponential time-decay weights so recent games count more.
+
+    Parameters
+    ----------
+    game_dates : Series of date-like values
+    half_life_days : days until a sample's weight drops to 50% of the most
+        recent sample. Default 180 ≈ one full season of decay.
+    min_weight : floor so old samples are never fully discarded.
+
+    Returns
+    -------
+    1-D numpy array of weights, same length as *game_dates*.
+    """
+    import numpy as np
+
+    dates = pd.to_datetime(game_dates)
+    most_recent = dates.max()
+    days_ago = (most_recent - dates).dt.total_seconds() / 86_400
+    decay = np.exp(-np.log(2) * days_ago / half_life_days)
+    return np.clip(decay, min_weight, 1.0)
+
+
+# ---------------------------------------------------------------------------
 # Market calibration layer
 # ---------------------------------------------------------------------------
 

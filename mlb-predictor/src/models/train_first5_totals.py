@@ -14,7 +14,7 @@ from src.features.contracts import (
     feature_columns_for_roles,
     feature_field_roles,
 )
-from src.models.common import chronological_split, encode_frame, fit_market_calibrator, load_feature_snapshots, save_artifact, save_report
+from src.models.common import chronological_split, compute_sample_weights, encode_frame, fit_market_calibrator, load_feature_snapshots, save_artifact, save_report
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -60,8 +60,11 @@ def main() -> int:
     best_predictions = None
     metrics = {}
 
+    # Time-decay sample weights: recent games count more
+    train_weights = compute_sample_weights(train_frame["game_date"])
+
     for name, model in candidates.items():
-        model.fit(X_train, y_train)
+        model.fit(X_train, y_train, sample_weight=train_weights)
         predictions = model.predict(X_val)
         mae = mean_absolute_error(y_val, predictions)
         rmse = math.sqrt(mean_squared_error(y_val, predictions))
@@ -71,6 +74,24 @@ def main() -> int:
             best_model = model
             best_rmse = rmse
             best_predictions = predictions
+
+    # --- Baseline benchmarks ---
+    baselines = {}
+    train_mean = float(y_train.mean())
+    baselines["train_mean"] = {
+        "mae": float(mean_absolute_error(y_val, [train_mean] * len(y_val))),
+        "rmse": float(math.sqrt(mean_squared_error(y_val, [train_mean] * len(y_val)))),
+    }
+    if "market_total" in val_frame.columns:
+        market_mask = val_frame["market_total"].notna()
+        if market_mask.sum() > 0:
+            market_vals = val_frame.loc[market_mask.index[market_mask], "market_total"].astype(float)
+            baselines["market_total"] = {
+                "mae": float(mean_absolute_error(y_val[market_mask.values], market_vals)),
+                "rmse": float(math.sqrt(mean_squared_error(y_val[market_mask.values], market_vals))),
+                "rows": int(market_mask.sum()),
+            }
+    log.info("Baselines: %s", baselines)
 
     artifact_name = f"first5_totals_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     residual_std = float((y_val - best_predictions).std()) if len(y_val) else 1.0
@@ -113,6 +134,7 @@ def main() -> int:
         "training_columns": list(X_train.columns),
         "category_columns": category_columns,
         "metrics": metrics,
+        "baselines": baselines,
         "calibration_metrics": calibration_metrics,
         "residual_std": residual_std if residual_std > 0 else 1.0,
         "market_calibrator": market_calibrator,
