@@ -85,6 +85,35 @@ def load_feature_snapshots(lane: str) -> pd.DataFrame:
     return combined
 
 
+_LEAGUE_AVERAGE_DEFAULTS: dict[str, float] = {
+    # Team offense (2025 MLB league averages)
+    "home_xwoba_blended": 0.310, "away_xwoba_blended": 0.310,
+    "home_iso_blended": 0.145, "away_iso_blended": 0.145,
+    "home_bb_pct_blended": 0.083, "away_bb_pct_blended": 0.083,
+    "home_k_pct_blended": 0.225, "away_k_pct_blended": 0.225,
+    "home_runs_rate_blended": 4.5, "away_runs_rate_blended": 4.5,
+    "home_hits_rate_blended": 8.3, "away_hits_rate_blended": 8.3,
+    # Starters
+    "home_starter_xwoba_blended": 0.310, "away_starter_xwoba_blended": 0.310,
+    "home_starter_csw_blended": 0.295, "away_starter_csw_blended": 0.295,
+    # Lineups
+    "home_lineup_top5_xwoba": 0.320, "away_lineup_top5_xwoba": 0.320,
+    "home_lineup_k_pct": 0.225, "away_lineup_k_pct": 0.225,
+    # Venue
+    "venue_run_factor": 1.0, "venue_hr_factor": 1.0,
+    # Weather
+    "temperature_f": 72.0, "humidity_pct": 55.0,
+    "wind_speed_mph": 8.0, "wind_direction_deg": 180.0,
+    # Hits lane – player Statcast
+    "xba_14": 0.245, "xwoba_14": 0.310, "hard_hit_pct_14": 0.380,
+    "season_prior_xba": 0.245, "season_prior_xwoba": 0.310,
+    "opposing_starter_xwoba": 0.310, "opposing_starter_csw": 0.295,
+    # Strikeouts lane – pitcher Statcast
+    "recent_whiff_pct_5": 0.245, "recent_csw_pct_5": 0.295,
+    "recent_xwoba_5": 0.310,
+}
+
+
 def encode_frame(frame: pd.DataFrame, category_columns: list[str], training_columns: list[str] | None = None) -> pd.DataFrame:
     encoded = pd.get_dummies(frame, columns=category_columns, dummy_na=False)
     for column in encoded.columns:
@@ -93,7 +122,9 @@ def encode_frame(frame: pd.DataFrame, category_columns: list[str], training_colu
             encoded[column] = series.astype("int8")
         elif not pd.api.types.is_numeric_dtype(series):
             encoded[column] = pd.to_numeric(series, errors="coerce")
-    encoded = encoded.fillna(0)
+    encoded = encoded.fillna(
+        {col: val for col, val in _LEAGUE_AVERAGE_DEFAULTS.items() if col in encoded.columns}
+    ).fillna(0)
     if training_columns is not None:
         encoded = encoded.reindex(columns=training_columns, fill_value=0)
     return encoded

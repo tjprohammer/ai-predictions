@@ -2520,6 +2520,23 @@
         return Number.isFinite(number) ? number : fallback;
       }
 
+      function windCardinal(deg) {
+        if (deg == null) return "";
+        const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+        return dirs[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+      }
+
+      function windLabel(weather, roofType) {
+        const speed = numberOr(weather.wind_speed_mph);
+        const deg = numberOr(weather.wind_direction_deg);
+        if (speed == null) return "-";
+        const isDome = roofType && /dome|retractable|closed/i.test(roofType);
+        if (isDome) return `${formatNumber(speed, 0)} mph (dome)`;
+        const cardinal = windCardinal(deg);
+        return cardinal ? `${formatNumber(speed, 0)} mph ${cardinal}` : `${formatNumber(speed, 0)} mph`;
+      }
+      }
+
       function formatBattingAverage(value) {
         const number = numberOr(value);
         if (number == null) return "-";
@@ -4122,6 +4139,7 @@
       function renderWeatherCard(detail) {
         const weather = detail.weather || {};
         const totals = detail.totals || {};
+        const roofType = detail.venue?.roof_type || "";
         return `
         <article class="context-card">
           <div class="section-tag">Park And Weather</div>
@@ -4130,8 +4148,12 @@
             <span class="data-value">${detail.venue?.name || "TBD"}</span>
           </div>
           <div class="data-row">
-            <span class="data-label">Temp / Wind</span>
-            <span class="data-value">${formatNumber(weather.temperature_f, 0)} F / ${formatNumber(weather.wind_speed_mph, 0)} mph</span>
+            <span class="data-label">Temp</span>
+            <span class="data-value">${formatNumber(weather.temperature_f, 0)}°F</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Wind</span>
+            <span class="data-value">${windLabel(weather, roofType)}</span>
           </div>
           <div class="data-row">
             <span class="data-label">Humidity</span>
