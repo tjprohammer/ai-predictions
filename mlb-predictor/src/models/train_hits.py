@@ -184,9 +184,22 @@ def main() -> int:
         metrics[best_name]["calibrated"]["log_loss"],
     )
 
+    # --- Honest lane status ---
+    model_brier = metrics[best_name]["calibrated"]["brier"]
+    base_rate_brier = baselines["base_rate"]["brier"]
+    if model_brier >= base_rate_brier:
+        log.warning(
+            "LANE STATUS: hits model (Brier=%.4f) does NOT beat base_rate (Brier=%.4f). "
+            "The 1+ hit classification is not discriminating above the base rate. "
+            "This lane needs a feature/framing rethink, not more tuning.",
+            model_brier, base_rate_brier,
+        )
+    lane_status = "below_baseline" if model_brier >= base_rate_brier else "above_baseline"
+
     artifact_name = f"hits_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     artifact = {
         "lane": "hits",
+        "lane_status": lane_status,
         "model_name": best_name,
         "model_version": artifact_name,
         "trained_at": datetime.now(timezone.utc),

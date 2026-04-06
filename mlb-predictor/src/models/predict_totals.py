@@ -8,6 +8,7 @@ import pandas as pd
 
 from src.features.contracts import TOTALS_META_COLUMNS, TOTALS_TARGET_COLUMN
 from src.models.common import calibrate_with_market, encode_frame, load_feature_snapshots, load_latest_artifact
+from src.models.train_totals import compute_baseline
 from src.utils.db import run_sql, upsert_rows
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
@@ -70,14 +71,34 @@ def main() -> int:
     try:
         feature_columns = artifact["feature_columns"]
         X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
-        predictions = artifact["model"].predict(X)
+        raw_model_output = artifact["model"].predict(X)
+        if artifact.get("architecture") == "baseline_plus_residual":
+            baseline = compute_baseline(
+                scoring,
+                pd.Series(artifact["baseline_home_avgs"]),
+                pd.Series(artifact["baseline_away_avgs"]),
+                artifact["baseline_fallback"],
+            )
+            predictions = baseline + raw_model_output
+        else:
+            predictions = raw_model_output
     except Exception as exc:
         artifact = _reload_artifact_after_failure(exc)
         if artifact is None:
             return 0
         feature_columns = artifact["feature_columns"]
         X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
-        predictions = artifact["model"].predict(X)
+        raw_model_output = artifact["model"].predict(X)
+        if artifact.get("architecture") == "baseline_plus_residual":
+            baseline = compute_baseline(
+                scoring,
+                pd.Series(artifact["baseline_home_avgs"]),
+                pd.Series(artifact["baseline_away_avgs"]),
+                artifact["baseline_fallback"],
+            )
+            predictions = baseline + raw_model_output
+        else:
+            predictions = raw_model_output
     residual_std = max(float(artifact.get("residual_std", 1.0)), 1.0)
     market_calibrator = artifact.get("market_calibrator")
     calibrated_predictions, calibration_mask = calibrate_with_market(

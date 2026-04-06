@@ -3,8 +3,9 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
+import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.linear_model import ElasticNet, Lasso, Ridge
+from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -24,6 +25,54 @@ from src.utils.settings import get_settings
 log = get_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Baseline-first architecture
+# ---------------------------------------------------------------------------
+# The baseline captures team run-environment context: the historical average
+# total runs when this home team hosts and this away team visits.  The residual
+# model learns the game-specific adjustment from starters, lineups, bullpen.
+#
+# Why a lookup baseline instead of a formula?  We tested
+#   baseline = home_runs_rate_blended + away_runs_rate_blended (* park_factor)
+# and it gave MAE 4.05-4.09 — worse than train_mean (3.60) because rolling
+# run rates are too noisy at the game level.  The team-average lookup (MAE 3.56)
+# is smoother and already beats the formula.
+# ---------------------------------------------------------------------------
+
+# Features the residual model trains on (game-specific adjustments only)
+ADJUSTMENT_COLUMNS = [
+    # Starting pitching matchup
+    "home_starter_xwoba_blended", "away_starter_xwoba_blended",
+    "home_starter_csw_blended", "away_starter_csw_blended",
+    "home_starter_rest_days", "away_starter_rest_days",
+    # Today's lineups
+    "home_lineup_top5_xwoba", "away_lineup_top5_xwoba",
+    "home_lineup_k_pct", "away_lineup_k_pct",
+    # Bullpen state
+    "home_bullpen_era_last3", "away_bullpen_era_last3",
+    "home_bullpen_pitches_last3", "away_bullpen_pitches_last3",
+    "home_bullpen_b2b", "away_bullpen_b2b",
+    # Park effects
+    "venue_run_factor", "venue_hr_factor",
+]
+
+
+def compute_baseline(
+    frame: "pd.DataFrame",
+    home_avgs: "pd.Series",
+    away_avgs: "pd.Series",
+    fallback: float,
+) -> np.ndarray:
+    """Team run-environment baseline from training-set lookup tables.
+
+    Returns (home_team_avg + away_team_avg) / 2 per row, falling back
+    to *fallback* (global training mean) for unseen teams.
+    """
+    h = frame["home_team"].map(home_avgs).fillna(fallback).astype(float)
+    a = frame["away_team"].map(away_avgs).fillna(fallback).astype(float)
+    return ((h + a) / 2).values
+
+
 def main() -> int:
     settings = get_settings()
     frame = load_feature_snapshots("totals")
@@ -41,55 +90,77 @@ def main() -> int:
         log.info("Not enough totals rows for validation split")
         return 0
 
-    feature_columns = feature_columns_for_roles(
+    # --- Compute baselines ---
+    y_train = train_frame[TOTALS_TARGET_COLUMN].astype(float)
+    y_val = val_frame[TOTALS_TARGET_COLUMN].astype(float)
+    train_mean = float(y_train.mean())
+
+    # Team-average lookup baseline
+    home_avgs = train_frame.groupby("home_team")[TOTALS_TARGET_COLUMN].mean()
+    away_avgs = train_frame.groupby("away_team")[TOTALS_TARGET_COLUMN].mean()
+    baseline_train = compute_baseline(train_frame, home_avgs, away_avgs, train_mean)
+    baseline_val = compute_baseline(val_frame, home_avgs, away_avgs, train_mean)
+    residual_train = y_train.values - baseline_train
+    residual_val = y_val.values - baseline_val
+
+    log.info(
+        "Baseline — train MAE=%.3f val MAE=%.3f (baseline alone, before residual model)",
+        float(mean_absolute_error(y_train, baseline_train)),
+        float(mean_absolute_error(y_val, baseline_val)),
+    )
+
+    # --- Adjustment features for residual model ---
+    all_core = feature_columns_for_roles(
         "totals",
         [FIELD_ROLE_CORE_PREDICTOR],
         available_columns=list(trainable.columns),
     )
-    category_columns = []
-    X_train = encode_frame(train_frame[feature_columns], category_columns)
-    X_val = encode_frame(val_frame[feature_columns], category_columns, training_columns=list(X_train.columns))
-    y_train = train_frame[TOTALS_TARGET_COLUMN].astype(float)
-    y_val = val_frame[TOTALS_TARGET_COLUMN].astype(float)
+    adjustment_features = [c for c in ADJUSTMENT_COLUMNS if c in all_core]
+    log.info("Adjustment features (%d): %s", len(adjustment_features), adjustment_features)
 
+    category_columns: list[str] = []
+    X_train = encode_frame(train_frame[adjustment_features], category_columns)
+    X_val = encode_frame(val_frame[adjustment_features], category_columns, training_columns=list(X_train.columns))
+
+    # --- Train residual model candidates ---
     candidates = {
         "ridge": Ridge(alpha=1.0),
-        "lasso": make_pipeline(StandardScaler(), Lasso(alpha=0.1, max_iter=5000)),
         "elasticnet": make_pipeline(StandardScaler(), ElasticNet(alpha=0.1, l1_ratio=0.5, max_iter=5000)),
         "gbr": GradientBoostingRegressor(random_state=42, learning_rate=0.05, n_estimators=300, max_depth=3),
     }
     best_name = None
     best_model = None
     best_rmse = math.inf
-    best_predictions = None
+    best_final_predictions = None
     metrics = {}
 
-    # Time-decay sample weights: recent games count more
     train_weights = compute_sample_weights(train_frame["game_date"])
     log.info(
         "Sample weights — min=%.3f median=%.3f max=%.3f (half_life=180d)",
-        train_weights.min(), float(__import__("numpy").median(train_weights)), train_weights.max(),
+        train_weights.min(), float(np.median(train_weights)), train_weights.max(),
     )
 
     for name, model in candidates.items():
         if hasattr(model, "steps"):
             last_step_name = model.steps[-1][0]
-            model.fit(X_train, y_train, **{f"{last_step_name}__sample_weight": train_weights})
+            model.fit(X_train, residual_train, **{f"{last_step_name}__sample_weight": train_weights})
         else:
-            model.fit(X_train, y_train, sample_weight=train_weights)
-        predictions = model.predict(X_val)
-        mae = mean_absolute_error(y_val, predictions)
-        rmse = math.sqrt(mean_squared_error(y_val, predictions))
-        metrics[name] = {"mae": mae, "rmse": rmse}
+            model.fit(X_train, residual_train, sample_weight=train_weights)
+        residual_pred = model.predict(X_val)
+        final_predictions = baseline_val + residual_pred
+        mae = mean_absolute_error(y_val, final_predictions)
+        rmse = math.sqrt(mean_squared_error(y_val, final_predictions))
+        residual_mae = mean_absolute_error(residual_val, residual_pred)
+        metrics[name] = {"mae": mae, "rmse": rmse, "residual_mae": residual_mae}
+        log.info("  %s: MAE=%.3f RMSE=%.3f residual_MAE=%.3f", name, mae, rmse, residual_mae)
         if rmse < best_rmse:
             best_name = name
             best_model = model
             best_rmse = rmse
-            best_predictions = predictions
+            best_final_predictions = final_predictions
 
     # --- Baseline benchmarks ---
     baselines = {}
-    train_mean = float(y_train.mean())
     baselines["train_mean"] = {
         "mae": float(mean_absolute_error(y_val, [train_mean] * len(y_val))),
         "rmse": float(math.sqrt(mean_squared_error(y_val, [train_mean] * len(y_val)))),
@@ -99,17 +170,10 @@ def main() -> int:
         "mae": float(mean_absolute_error(y_val, [train_median] * len(y_val))),
         "rmse": float(math.sqrt(mean_squared_error(y_val, [train_median] * len(y_val)))),
     }
-    if "home_team" in train_frame.columns and "away_team" in train_frame.columns:
-        _home_avgs = train_frame.groupby("home_team")[TOTALS_TARGET_COLUMN].mean()
-        _away_avgs = train_frame.groupby("away_team")[TOTALS_TARGET_COLUMN].mean()
-        _matchup_pred = (
-            val_frame["home_team"].map(_home_avgs).fillna(train_mean)
-            + val_frame["away_team"].map(_away_avgs).fillna(train_mean)
-        ) / 2
-        baselines["team_average"] = {
-            "mae": float(mean_absolute_error(y_val, _matchup_pred)),
-            "rmse": float(math.sqrt(mean_squared_error(y_val, _matchup_pred))),
-        }
+    baselines["team_average"] = {
+        "mae": float(mean_absolute_error(y_val, baseline_val)),
+        "rmse": float(math.sqrt(mean_squared_error(y_val, baseline_val))),
+    }
     if "market_total" in val_frame.columns:
         market_mask = val_frame["market_total"].notna()
         if market_mask.sum() > 0:
@@ -120,13 +184,20 @@ def main() -> int:
                 "rows": int(market_mask.sum()),
             }
     log.info("Baselines: %s", baselines)
+    log.info(
+        "Best model '%s' MAE=%.3f vs best baseline MAE=%.3f (%s)",
+        best_name,
+        metrics[best_name]["mae"],
+        min(b["mae"] for b in baselines.values() if "mae" in b),
+        min(baselines, key=lambda k: baselines[k].get("mae", float("inf"))),
+    )
 
     artifact_name = f"totals_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-    residual_std = float((y_val - best_predictions).std()) if len(y_val) else 1.0
+    residual_std = float((y_val.values - best_final_predictions).std()) if len(y_val) else 1.0
 
     # --- Market calibration layer ---
     market_calibrator = fit_market_calibrator(
-        best_predictions,
+        best_final_predictions,
         val_frame["market_total"],
         y_val,
     )
@@ -136,15 +207,15 @@ def main() -> int:
 
         cal_mask = val_frame["market_total"].notna()
         cal_preds = market_calibrator["calibrator"].predict(
-            __import__("numpy").column_stack(
-                [best_predictions[cal_mask.values], val_frame.loc[cal_mask.index[cal_mask], "market_total"].astype(float).values]
+            np.column_stack(
+                [best_final_predictions[cal_mask.values], val_frame.loc[cal_mask.index[cal_mask], "market_total"].astype(float).values]
             )
         )
         calibration_metrics = {
             "calibrated_mae": float(_mae(y_val[cal_mask.values], cal_preds)),
             "calibrated_rmse": float(_mse(y_val[cal_mask.values], cal_preds) ** 0.5),
-            "raw_mae_same_rows": float(_mae(y_val[cal_mask.values], best_predictions[cal_mask.values])),
-            "raw_rmse_same_rows": float(_mse(y_val[cal_mask.values], best_predictions[cal_mask.values]) ** 0.5),
+            "raw_mae_same_rows": float(_mae(y_val[cal_mask.values], best_final_predictions[cal_mask.values])),
+            "raw_rmse_same_rows": float(_mse(y_val[cal_mask.values], best_final_predictions[cal_mask.values]) ** 0.5),
             "calibration_rows": market_calibrator["calibration_rows"],
             "model_weight": market_calibrator["model_weight"],
             "market_weight": market_calibrator["market_weight"],
@@ -153,12 +224,17 @@ def main() -> int:
 
     artifact = {
         "lane": "totals",
+        "architecture": "baseline_plus_residual",
         "model_name": best_name,
         "model_version": artifact_name,
         "trained_at": datetime.now(timezone.utc),
         "field_roles": feature_field_roles("totals"),
         "selected_feature_roles": [FIELD_ROLE_CORE_PREDICTOR],
-        "feature_columns": feature_columns,
+        "baseline_home_avgs": home_avgs.to_dict(),
+        "baseline_away_avgs": away_avgs.to_dict(),
+        "baseline_fallback": train_mean,
+        "adjustment_columns": adjustment_features,
+        "feature_columns": adjustment_features,
         "training_columns": list(X_train.columns),
         "category_columns": category_columns,
         "metrics": metrics,

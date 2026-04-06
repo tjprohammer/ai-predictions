@@ -117,6 +117,19 @@ def main() -> int:
             }
     log.info("Baselines: %s", baselines)
 
+    # --- Honest lane status ---
+    best_baseline_mae = min(b["mae"] for b in baselines.values() if "mae" in b)
+    best_baseline_name = min(baselines, key=lambda k: baselines[k].get("mae", float("inf")))
+    model_mae = metrics[best_name]["mae"]
+    if model_mae > best_baseline_mae:
+        log.warning(
+            "LANE STATUS: first5_totals model (MAE=%.3f) does NOT beat %s baseline (MAE=%.3f). "
+            "This lane is not extracting signal above simple baselines. "
+            "Treat as derivative/experimental until totals redesign is validated.",
+            model_mae, best_baseline_name, best_baseline_mae,
+        )
+    lane_status = "below_baseline" if model_mae > best_baseline_mae else "above_baseline"
+
     artifact_name = f"first5_totals_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     residual_std = float((y_val - best_predictions).std()) if len(y_val) else 1.0
 
@@ -149,6 +162,7 @@ def main() -> int:
 
     artifact = {
         "lane": "first5_totals",
+        "lane_status": lane_status,
         "model_name": best_name,
         "model_version": artifact_name,
         "trained_at": datetime.now(timezone.utc),

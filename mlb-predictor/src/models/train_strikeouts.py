@@ -97,6 +97,19 @@ def main() -> int:
     }
     log.info("Baselines: %s", baselines)
 
+    # --- Feature importance (GBR / HistGBR expose feature_importances_) ---
+    feature_importance = {}
+    importance_model = best_model
+    if hasattr(importance_model, "steps"):
+        importance_model = importance_model[-1]
+    if hasattr(importance_model, "feature_importances_"):
+        _fi = importance_model.feature_importances_
+        _cols = list(X_train.columns)
+        _ranked = sorted(zip(_cols, _fi), key=lambda t: t[1], reverse=True)
+        for col, imp in _ranked:
+            feature_importance[col] = round(float(imp), 4)
+        log.info("Feature importance (top 10): %s", dict(_ranked[:10]))
+
     artifact_name = f"strikeouts_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     residual_std = float((y_val - best_predictions).std()) if len(y_val) else 1.0
     artifact = {
@@ -111,6 +124,7 @@ def main() -> int:
         "category_columns": category_columns,
         "metrics": metrics,
         "baselines": baselines,
+        "feature_importance": feature_importance,
         "residual_std": residual_std if residual_std > 0 else 1.0,
         "model": best_model,
     }
