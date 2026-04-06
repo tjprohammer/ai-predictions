@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 import pandas as pd
 
 from src.features.contracts import FIRST5_TOTALS_META_COLUMNS, FIRST5_TOTALS_TARGET_COLUMN
-from src.models.common import encode_frame, load_feature_snapshots, load_latest_artifact
+from src.models.common import calibrate_with_market, encode_frame, load_feature_snapshots, load_latest_artifact
 from src.utils.db import run_sql, upsert_rows
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
@@ -79,14 +79,32 @@ def main() -> int:
         X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
         predictions = artifact["model"].predict(X)
     residual_std = max(float(artifact.get("residual_std", 1.0)), 1.0)
+    market_calibrator = artifact.get("market_calibrator")
+    calibrated_predictions, calibration_mask = calibrate_with_market(
+        predictions, scoring["market_total"], market_calibrator,
+    )
+    calibration_residual_std = (
+        max(float(market_calibrator["calibration_residual_std"]), 1.0)
+        if market_calibrator is not None
+        else residual_std
+    )
     prediction_ts = datetime.now(timezone.utc)
     rows = []
-    for row, predicted_total in zip(scoring.itertuples(index=False), predictions):
+    for idx, (row, raw_pred, cal_pred, was_calibrated) in enumerate(
+        zip(
+            scoring.itertuples(index=False),
+            predictions,
+            calibrated_predictions,
+            calibration_mask,
+        )
+    ):
+        predicted_total = float(cal_pred)
+        effective_std = calibration_residual_std if was_calibrated else residual_std
         over_probability = None
         under_probability = None
         edge = None
         if row.market_total is not None and not pd.isna(row.market_total):
-            over_probability = _sigmoid((float(predicted_total) - float(row.market_total)) / residual_std)
+            over_probability = _sigmoid((predicted_total - float(row.market_total)) / effective_std)
             under_probability = 1.0 - over_probability
             edge = abs(over_probability - 0.5)
         rows.append(
@@ -96,7 +114,7 @@ def main() -> int:
                 "prediction_ts": prediction_ts,
                 "model_name": artifact["model_name"],
                 "model_version": artifact["model_version"],
-                "predicted_total_runs": float(predicted_total),
+                "predicted_total_runs": predicted_total,
                 "over_probability": over_probability,
                 "under_probability": under_probability,
                 "market_total": row.market_total,

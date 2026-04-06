@@ -14,7 +14,7 @@ from src.features.contracts import (
     feature_columns_for_roles,
     feature_field_roles,
 )
-from src.models.common import chronological_split, encode_frame, load_feature_snapshots, save_artifact, save_report
+from src.models.common import chronological_split, encode_frame, fit_market_calibrator, load_feature_snapshots, save_artifact, save_report
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -74,6 +74,34 @@ def main() -> int:
 
     artifact_name = f"totals_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     residual_std = float((y_val - best_predictions).std()) if len(y_val) else 1.0
+
+    # --- Market calibration layer ---
+    market_calibrator = fit_market_calibrator(
+        best_predictions,
+        val_frame["market_total"],
+        y_val,
+    )
+    calibration_metrics = None
+    if market_calibrator is not None:
+        from sklearn.metrics import mean_absolute_error as _mae, mean_squared_error as _mse
+
+        cal_mask = val_frame["market_total"].notna()
+        cal_preds = market_calibrator["calibrator"].predict(
+            __import__("numpy").column_stack(
+                [best_predictions[cal_mask.values], val_frame.loc[cal_mask.index[cal_mask], "market_total"].astype(float).values]
+            )
+        )
+        calibration_metrics = {
+            "calibrated_mae": float(_mae(y_val[cal_mask.values], cal_preds)),
+            "calibrated_rmse": float(_mse(y_val[cal_mask.values], cal_preds) ** 0.5),
+            "raw_mae_same_rows": float(_mae(y_val[cal_mask.values], best_predictions[cal_mask.values])),
+            "raw_rmse_same_rows": float(_mse(y_val[cal_mask.values], best_predictions[cal_mask.values]) ** 0.5),
+            "calibration_rows": market_calibrator["calibration_rows"],
+            "model_weight": market_calibrator["model_weight"],
+            "market_weight": market_calibrator["market_weight"],
+            "intercept": market_calibrator["intercept"],
+        }
+
     artifact = {
         "lane": "totals",
         "model_name": best_name,
@@ -85,11 +113,16 @@ def main() -> int:
         "training_columns": list(X_train.columns),
         "category_columns": category_columns,
         "metrics": metrics,
+        "calibration_metrics": calibration_metrics,
         "residual_std": residual_std if residual_std > 0 else 1.0,
+        "market_calibrator": market_calibrator,
         "model": best_model,
     }
     artifact_path = save_artifact("totals", artifact_name, artifact)
-    report_path = save_report("totals", artifact_name, artifact | {"model": None})
+    report_payload = {k: v for k, v in artifact.items() if k not in ("model", "market_calibrator")}
+    if market_calibrator is not None:
+        report_payload["market_calibrator"] = {k: v for k, v in market_calibrator.items() if k != "calibrator"}
+    report_path = save_report("totals", artifact_name, report_payload)
     log.info("Saved totals artifact %s and report %s", artifact_path, report_path)
     return 0
 

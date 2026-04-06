@@ -156,3 +156,83 @@ def chronological_split(frame: pd.DataFrame, validation_fraction: float = 0.2) -
     sorted_frame = frame.sort_values([column for column in ["game_date", "feature_cutoff_ts", "prediction_ts"] if column in frame.columns]).reset_index(drop=True)
     split_index = max(1, int(len(sorted_frame) * (1 - validation_fraction)))
     return sorted_frame.iloc[:split_index].copy(), sorted_frame.iloc[split_index:].copy()
+
+
+# ---------------------------------------------------------------------------
+# Market calibration layer
+# ---------------------------------------------------------------------------
+
+import math
+
+import numpy as np
+from sklearn.linear_model import Ridge as _CalibrationRidge
+
+
+def fit_market_calibrator(
+    raw_predictions: np.ndarray,
+    market_values: pd.Series,
+    actuals: pd.Series,
+    *,
+    min_rows: int = 20,
+) -> dict[str, Any] | None:
+    """Fit a Ridge blend of raw model prediction and market_total → actual.
+
+    Returns a dict suitable for storing in the model artifact under key
+    ``"market_calibrator"``, or ``None`` if there are too few rows with
+    market data to fit reliably.
+    """
+    mask = market_values.notna()
+    n_usable = int(mask.sum())
+    if n_usable < min_rows:
+        return None
+
+    X_cal = np.column_stack(
+        [raw_predictions[mask.values], market_values[mask].astype(float).values]
+    )
+    y_cal = actuals[mask].astype(float).values
+
+    calibrator = _CalibrationRidge(alpha=1.0)
+    calibrator.fit(X_cal, y_cal)
+
+    calibrated = calibrator.predict(X_cal)
+    residual_std = float(np.std(y_cal - calibrated))
+
+    return {
+        "calibrator": calibrator,
+        "calibration_columns": ["raw_prediction", "market_total"],
+        "calibration_rows": n_usable,
+        "calibration_residual_std": residual_std if residual_std > 0 else 1.0,
+        "model_weight": float(calibrator.coef_[0]),
+        "market_weight": float(calibrator.coef_[1]),
+        "intercept": float(calibrator.intercept_),
+    }
+
+
+def calibrate_with_market(
+    raw_predictions: np.ndarray,
+    market_values: pd.Series,
+    calibrator_info: dict[str, Any] | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply trained market calibrator to raw predictions.
+
+    Returns ``(calibrated_predictions, used_calibration_mask)``.
+    Rows without ``market_total`` get the raw prediction unchanged.
+    If *calibrator_info* is ``None`` all rows are returned raw.
+    """
+    calibrated = raw_predictions.copy()
+    mask = np.zeros(len(raw_predictions), dtype=bool)
+
+    if calibrator_info is None:
+        return calibrated, mask
+
+    has_market = market_values.notna().values
+    if not has_market.any():
+        return calibrated, mask
+
+    X_cal = np.column_stack(
+        [raw_predictions[has_market], market_values[has_market].astype(float).values]
+    )
+    calibrated[has_market] = calibrator_info["calibrator"].predict(X_cal)
+    mask[has_market] = True
+
+    return calibrated, mask
