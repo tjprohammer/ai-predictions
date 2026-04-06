@@ -1254,7 +1254,8 @@
             if (!response.ok) {
               throw new Error(`Poll failed: ${response.status}`);
             }
-            const job = await response.json();
+            const payload = await response.json();
+            const job = payload.job || {};
             const status = (job.status || "").toLowerCase();
             const completed = job.completed_steps || 0;
             const total = job.total_steps || 1;
