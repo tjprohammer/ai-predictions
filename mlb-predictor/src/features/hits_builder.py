@@ -301,6 +301,7 @@ def main() -> int:
                     "wind_speed_mph": weather["wind_speed_mph"],
                     "team_run_environment": team_environment,
                     "streak_len_capped": hitter["streak_len_capped"],
+                    "streak_len": hitter["streak_len"],
                     "got_hit": None if actual_player_hits is None else actual_player_hits > 0,
                 }
             )

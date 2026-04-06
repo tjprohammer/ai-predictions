@@ -512,7 +512,7 @@ def _hitter_heat_score(player: dict[str, Any]) -> float:
         + (((_to_float(player.get("hit_rate_7")) or 0.0) - ((_to_float(player.get("hit_rate_30")) or 0.0))) * 1.5)
         + ((_to_float(player.get("xwoba_14")) or 0.0) * 1.1)
         + ((_to_float(player.get("hard_hit_pct_14")) or 0.0) * 0.5)
-        + ((int(player.get("streak_len_capped") or 0)) * 0.04)
+        + ((int(player.get("streak_len") or player.get("streak_len_capped") or 0)) * 0.04)
     )
 
 
@@ -524,7 +524,7 @@ def _classify_hitter_form(player: dict[str, Any]) -> dict[str, Any]:
     batting_avg_last7 = _to_float(player.get("batting_avg_last7"))
     hit_games_last7 = int(player.get("hit_games_last7") or 0)
     games_last7 = int(player.get("games_last7") or 0)
-    streak = int(player.get("streak_len_capped") or 0)
+    streak = int(player.get("streak_len") or player.get("streak_len_capped") or 0)
     hit_delta = None if hit_rate_7 is None or hit_rate_30 is None else hit_rate_7 - hit_rate_30
 
     evidence = [
@@ -1640,6 +1640,7 @@ def _fetch_hit_predictions(
     confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
     projected_pa_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'projected_plate_appearances')}, '')")
     streak_len_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len_capped')}, '')")
+    streak_len_full_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len')}, '')")
     confirmed_order = _sql_order_nulls_last(confirmed_lineup_expr, "DESC")
     projected_pa_order = _sql_order_nulls_last(projected_pa_expr, "DESC")
     streak_order = _sql_order_nulls_last(streak_len_expr, "DESC")
@@ -1684,6 +1685,7 @@ def _fetch_hit_predictions(
             {confirmed_lineup_expr} AS is_confirmed_lineup,
             {projected_pa_expr} AS projected_plate_appearances,
             {streak_len_expr} AS streak_len_capped,
+            {streak_len_full_expr} AS streak_len,
             p.prediction_ts,
             p.predicted_hit_probability,
             p.fair_price,
@@ -1740,6 +1742,7 @@ def _fetch_game_board(
     hit_confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
     hit_projected_pa_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'projected_plate_appearances')}, '')")
     hit_streak_len_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len_capped')}, '')")
+    hit_streak_len_full_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len')}, '')")
     hit_rate_blended_expr = _sql_real(_sql_json_text("f.feature_payload", "hit_rate_blended"))
     xwoba_14_expr = _sql_real(_sql_json_text("f.feature_payload", "xwoba_14"))
     opp_starter_xwoba_expr = _sql_real(_sql_json_text("f.feature_payload", "opposing_starter_xwoba"))
@@ -1964,6 +1967,7 @@ def _fetch_game_board(
                 {hit_confirmed_lineup_expr} AS is_confirmed_lineup,
                 {hit_projected_pa_expr} AS projected_plate_appearances,
                 {hit_streak_len_expr} AS streak_len_capped,
+                {hit_streak_len_full_expr} AS streak_len,
                 p.predicted_hit_probability,
                 p.fair_price,
                 p.market_price,
@@ -2037,6 +2041,7 @@ def _fetch_game_board(
             is_confirmed_lineup,
             projected_plate_appearances,
             streak_len_capped,
+            streak_len,
             predicted_hit_probability,
             fair_price,
             market_price,
@@ -2258,6 +2263,7 @@ def _fetch_game_board(
                 "is_confirmed_lineup": hit["is_confirmed_lineup"],
                 "projected_plate_appearances": hit["projected_plate_appearances"],
                 "streak_len_capped": hit["streak_len_capped"],
+                "streak_len": hit.get("streak_len") or hit["streak_len_capped"],
                 "predicted_hit_probability": hit["predicted_hit_probability"],
                 "fair_price": hit["fair_price"],
                 "market_price": hit["market_price"],
@@ -3661,6 +3667,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
         projected_pa_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'projected_plate_appearances')}, '')")
         streak_len_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len_capped')}, '')")
+        streak_len_full_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len')}, '')")
         hit_rate_7_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_7')}, '')")
         hit_rate_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_14')}, '')")
         hit_rate_30_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_30')}, '')")
@@ -3782,6 +3789,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                 rl.snapshot_ts AS lineup_snapshot_ts,
                 {projected_pa_expr} AS projected_plate_appearances,
                 {streak_len_expr} AS streak_len_capped,
+                {streak_len_full_expr} AS streak_len,
                 {hit_rate_7_expr} AS hit_rate_7,
                 {hit_rate_14_expr} AS hit_rate_14,
                 {hit_rate_30_expr} AS hit_rate_30,
@@ -4106,6 +4114,7 @@ def _fetch_hot_hitters(
     confirmed_lineup_expr = _sql_boolean(f"NULLIF({_sql_json_text('f.feature_payload', 'is_confirmed_lineup')}, '')")
     projected_pa_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'projected_plate_appearances')}, '')")
     streak_len_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len_capped')}, '')")
+    streak_len_full_expr = _sql_integer(f"NULLIF({_sql_json_text('f.feature_payload', 'streak_len')}, '')")
     hit_rate_7_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_7')}, '')")
     hit_rate_14_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_14')}, '')")
     hit_rate_30_expr = _sql_real(f"NULLIF({_sql_json_text('f.feature_payload', 'hit_rate_30')}, '')")
@@ -4221,6 +4230,7 @@ def _fetch_hot_hitters(
                 {confirmed_lineup_expr} AS is_confirmed_lineup,
                 {projected_pa_expr} AS projected_plate_appearances,
                 {streak_len_expr} AS streak_len_capped,
+                {streak_len_full_expr} AS streak_len,
                 {hit_rate_7_expr} AS hit_rate_7,
                 {hit_rate_14_expr} AS hit_rate_14,
                 {hit_rate_30_expr} AS hit_rate_30,

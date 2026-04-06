@@ -231,18 +231,21 @@ def build_hitter_priors(player_batting: pd.DataFrame, prior_season: int) -> pd.D
     )
 
 
-def capped_hit_streak(history: pd.DataFrame) -> int:
+def hit_streak_length(history: pd.DataFrame) -> int:
+    """Return the current consecutive-game hit streak (uncapped)."""
     if history.empty:
         return 0
     streak = 0
     for had_hit in history.sort_values("game_date", ascending=False)["hits"].fillna(0).astype(int).tolist():
         if had_hit > 0:
             streak += 1
-            if streak >= 5:
-                return 5
         else:
             break
     return streak
+
+
+def capped_hit_streak(history: pd.DataFrame) -> int:
+    return min(hit_streak_length(history), 5)
 
 
 def _assign_lineup_slots(slot_estimates: list[float | None], max_players: int) -> list[int]:
@@ -374,6 +377,7 @@ def hitter_snapshot(
         "season_prior_xba": prior.get("prior_xba") if isinstance(prior, pd.Series) else None,
         "season_prior_xwoba": prior.get("prior_xwoba") if isinstance(prior, pd.Series) else None,
         "streak_len_capped": capped_hit_streak(history),
+        "streak_len": hit_streak_length(history),
     }
 
 
