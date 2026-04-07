@@ -274,6 +274,21 @@ def main() -> int:
                 "away_starter_csw_blended": away_starter["csw"],
                 "home_starter_rest_days": home_starter["days_rest"],
                 "away_starter_rest_days": away_starter["days_rest"],
+                "starter_xwoba_diff": (
+                    (home_starter["xwoba"] - away_starter["xwoba"])
+                    if home_starter["xwoba"] is not None and away_starter["xwoba"] is not None
+                    else None
+                ),
+                "starter_csw_diff": (
+                    (home_starter["csw"] - away_starter["csw"])
+                    if home_starter["csw"] is not None and away_starter["csw"] is not None
+                    else None
+                ),
+                "starter_quality_gap": (
+                    abs(home_starter["xwoba"] - away_starter["xwoba"])
+                    if home_starter["xwoba"] is not None and away_starter["xwoba"] is not None
+                    else None
+                ),
                 "home_lineup_top5_xwoba": home_lineup["top5_xwoba"],
                 "away_lineup_top5_xwoba": away_lineup["top5_xwoba"],
                 "home_lineup_k_pct": home_lineup["lineup_k_pct"],

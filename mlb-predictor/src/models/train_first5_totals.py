@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
+import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import ElasticNet, Lasso, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
@@ -22,6 +23,68 @@ from src.utils.settings import get_settings
 
 
 log = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Enhanced calibration: model + market + certainty signals
+# ---------------------------------------------------------------------------
+
+_CALIBRATION_EXTRA_COLUMNS = [
+    "starter_quality_gap",
+    "starter_certainty_score",
+    "board_state_numeric",
+]
+
+
+def _board_state_numeric(frame):
+    """Encode board_state as numeric: complete=2, partial=1, minimal=0."""
+    mapping = {"complete": 2, "partial": 1, "minimal": 0}
+    return frame["board_state"].map(mapping).fillna(0).astype(float)
+
+
+def _fit_enhanced_calibrator(
+    raw_predictions: np.ndarray,
+    val_frame,
+    y_val,
+    *,
+    min_rows: int = 20,
+):
+    """Fit a Ridge calibrator using model prediction + market + certainty signals."""
+    market_ok = val_frame["market_total"].notna()
+    gap_ok = val_frame["starter_quality_gap"].notna() if "starter_quality_gap" in val_frame.columns else market_ok
+    mask = market_ok & gap_ok
+
+    n_usable = int(mask.sum())
+    if n_usable < min_rows:
+        return None
+
+    board_numeric = _board_state_numeric(val_frame)
+    X_cal = np.column_stack([
+        raw_predictions[mask.values],
+        val_frame.loc[mask.index[mask], "market_total"].astype(float).values,
+        val_frame.loc[mask.index[mask], "starter_quality_gap"].fillna(0).astype(float).values if "starter_quality_gap" in val_frame.columns else np.zeros(n_usable),
+        val_frame.loc[mask.index[mask], "starter_certainty_score"].fillna(0).astype(float).values,
+        board_numeric[mask].values,
+    ])
+    y_cal = y_val[mask].astype(float).values
+
+    calibrator = Ridge(alpha=1.0)
+    calibrator.fit(X_cal, y_cal)
+
+    calibrated = calibrator.predict(X_cal)
+    residual_std = float(np.std(y_cal - calibrated))
+
+    col_names = ["raw_prediction", "market_total"] + _CALIBRATION_EXTRA_COLUMNS
+    return {
+        "calibrator": calibrator,
+        "calibration_columns": col_names,
+        "calibration_rows": n_usable,
+        "calibration_residual_std": residual_std if residual_std > 0 else 1.0,
+        "model_weight": float(calibrator.coef_[0]),
+        "market_weight": float(calibrator.coef_[1]),
+        "extra_weights": {name: float(w) for name, w in zip(col_names[2:], calibrator.coef_[2:])},
+        "intercept": float(calibrator.intercept_),
+    }
 
 
 def main() -> int:
@@ -133,19 +196,51 @@ def main() -> int:
     artifact_name = f"first5_totals_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     residual_std = float((y_val - best_predictions).std()) if len(y_val) else 1.0
 
-    # --- Market calibration layer ---
+    # --- Market calibration layer (basic) ---
     market_calibrator = fit_market_calibrator(
         best_predictions,
         val_frame["market_total"],
         y_val,
     )
+
+    # --- Enhanced calibration layer (model + market + certainty) ---
+    enhanced_calibrator = _fit_enhanced_calibrator(
+        best_predictions, val_frame, y_val,
+    )
+
     calibration_metrics = None
-    if market_calibrator is not None:
+    if enhanced_calibrator is not None:
+        from sklearn.metrics import mean_absolute_error as _mae, mean_squared_error as _mse
+
+        cal_mask = val_frame["market_total"].notna()
+        gap_ok = val_frame["starter_quality_gap"].notna() if "starter_quality_gap" in val_frame.columns else cal_mask
+        cal_mask = cal_mask & gap_ok
+        board_numeric = _board_state_numeric(val_frame)
+        X_cal = np.column_stack([
+            best_predictions[cal_mask.values],
+            val_frame.loc[cal_mask.index[cal_mask], "market_total"].astype(float).values,
+            val_frame.loc[cal_mask.index[cal_mask], "starter_quality_gap"].fillna(0).astype(float).values if "starter_quality_gap" in val_frame.columns else np.zeros(int(cal_mask.sum())),
+            val_frame.loc[cal_mask.index[cal_mask], "starter_certainty_score"].fillna(0).astype(float).values,
+            board_numeric[cal_mask].values,
+        ])
+        cal_preds = enhanced_calibrator["calibrator"].predict(X_cal)
+        calibration_metrics = {
+            "calibrated_mae": float(_mae(y_val[cal_mask.values], cal_preds)),
+            "calibrated_rmse": float(_mse(y_val[cal_mask.values], cal_preds) ** 0.5),
+            "raw_mae_same_rows": float(_mae(y_val[cal_mask.values], best_predictions[cal_mask.values])),
+            "raw_rmse_same_rows": float(_mse(y_val[cal_mask.values], best_predictions[cal_mask.values]) ** 0.5),
+            "calibration_rows": enhanced_calibrator["calibration_rows"],
+            "model_weight": enhanced_calibrator["model_weight"],
+            "market_weight": enhanced_calibrator["market_weight"],
+            "extra_weights": enhanced_calibrator["extra_weights"],
+            "intercept": enhanced_calibrator["intercept"],
+        }
+    elif market_calibrator is not None:
         from sklearn.metrics import mean_absolute_error as _mae, mean_squared_error as _mse
 
         cal_mask = val_frame["market_total"].notna()
         cal_preds = market_calibrator["calibrator"].predict(
-            __import__("numpy").column_stack(
+            np.column_stack(
                 [best_predictions[cal_mask.values], val_frame.loc[cal_mask.index[cal_mask], "market_total"].astype(float).values]
             )
         )
@@ -176,12 +271,15 @@ def main() -> int:
         "calibration_metrics": calibration_metrics,
         "residual_std": residual_std if residual_std > 0 else 1.0,
         "market_calibrator": market_calibrator,
+        "enhanced_calibrator": enhanced_calibrator,
         "model": best_model,
     }
     artifact_path = save_artifact("first5_totals", artifact_name, artifact)
-    report_payload = {k: v for k, v in artifact.items() if k not in ("model", "market_calibrator")}
+    report_payload = {k: v for k, v in artifact.items() if k not in ("model", "market_calibrator", "enhanced_calibrator")}
     if market_calibrator is not None:
         report_payload["market_calibrator"] = {k: v for k, v in market_calibrator.items() if k != "calibrator"}
+    if enhanced_calibrator is not None:
+        report_payload["enhanced_calibrator"] = {k: v for k, v in enhanced_calibrator.items() if k != "calibrator"}
     report_path = save_report("first5_totals", artifact_name, report_payload)
     log.info("Saved first-five totals artifact %s and report %s", artifact_path, report_path)
     return 0

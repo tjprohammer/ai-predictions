@@ -4,6 +4,7 @@ import argparse
 import math
 from datetime import date, datetime, timezone
 
+import numpy as np
 import pandas as pd
 
 from src.features.contracts import FIRST5_TOTALS_META_COLUMNS, FIRST5_TOTALS_TARGET_COLUMN
@@ -18,6 +19,103 @@ log = get_logger(__name__)
 
 def _sigmoid(value: float) -> float:
     return 1.0 / (1.0 + math.exp(-value))
+
+
+# ---------------------------------------------------------------------------
+# Enhanced calibration helpers
+# ---------------------------------------------------------------------------
+
+_BOARD_STATE_MAP = {"complete": 2, "partial": 1, "minimal": 0}
+
+
+def _apply_enhanced_calibrator(
+    raw_predictions: np.ndarray,
+    scoring_frame: pd.DataFrame,
+    enhanced_calibrator: dict | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply enhanced calibrator (model + market + certainty signals).
+
+    Returns ``(calibrated_predictions, used_mask)``.
+    """
+    calibrated = raw_predictions.copy()
+    mask = np.zeros(len(raw_predictions), dtype=bool)
+
+    if enhanced_calibrator is None:
+        return calibrated, mask
+
+    has_market = scoring_frame["market_total"].notna().values
+    has_gap = (
+        scoring_frame["starter_quality_gap"].notna().values
+        if "starter_quality_gap" in scoring_frame.columns
+        else has_market
+    )
+    usable = has_market & has_gap
+    if not usable.any():
+        return calibrated, mask
+
+    board_numeric = (
+        scoring_frame["board_state"]
+        .map(_BOARD_STATE_MAP)
+        .fillna(0)
+        .astype(float)
+        .values
+    )
+
+    X_cal = np.column_stack([
+        raw_predictions[usable],
+        scoring_frame.loc[scoring_frame.index[usable], "market_total"].astype(float).values,
+        (
+            scoring_frame.loc[scoring_frame.index[usable], "starter_quality_gap"].fillna(0).astype(float).values
+            if "starter_quality_gap" in scoring_frame.columns
+            else np.zeros(int(usable.sum()))
+        ),
+        scoring_frame.loc[scoring_frame.index[usable], "starter_certainty_score"].fillna(0).astype(float).values,
+        board_numeric[usable],
+    ])
+    calibrated[usable] = enhanced_calibrator["calibrator"].predict(X_cal)
+    mask[usable] = True
+    return calibrated, mask
+
+
+# ---------------------------------------------------------------------------
+# Publish / suppress logic
+# ---------------------------------------------------------------------------
+
+def _compute_confidence_level(row) -> tuple[str, str | None]:
+    """Determine confidence_level and suppress_reason for a prediction row.
+
+    Returns (confidence_level, suppress_reason).
+    confidence_level is one of: "high", "medium", "low", "suppress".
+    suppress_reason is None when not suppressed.
+    """
+    starter_cert = getattr(row, "starter_certainty_score", None)
+    starter_cert = float(starter_cert) if starter_cert is not None and not pd.isna(starter_cert) else 0.0
+    quality_gap = getattr(row, "starter_quality_gap", None)
+    quality_gap = float(quality_gap) if quality_gap is not None and not pd.isna(quality_gap) else 0.0
+    board_state = getattr(row, "board_state", "minimal")
+    if pd.isna(board_state):
+        board_state = "minimal"
+    market_total = getattr(row, "market_total", None)
+    has_market = market_total is not None and not pd.isna(market_total)
+
+    # Suppress: no starters known at all
+    if starter_cert == 0.0:
+        return "suppress", "no_starter_data"
+
+    # Suppress: no market line available
+    if not has_market:
+        return "suppress", "no_market_line"
+
+    # High: confirmed starters + meaningful mismatch + decent board
+    if starter_cert >= 0.75 and quality_gap >= 0.015 and board_state != "minimal":
+        return "high", None
+
+    # Medium: some starter info + some mismatch signal
+    if starter_cert >= 0.5 and quality_gap >= 0.008:
+        return "medium", None
+
+    # Low: everything else that isn't suppressed
+    return "low", None
 
 
 def _load_or_train_artifact() -> dict | None:
@@ -79,17 +177,28 @@ def main() -> int:
         X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
         predictions = artifact["model"].predict(X)
     residual_std = max(float(artifact.get("residual_std", 1.0)), 1.0)
+
+    # Prefer enhanced calibrator; fall back to basic market calibrator
+    enhanced_calibrator = artifact.get("enhanced_calibrator")
     market_calibrator = artifact.get("market_calibrator")
-    calibrated_predictions, calibration_mask = calibrate_with_market(
-        predictions, scoring["market_total"], market_calibrator,
-    )
-    calibration_residual_std = (
-        max(float(market_calibrator["calibration_residual_std"]), 1.0)
-        if market_calibrator is not None
-        else residual_std
-    )
+
+    if enhanced_calibrator is not None:
+        calibrated_predictions, calibration_mask = _apply_enhanced_calibrator(
+            predictions, scoring, enhanced_calibrator,
+        )
+        calibration_residual_std = max(float(enhanced_calibrator["calibration_residual_std"]), 1.0)
+    elif market_calibrator is not None:
+        calibrated_predictions, calibration_mask = calibrate_with_market(
+            predictions, scoring["market_total"], market_calibrator,
+        )
+        calibration_residual_std = max(float(market_calibrator["calibration_residual_std"]), 1.0)
+    else:
+        calibrated_predictions = predictions.copy()
+        calibration_mask = np.zeros(len(predictions), dtype=bool)
+        calibration_residual_std = residual_std
     prediction_ts = datetime.now(timezone.utc)
     rows = []
+    suppressed_count = 0
     for idx, (row, raw_pred, cal_pred, was_calibrated) in enumerate(
         zip(
             scoring.itertuples(index=False),
@@ -107,6 +216,11 @@ def main() -> int:
             over_probability = _sigmoid((predicted_total - float(row.market_total)) / effective_std)
             under_probability = 1.0 - over_probability
             edge = abs(over_probability - 0.5)
+
+        confidence_level, suppress_reason = _compute_confidence_level(row)
+        if confidence_level == "suppress":
+            suppressed_count += 1
+
         rows.append(
             {
                 "game_id": int(row.game_id),
@@ -121,8 +235,12 @@ def main() -> int:
                 "market_sportsbook": getattr(row, "market_sportsbook", None),
                 "market_snapshot_ts": getattr(row, "line_snapshot_ts", None),
                 "edge": edge,
+                "confidence_level": confidence_level,
+                "suppress_reason": suppress_reason,
             }
         )
+    if suppressed_count:
+        log.info("Suppressed %d of %d first5 predictions (insufficient certainty)", suppressed_count, len(rows))
 
     run_sql(
         """
