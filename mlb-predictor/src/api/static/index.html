@@ -405,7 +405,7 @@
         width: 28px;
         height: 5px;
         border-radius: 3px;
-        background: rgba(255,255,255,0.18);
+        background: rgba(255, 255, 255, 0.18);
         overflow: hidden;
       }
       .certainty-chip .cert-fill {
@@ -413,15 +413,36 @@
         border-radius: 3px;
         transition: width 0.3s ease;
       }
-      .certainty-chip.cert-high  { background: rgba(34,197,94,0.15); color: #22c55e; }
-      .certainty-chip.cert-mid   { background: rgba(234,179,8,0.15); color: #eab308; }
-      .certainty-chip.cert-low   { background: rgba(239,68,68,0.15); color: #ef4444; }
-      .certainty-chip.cert-high .cert-fill { background: #22c55e; }
-      .certainty-chip.cert-mid  .cert-fill { background: #eab308; }
-      .certainty-chip.cert-low  .cert-fill { background: #ef4444; }
-      .certainty-chip.cert-high .cert-bar  { background: rgba(34,197,94,0.18); }
-      .certainty-chip.cert-mid  .cert-bar  { background: rgba(234,179,8,0.18); }
-      .certainty-chip.cert-low  .cert-bar  { background: rgba(239,68,68,0.18); }
+      .certainty-chip.cert-high {
+        background: rgba(34, 197, 94, 0.15);
+        color: #22c55e;
+      }
+      .certainty-chip.cert-mid {
+        background: rgba(234, 179, 8, 0.15);
+        color: #eab308;
+      }
+      .certainty-chip.cert-low {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+      }
+      .certainty-chip.cert-high .cert-fill {
+        background: #22c55e;
+      }
+      .certainty-chip.cert-mid .cert-fill {
+        background: #eab308;
+      }
+      .certainty-chip.cert-low .cert-fill {
+        background: #ef4444;
+      }
+      .certainty-chip.cert-high .cert-bar {
+        background: rgba(34, 197, 94, 0.18);
+      }
+      .certainty-chip.cert-mid .cert-bar {
+        background: rgba(234, 179, 8, 0.18);
+      }
+      .certainty-chip.cert-low .cert-bar {
+        background: rgba(239, 68, 68, 0.18);
+      }
 
       .lock-chip {
         display: inline-flex;
@@ -1642,7 +1663,10 @@
             aria-valuenow="0"
             aria-valuetext="0% complete"
           >
-            <span class="activity-progress-fill" id="activityProgressFill"></span>
+            <span
+              class="activity-progress-fill"
+              id="activityProgressFill"
+            ></span>
           </div>
           <div class="activity-progress-step" id="activityProgressStep">
             Waiting for the next task.
@@ -1925,7 +1949,8 @@
           </div>
         </div>
         <div class="summary-copy" id="dashboardViewCopy">
-          Use Live Board for pregame decisions and Review Workspace for scorecards, misses, CLV, and final outcomes.
+          Use Live Board for pregame decisions and Review Workspace for
+          scorecards, misses, CLV, and final outcomes.
         </div>
       </section>
 
@@ -1975,7 +2000,8 @@
             </div>
             <span
               >Starter K pills show model projection first, then any live market
-              line or a fallback warning when handedness context is missing.</span
+              line or a fallback warning when handedness context is
+              missing.</span
             >
           </div>
         </section>
@@ -2023,8 +2049,8 @@
           <div class="summary-grid review-grid" id="scorecardGrid">
             <div class="summary-card">
               <div class="summary-copy">
-                Run the product surfaces build to populate scorecards for totals,
-                hits, and strikeouts.
+                Run the product surfaces build to populate scorecards for
+                totals, hits, and strikeouts.
               </div>
             </div>
           </div>
@@ -2045,8 +2071,8 @@
           <div class="summary-grid review-grid" id="pickReviewGrid">
             <div class="summary-card">
               <div class="summary-copy">
-                Load a completed slate to review the biggest totals misses and the
-                strongest winning calls.
+                Load a completed slate to review the biggest totals misses and
+                the strongest winning calls.
               </div>
             </div>
           </div>
@@ -2067,8 +2093,8 @@
           <div class="summary-grid review-grid" id="clvReviewGrid">
             <div class="summary-card">
               <div class="summary-copy">
-                Run grading plus product surfaces to compare recommendation lines
-                against the selected close.
+                Run grading plus product surfaces to compare recommendation
+                lines against the selected close.
               </div>
             </div>
           </div>
@@ -2534,7 +2560,6 @@
         if (isDome) return `${formatNumber(speed, 0)} mph (dome)`;
         const cardinal = windCardinal(deg);
         return cardinal ? `${formatNumber(speed, 0)} mph ${cardinal}` : `${formatNumber(speed, 0)} mph`;
-      }
       }
 
       function formatBattingAverage(value) {
