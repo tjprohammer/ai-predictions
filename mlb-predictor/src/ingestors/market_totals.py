@@ -719,7 +719,6 @@ def _fetch_odds_api_rows(start_date, end_date, api_key: str) -> list[dict[str, o
     games = _load_games(start_date, end_date)
     if games.empty:
         return []
-    team_lookup = _build_team_lookup(games)
     response = requests.get(
         ODDS_API_URL,
         params={
@@ -736,24 +735,13 @@ def _fetch_odds_api_rows(start_date, end_date, api_key: str) -> list[dict[str, o
 
     rows: list[dict[str, object]] = []
     for event in payload:
-        commence_ts = pd.to_datetime(event.get("commence_time"), utc=True, errors="coerce")
-        if pd.isna(commence_ts):
+        matched_game = _match_event_to_game(event, games)
+        if matched_game is None:
             continue
-        event_date = commence_ts.date()
-        if event_date < start_date or event_date > end_date:
+        matched_date = matched_game.get("game_date")
+        if matched_date is None or matched_date < start_date or matched_date > end_date:
             continue
-        home_team = team_lookup.get(_normalize_name(event.get("home_team")))
-        away_team = team_lookup.get(_normalize_name(event.get("away_team")))
-        if not home_team or not away_team:
-            continue
-        matched = games[
-            (games["game_date"] == event_date)
-            & (games["home_team"] == home_team)
-            & (games["away_team"] == away_team)
-        ]
-        if matched.empty:
-            continue
-        game_id = int(matched.iloc[0]["game_id"])
+        game_id = int(matched_game["game_id"])
         for bookmaker in event.get("bookmakers", []):
             for market in bookmaker.get("markets", []):
                 if market.get("key") != "totals":
@@ -774,7 +762,7 @@ def _fetch_odds_api_rows(start_date, end_date, api_key: str) -> list[dict[str, o
                 rows.append(
                     {
                         "game_id": game_id,
-                        "game_date": event_date,
+                        "game_date": matched_date,
                         "sportsbook": bookmaker.get("key") or bookmaker.get("title") or "odds_api",
                         "market_type": "total",
                         "line_value": point,
@@ -1021,7 +1009,7 @@ def _fetch_odds_api_player_prop_rows(start_date, end_date, api_key: str) -> tupl
             "apiKey": api_key,
             "dateFormat": "iso",
             "commenceTimeFrom": _as_odds_api_timestamp(start_date),
-            "commenceTimeTo": _as_odds_api_timestamp(end_date + timedelta(days=1), end_of_day=False),
+            "commenceTimeTo": _as_odds_api_timestamp(end_date + timedelta(days=1), end_of_day=True),
         },
         timeout=30,
     )

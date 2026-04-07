@@ -132,17 +132,29 @@ def _build_lineup_templates(games: pd.DataFrame, existing: pd.DataFrame, snapsho
     if not existing.empty:
         existing["game_date"] = pd.to_datetime(existing["game_date"], errors="coerce").dt.date
     player_batting, players = _load_lineup_history(max(games["game_date"]) + timedelta(days=1))
-    covered_keys = set(zip(existing.get("game_date", pd.Series(dtype=object)), existing.get("team", pd.Series(dtype=object))))
+    covered_slots = {
+        (
+            game_date,
+            str(team),
+            int(lineup_slot),
+        )
+        for game_date, team, lineup_slot in zip(
+            existing.get("game_date", pd.Series(dtype=object)),
+            existing.get("team", pd.Series(dtype=object)),
+            existing.get("lineup_slot", pd.Series(dtype=object)),
+        )
+        if pd.notna(game_date) and pd.notna(team) and pd.notna(lineup_slot)
+    }
     rows: list[dict[str, object]] = []
     for game in games.itertuples(index=False):
         for team in (game.away_team, game.home_team):
-            key = (game.game_date, team)
-            if key in covered_keys:
-                continue
             inferred = infer_lineup_from_history(team, game.game_date, player_batting, players)
             if inferred.empty:
                 continue
             for row in inferred.itertuples(index=False):
+                slot_key = (game.game_date, team, int(row.lineup_slot))
+                if slot_key in covered_slots:
+                    continue
                 rows.append(
                     {
                         "game_id": int(game.game_id),
@@ -158,6 +170,7 @@ def _build_lineup_templates(games: pd.DataFrame, existing: pd.DataFrame, snapsho
                         "snapshot_ts": snapshot_ts,
                     }
                 )
+                covered_slots.add(slot_key)
     generated = pd.DataFrame(rows, columns=LINEUP_COLUMNS)
     if existing.empty:
         return generated

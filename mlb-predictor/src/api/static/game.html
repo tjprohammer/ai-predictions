@@ -499,6 +499,98 @@
       .first5-section {
         margin-bottom: 18px;
       }
+
+      .signals-section {
+        margin-bottom: 18px;
+      }
+      .signals-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 14px;
+      }
+      .signal-card {
+        display: grid;
+        gap: 6px;
+        padding: 16px 18px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.78);
+      }
+      .signal-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .signal-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.86rem;
+        flex-shrink: 0;
+      }
+      .signal-icon.over { background: rgba(22, 101, 52, 0.12); }
+      .signal-icon.under { background: rgba(37, 99, 235, 0.10); }
+      .signal-icon.neutral { background: rgba(20, 33, 25, 0.06); }
+      .signal-label {
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+      }
+      .signal-label.over { color: var(--good); }
+      .signal-label.under { color: #1d4ed8; }
+      .signal-label.neutral { color: var(--muted); }
+      .signal-copy {
+        color: var(--muted);
+        font-size: 0.86rem;
+        line-height: 1.5;
+      }
+      .signal-strength {
+        display: inline-flex;
+        gap: 3px;
+        margin-left: 8px;
+      }
+      .signal-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--line);
+      }
+      .signal-dot.filled.over { background: var(--good); }
+      .signal-dot.filled.under { background: #1d4ed8; }
+      .signal-dot.filled.neutral { background: var(--muted); }
+      .signals-headline {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .signals-lean {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        font-size: 0.76rem;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .signals-lean.over {
+        background: rgba(22, 101, 52, 0.12);
+        color: var(--good);
+      }
+      .signals-lean.under {
+        background: rgba(37, 99, 235, 0.10);
+        color: #1d4ed8;
+      }
+      .signals-lean.neutral {
+        background: rgba(20, 33, 25, 0.06);
+        color: var(--muted);
+      }
       .first5-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -689,7 +781,8 @@
         .meta-grid,
         .first5-grid,
         .pitcher-charts-grid,
-        .heat-grid {
+        .heat-grid,
+        .signals-grid {
           grid-template-columns: 1fr;
         }
       }
@@ -744,6 +837,18 @@
       </section>
 
       <section class="summary-grid" id="summaryGrid"></section>
+      <section class="signals-section panel" id="signalsSection" style="display:none;">
+        <div class="lineup-head">
+          <div>
+            <div class="section-tag">Pick Signals</div>
+            <div class="signals-headline">
+              <h2>Why the Model Leans This Way</h2>
+              <span class="signals-lean neutral" id="signalsLean"></span>
+            </div>
+          </div>
+        </div>
+        <div class="signals-grid" id="signalsGrid"></div>
+      </section>
       <section class="first5-section panel" id="first5Section" style="display:none;">
         <div class="lineup-head">
           <div>
@@ -1349,6 +1454,299 @@
         document.getElementById("hitterHeatGrid").innerHTML = cards.join("");
       }
 
+      function buildPickSignals(detail) {
+        const signals = [];
+        const totals = detail.totals || {};
+        const weather = detail.weather || {};
+        const venue = detail.venue || {};
+        const first5 = detail.first5_totals || {};
+        const awayOffense = detail.teams?.away?.recent_offense || {};
+        const homeOffense = detail.teams?.home?.recent_offense || {};
+        const awayStarter = detail.starters?.away || {};
+        const homeStarter = detail.starters?.home || {};
+        const awayLineup = detail.teams?.away?.lineup || [];
+        const homeLineup = detail.teams?.home?.lineup || [];
+
+        const predicted = numberOr(totals.predicted_total_runs);
+        const market = numberOr(totals.market_total);
+        const edge = numberOr(totals.edge);
+
+        // --- TOTALS LEAN ---
+        if (predicted != null && market != null && edge != null) {
+          const side = edge > 0 ? "over" : edge < 0 ? "under" : "neutral";
+          const strength = Math.abs(edge) >= 0.8 ? 3 : Math.abs(edge) >= 0.4 ? 2 : 1;
+          signals.push({
+            direction: side,
+            strength,
+            category: "Totals Edge",
+            icon: side === "over" ? "\u2B06" : side === "under" ? "\u2B07" : "\u2194",
+            copy: `Model projects ${formatNumber(predicted, 2)} total runs vs market line of ${formatNumber(market, 1)}. Edge of ${formatNumber(Math.abs(edge), 2)} leans ${side.toUpperCase()}.`,
+          });
+        }
+
+        // --- TEAM OFFENSE (both sides) ---
+        for (const [side, offense, team] of [["away", awayOffense, detail.away_team], ["home", homeOffense, detail.home_team]]) {
+          const rpg = numberOr(offense.runs_per_game);
+          const xwoba = numberOr(offense.xwoba);
+          if (rpg != null) {
+            if (rpg >= 5.5) {
+              signals.push({
+                direction: "over",
+                strength: rpg >= 7 ? 3 : 2,
+                category: `${team} Offense`,
+                icon: "\u{1F525}",
+                copy: `${team} is scoring ${formatNumber(rpg, 1)} runs/game over their last 7${xwoba != null ? ` with a ${formatNumber(xwoba, 3)} team xwOBA` : ""}. Offense is rolling.`,
+              });
+            } else if (rpg <= 2.5) {
+              signals.push({
+                direction: "under",
+                strength: rpg <= 1.5 ? 3 : 2,
+                category: `${team} Offense`,
+                icon: "\u{1F9CA}",
+                copy: `${team} is scoring only ${formatNumber(rpg, 1)} runs/game over their last 7${xwoba != null ? ` with a low ${formatNumber(xwoba, 3)} xwOBA` : ""}. Bats have gone quiet.`,
+              });
+            }
+          }
+        }
+
+        // --- STARTER QUALITY ---
+        for (const [starter, opponent, facing] of [[awayStarter, detail.home_team, homeOffense], [homeStarter, detail.away_team, awayOffense]]) {
+          const name = starter.pitcher_name;
+          if (!name) continue;
+          const recentForm = starter.recent_form || {};
+          const avgIp = numberOr(recentForm.avg_ip);
+          const avgK = numberOr(recentForm.avg_strikeouts);
+          const xwoba = numberOr(starter.xwoba_against);
+          const csw = numberOr(starter.csw_pct);
+
+          // Dominant starter = under signal
+          if (xwoba != null && xwoba <= 0.280) {
+            signals.push({
+              direction: "under",
+              strength: xwoba <= 0.250 ? 3 : 2,
+              category: `${name} Dominance`,
+              icon: "\u{1F3AF}",
+              copy: `${name} has a ${formatNumber(xwoba, 3)} xwOBA against — elite production suppression.${avgIp != null ? ` Averaging ${formatNumber(avgIp, 1)} IP` : ""}${avgK != null ? ` and ${formatNumber(avgK, 1)} K per start` : ""}.`,
+            });
+          }
+          // Hittable starter = over signal
+          if (xwoba != null && xwoba >= 0.340) {
+            signals.push({
+              direction: "over",
+              strength: xwoba >= 0.380 ? 3 : 2,
+              category: `${name} Vulnerability`,
+              icon: "\u26A0",
+              copy: `${name} has a ${formatNumber(xwoba, 3)} xwOBA against — hitters are making hard contact.${csw != null && csw < 0.28 ? ` CSW just ${formatPercent(csw)} suggests lack of swing-and-miss.` : ""}`,
+            });
+          }
+
+          // High-K pitcher vs high-K lineup
+          if (avgK != null && avgK >= 7) {
+            const oppKpct = numberOr(facing?.k_pct);
+            if (oppKpct != null && oppKpct >= 0.24) {
+              signals.push({
+                direction: "neutral",
+                strength: 2,
+                category: `${name} K Upside`,
+                icon: "\u{1F4A8}",
+                copy: `${name} averages ${formatNumber(avgK, 1)} K/start and faces ${opponent} who strike out at a ${formatPercent(oppKpct, 0)} rate. High K environment.`,
+              });
+            }
+          }
+        }
+
+        // --- BULLPEN FATIGUE ---
+        for (const [side, team] of [["away", detail.away_team], ["home", detail.home_team]]) {
+          const era = numberOr(totals[`${side}_bullpen_era_last3`]);
+          const b2b = totals[`${side}_bullpen_b2b`];
+          const pitches = numberOr(totals[`${side}_bullpen_pitches_last3`]);
+          if (era != null && era >= 5.0) {
+            signals.push({
+              direction: "over",
+              strength: era >= 7 ? 3 : 2,
+              category: `${team} Bullpen`,
+              icon: "\u{1F6A8}",
+              copy: `${team} bullpen has a ${formatNumber(era, 2)} ERA over last 3 days${b2b ? " and working back-to-back" : ""}${pitches != null ? ` on ${formatNumber(pitches, 0)} pitches` : ""}. Relief corps under stress.`,
+            });
+          } else if (b2b && pitches != null && pitches >= 60) {
+            signals.push({
+              direction: "over",
+              strength: 1,
+              category: `${team} Bullpen Load`,
+              icon: "\u{1F4AA}",
+              copy: `${team} bullpen is back-to-back with ${formatNumber(pitches, 0)} pitches in the last 3 days. Fatigue could expand scoring late.`,
+            });
+          }
+        }
+
+        // --- WEATHER ---
+        const temp = numberOr(weather.temperature_f);
+        if (temp != null) {
+          if (temp >= 82) {
+            signals.push({
+              direction: "over",
+              strength: temp >= 90 ? 3 : 2,
+              category: "Hot Weather",
+              icon: "\u2600",
+              copy: `Game-time temperature is ${formatNumber(temp, 0)}°F. Heat boosts ball carry and run scoring historically.`,
+            });
+          } else if (temp <= 55) {
+            signals.push({
+              direction: "under",
+              strength: temp <= 45 ? 3 : 2,
+              category: "Cold Weather",
+              icon: "\u{1F976}",
+              copy: `Game-time temperature is ${formatNumber(temp, 0)}°F. Cold suppresses ball carry and typically lowers scoring.`,
+            });
+          }
+        }
+        const windSpeed = numberOr(weather.wind_speed_mph);
+        if (windSpeed != null && windSpeed >= 14) {
+          signals.push({
+            direction: "neutral",
+            strength: windSpeed >= 20 ? 2 : 1,
+            category: "Wind Factor",
+            icon: "\u{1F32C}",
+            copy: `Wind at ${formatNumber(windSpeed, 0)} mph ${windDirectionLabel(weather.wind_direction_deg)}. Strong wind can affect fly ball outcomes in either direction.`,
+          });
+        }
+
+        // --- PARK FACTOR ---
+        const parkFactor = numberOr(totals.venue_run_factor);
+        if (parkFactor != null) {
+          if (parkFactor >= 1.08) {
+            signals.push({
+              direction: "over",
+              strength: parkFactor >= 1.15 ? 3 : 2,
+              category: "Hitter-Friendly Park",
+              icon: "\u{1F3DF}",
+              copy: `${escapeHtml(venue.name || "This venue")} has a ${formatNumber(parkFactor, 2)} run factor — runs come easier here than a neutral park.`,
+            });
+          } else if (parkFactor <= 0.92) {
+            signals.push({
+              direction: "under",
+              strength: parkFactor <= 0.85 ? 3 : 2,
+              category: "Pitcher-Friendly Park",
+              icon: "\u{1F3DF}",
+              copy: `${escapeHtml(venue.name || "This venue")} has a ${formatNumber(parkFactor, 2)} run factor — scoring is suppressed here.`,
+            });
+          }
+        }
+
+        // --- HOT/COLD LINEUPS ---
+        for (const [side, lineup, team] of [["away", awayLineup, detail.away_team], ["home", homeLineup, detail.home_team]]) {
+          const hotCount = lineup.filter(p => playerFormTone(p) === "hot").length;
+          const coldCount = lineup.filter(p => playerFormTone(p) === "cold").length;
+          if (hotCount >= 3) {
+            signals.push({
+              direction: "over",
+              strength: hotCount >= 5 ? 3 : 2,
+              category: `${team} Hitters Hot`,
+              icon: "\u{1F525}",
+              copy: `${hotCount} hitters in ${team}'s lineup are running hot (elevated hit rates, xwOBA, or streaks). Lineup depth is clicking.`,
+            });
+          }
+          if (coldCount >= 3) {
+            signals.push({
+              direction: "under",
+              strength: coldCount >= 5 ? 3 : 2,
+              category: `${team} Hitters Cold`,
+              icon: "\u{1F9CA}",
+              copy: `${coldCount} hitters in ${team}'s lineup are cold (low hit rates or xwOBA). Lineup has significant dead spots.`,
+            });
+          }
+        }
+
+        // --- FIRST 5 ---
+        if (first5.supported) {
+          const f5predicted = numberOr(first5.predicted_total_runs);
+          const f5market = numberOr(first5.market_total);
+          const f5edge = numberOr(first5.edge);
+          const awayExp = numberOr(first5.away_expected_runs);
+          const homeExp = numberOr(first5.home_expected_runs);
+          if (f5predicted != null && f5market != null && f5edge != null && Math.abs(f5edge) >= 0.3) {
+            const f5side = f5edge > 0 ? "over" : "under";
+            signals.push({
+              direction: f5side,
+              strength: Math.abs(f5edge) >= 0.7 ? 3 : 2,
+              category: "First 5 Edge",
+              icon: "\u{1F551}",
+              copy: `First 5 model projects ${formatNumber(f5predicted, 2)} vs market ${formatNumber(f5market, 1)}. Starter matchup drives a ${f5side} lean before bullpens enter.`,
+            });
+          } else if (awayExp != null && homeExp != null) {
+            const total5 = awayExp + homeExp;
+            if (total5 >= 5.5) {
+              signals.push({
+                direction: "over",
+                strength: 1,
+                category: "First 5 Scoring",
+                icon: "\u{1F551}",
+                copy: `Expected ${formatNumber(total5, 1)} runs in the first 5 innings (${detail.away_team} ${formatNumber(awayExp, 1)} / ${detail.home_team} ${formatNumber(homeExp, 1)}). Starter matchup favors early scoring.`,
+              });
+            }
+          }
+        }
+
+        // --- LINE MOVEMENT ---
+        const lineMove = numberOr(totals.line_movement);
+        if (lineMove != null && Math.abs(lineMove) >= 0.5) {
+          const moveDir = lineMove > 0 ? "over" : "under";
+          signals.push({
+            direction: moveDir,
+            strength: Math.abs(lineMove) >= 1.0 ? 2 : 1,
+            category: "Line Movement",
+            icon: "\u{1F4C8}",
+            copy: `Market line has moved ${formatNumber(Math.abs(lineMove), 1)} toward the ${moveDir}. Sharp money or late information may be driving this shift.`,
+          });
+        }
+
+        // Sort: highest strength first, then over before under
+        signals.sort((a, b) => {
+          if (b.strength !== a.strength) return b.strength - a.strength;
+          const dirOrder = { over: 0, under: 1, neutral: 2 };
+          return (dirOrder[a.direction] ?? 2) - (dirOrder[b.direction] ?? 2);
+        });
+
+        return signals;
+      }
+
+      function renderPickSignals(detail) {
+        const section = document.getElementById("signalsSection");
+        const signals = buildPickSignals(detail);
+        if (!signals.length) {
+          section.style.display = "none";
+          return;
+        }
+        section.style.display = "";
+
+        const overCount = signals.filter(s => s.direction === "over").length;
+        const underCount = signals.filter(s => s.direction === "under").length;
+        const overWeight = signals.filter(s => s.direction === "over").reduce((sum, s) => sum + s.strength, 0);
+        const underWeight = signals.filter(s => s.direction === "under").reduce((sum, s) => sum + s.strength, 0);
+        const leanEl = document.getElementById("signalsLean");
+        if (overWeight > underWeight) {
+          leanEl.className = "signals-lean over";
+          leanEl.textContent = `${overCount} over / ${underCount} under signals`;
+        } else if (underWeight > overWeight) {
+          leanEl.className = "signals-lean under";
+          leanEl.textContent = `${underCount} under / ${overCount} over signals`;
+        } else {
+          leanEl.className = "signals-lean neutral";
+          leanEl.textContent = `${signals.length} mixed signals`;
+        }
+
+        document.getElementById("signalsGrid").innerHTML = signals.map(s => `
+          <div class="signal-card">
+            <div class="signal-head">
+              <div class="signal-icon ${s.direction}">${s.icon}</div>
+              <span class="signal-label ${s.direction}">${escapeHtml(s.category)}</span>
+              <span class="signal-strength">${[1,2,3].map(i => `<span class="signal-dot ${i <= s.strength ? "filled " + s.direction : ""}"></span>`).join("")}</span>
+            </div>
+            <div class="signal-copy">${escapeHtml(s.copy)}</div>
+          </div>
+        `).join("");
+      }
+
       function renderSummary(detail) {
         pageState.detail = detail;
         const totals = detail.totals || {};
@@ -1391,6 +1789,7 @@
           ),
         ].join("");
         renderLineupPanels(detail);
+        renderPickSignals(detail);
         renderFirst5Section(detail);
         renderPitcherChartsSection(detail);
         renderHitterHeatSection(detail);

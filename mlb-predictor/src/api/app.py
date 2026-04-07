@@ -367,11 +367,23 @@ def _fetch_lineup_snapshot_keys(target_date: date) -> set[tuple[int, int]]:
         return set()
     frame = _safe_frame(
         """
+        WITH latest_snapshots AS (
+            SELECT
+                game_id,
+                team,
+                player_id,
+                DENSE_RANK() OVER (
+                    PARTITION BY game_id, team
+                    ORDER BY snapshot_ts DESC
+                ) AS snapshot_rank
+            FROM lineups
+            WHERE game_date = :target_date
+              AND game_id IS NOT NULL
+              AND player_id IS NOT NULL
+        )
         SELECT DISTINCT game_id, player_id
-        FROM lineups
-        WHERE game_date = :target_date
-          AND game_id IS NOT NULL
-          AND player_id IS NOT NULL
+        FROM latest_snapshots
+        WHERE snapshot_rank = 1
         """,
         {"target_date": target_date},
     )
@@ -418,14 +430,60 @@ def _summarize_team_lineup(records: list[dict[str, Any]]) -> dict[str, Any]:
     confirmed_records = [record for record in records if record.get("is_confirmed_lineup")]
     snapshot_records = [record for record in records if record.get("has_lineup_snapshot")]
 
+    def _merge_lineup_records(primary: list[dict[str, Any]], fallback: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        primary_slots = {
+            int(record["lineup_slot"])
+            for record in primary
+            if record.get("lineup_slot") is not None
+        }
+        if not primary_slots:
+            return sorted(
+                list(primary),
+                key=lambda record: (
+                    record.get("lineup_slot") is None,
+                    record.get("lineup_slot") if record.get("lineup_slot") is not None else 999,
+                    str(record.get("player_name") or ""),
+                ),
+            )
+        merged: list[dict[str, Any]] = []
+        used_slots: set[int] = set()
+        used_players: set[int] = set()
+        for record in primary + fallback:
+            player_id = record.get("player_id")
+            lineup_slot = record.get("lineup_slot")
+            if player_id is not None:
+                player_id = int(player_id)
+                if player_id in used_players:
+                    continue
+            if lineup_slot is not None:
+                lineup_slot = int(lineup_slot)
+                if lineup_slot in used_slots:
+                    continue
+                used_slots.add(lineup_slot)
+            elif record not in primary:
+                continue
+            if player_id is not None:
+                used_players.add(player_id)
+            merged.append(record)
+        return sorted(
+            merged,
+            key=lambda record: (
+                record.get("lineup_slot") is None,
+                record.get("lineup_slot") if record.get("lineup_slot") is not None else 999,
+                str(record.get("player_name") or ""),
+            ),
+        )
+
     if confirmed_records:
-        displayed_records = confirmed_records
+        fallback_records = [record for record in records if not record.get("is_confirmed_lineup")]
+        displayed_records = _merge_lineup_records(confirmed_records, fallback_records)
         scope = "confirmed"
     elif snapshot_records:
-        displayed_records = snapshot_records
+        fallback_records = [record for record in records if not record.get("has_lineup_snapshot")]
+        displayed_records = _merge_lineup_records(snapshot_records, fallback_records)
         scope = "snapshot"
     elif records:
-        displayed_records = list(records)
+        displayed_records = _merge_lineup_records(list(records), [])
         scope = "projected"
     else:
         displayed_records = []
@@ -3734,8 +3792,12 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                     l.source_name,
                     l.source_url,
                     l.snapshot_ts,
+                    DENSE_RANK() OVER (
+                        PARTITION BY l.game_id, l.team
+                        ORDER BY l.snapshot_ts DESC
+                    ) AS snapshot_rank,
                     ROW_NUMBER() OVER (
-                        PARTITION BY l.game_id, l.player_id
+                        PARTITION BY l.game_id, l.team, l.player_id
                         ORDER BY l.snapshot_ts DESC, l.lineup_slot ASC, l.player_id
                     ) AS row_rank
                 FROM lineups l
@@ -3745,7 +3807,8 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             selected_players AS (
                 SELECT DISTINCT game_id, player_id
                 FROM ranked_lineups
-                WHERE row_rank = 1
+                WHERE snapshot_rank = 1
+                  AND row_rank = 1
                 UNION
                 SELECT DISTINCT game_id, player_id
                 FROM ranked_features
@@ -3863,6 +3926,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             LEFT JOIN ranked_lineups rl
                 ON rl.game_id = sp.game_id
                AND rl.player_id = sp.player_id
+                    AND rl.snapshot_rank = 1
                AND rl.row_rank = 1
             LEFT JOIN dim_players dp ON dp.player_id = sp.player_id
             LEFT JOIN games g ON g.game_id = sp.game_id
@@ -4000,6 +4064,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             side = "home"
         if side is None:
             continue
+        recent_form = _fetch_starter_recent_form(starter["pitcher_id"], target_date)
         detail["starters"][side] = {
             "team": starter["team"],
             "pitcher_id": starter["pitcher_id"],
@@ -4011,11 +4076,11 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             "strikeouts": starter["strikeouts"],
             "walks": starter["walks"],
             "pitch_count": starter["pitch_count"],
-            "xwoba_against": starter["xwoba_against"],
-            "csw_pct": starter["csw_pct"],
-            "avg_fb_velo": starter["avg_fb_velo"],
-            "whiff_pct": starter["whiff_pct"],
-            "recent_form": _fetch_starter_recent_form(starter["pitcher_id"], target_date),
+            "xwoba_against": starter["xwoba_against"] if starter.get("xwoba_against") is not None else recent_form.get("xwoba_against"),
+            "csw_pct": starter["csw_pct"] if starter.get("csw_pct") is not None else recent_form.get("csw_pct"),
+            "avg_fb_velo": starter["avg_fb_velo"] if starter.get("avg_fb_velo") is not None else recent_form.get("avg_fb_velo"),
+            "whiff_pct": starter["whiff_pct"] if starter.get("whiff_pct") is not None else recent_form.get("whiff_pct"),
+            "recent_form": recent_form,
         }
 
     for player in lineup_records:

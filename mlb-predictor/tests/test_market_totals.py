@@ -10,6 +10,7 @@ from src.ingestors.market_totals import (
     _extract_odds_api_event_prop_rows,
     _extract_rotowire_strikeout_rows,
     _format_required_player_prop_gap_summary,
+    _match_event_to_game,
     _parse_covers_date,
     _required_player_prop_coverage_gaps,
 )
@@ -204,6 +205,32 @@ def test_extract_odds_api_event_prop_rows_skips_unresolved_players():
     rows = _extract_odds_api_event_prop_rows(event_payload, matched_game, {})
 
     assert rows == []
+
+
+def test_match_event_to_game_handles_utc_next_day_for_late_west_coast_games():
+    games = pd.DataFrame(
+        [
+            {
+                "game_id": 822916,
+                "game_date": date(2026, 4, 7),
+                "home_team": "TEX",
+                "away_team": "SEA",
+                "home_team_name": "Texas Rangers",
+                "away_team_name": "Seattle Mariners",
+            }
+        ]
+    )
+    event = {
+        "home_team": "Texas Rangers",
+        "away_team": "Seattle Mariners",
+        "commence_time": "2026-04-08T00:05:00Z",
+    }
+
+    matched = _match_event_to_game(event, games)
+
+    assert matched is not None
+    assert matched["game_id"] == 822916
+    assert matched["game_date"] == date(2026, 4, 7)
 
 
 def test_parse_covers_date_supports_full_month_names():

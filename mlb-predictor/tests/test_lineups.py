@@ -1,5 +1,6 @@
 import pandas as pd
 
+import src.ingestors.prepare_slate_inputs as prepare_slate_inputs_module
 import src.ingestors.lineups as lineups_module
 
 
@@ -225,3 +226,57 @@ def test_build_lineup_import_frame_prefers_statsapi_rows_over_manual_same_team(m
     assert frame[frame["team"] == "BOS"].iloc[0]["player_name"] == "Manual Red Sox"
     assert frame[frame["team"] == "NYY"].iloc[0]["source_name"] == "mlb_statsapi_lineups"
     assert len(captured["existing"]) == 2
+
+
+def test_build_lineup_input_frame_fills_missing_slots_from_history(monkeypatch):
+    games = pd.DataFrame(
+        [{"game_id": 1, "game_date": pd.Timestamp("2026-04-02").date(), "home_team": "NYY", "away_team": "BOS"}]
+    )
+    existing = pd.DataFrame(
+        [
+            {
+                "game_id": 1,
+                "game_date": "2026-04-02",
+                "team": "NYY",
+                "player_id": 7,
+                "player_name": "Existing Yankee",
+                "lineup_slot": 1,
+                "position": "CF",
+                "confirmed": True,
+                "source_name": "manual_edit",
+                "source_url": None,
+                "snapshot_ts": "2026-04-02T16:00:00+00:00",
+            }
+        ],
+        columns=prepare_slate_inputs_module.LINEUP_COLUMNS,
+    )
+    inferred = pd.DataFrame(
+        [
+            {"player_id": 101, "player_name": "Projected 1", "lineup_slot": 1},
+            {"player_id": 102, "player_name": "Projected 2", "lineup_slot": 2},
+            {"player_id": 103, "player_name": "Projected 3", "lineup_slot": 3},
+        ]
+    )
+
+    monkeypatch.setattr(
+        prepare_slate_inputs_module,
+        "_load_lineup_history",
+        lambda *_args, **_kwargs: (pd.DataFrame(), pd.DataFrame()),
+    )
+    monkeypatch.setattr(
+        prepare_slate_inputs_module,
+        "infer_lineup_from_history",
+        lambda team, *_args, **_kwargs: inferred.copy() if team == "NYY" else pd.DataFrame(),
+    )
+
+    frame = prepare_slate_inputs_module.build_lineup_input_frame(
+        games,
+        existing=existing,
+        snapshot_ts="2026-04-02T18:00:00+00:00",
+    )
+
+    nyy_rows = frame[frame["team"] == "NYY"].sort_values("lineup_slot")
+    assert list(nyy_rows["lineup_slot"]) == [1, 2, 3]
+    assert nyy_rows.iloc[0]["player_name"] == "Existing Yankee"
+    assert nyy_rows.iloc[1]["player_name"] == "Projected 2"
+    assert nyy_rows.iloc[2]["player_name"] == "Projected 3"
