@@ -225,6 +225,7 @@ def main() -> int:
     artifact = {
         "lane": "totals",
         "architecture": "baseline_plus_residual",
+        "lane_status": "research_only",
         "model_name": best_name,
         "model_version": artifact_name,
         "trained_at": datetime.now(timezone.utc),

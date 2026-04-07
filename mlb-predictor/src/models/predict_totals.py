@@ -4,6 +4,7 @@ import argparse
 import math
 from datetime import date, datetime, timezone
 
+import numpy as np
 import pandas as pd
 
 from src.features.contracts import TOTALS_META_COLUMNS, TOTALS_TARGET_COLUMN
@@ -15,6 +16,58 @@ from src.utils.settings import get_settings
 
 
 log = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Full-game totals lane status
+# ---------------------------------------------------------------------------
+# This lane is research-only: predictions are stored for auditing inputs and
+# diagnosing the feature pipeline, but directional O/U picks should not be
+# surfaced publicly until the lane proves signal.
+LANE_STATUS = "research_only"
+
+# ---------------------------------------------------------------------------
+# Slate collapse detector
+# ---------------------------------------------------------------------------
+# When the model's predictions for an entire slate lack differentiation,
+# every prediction on that slate is suppressed.  Thresholds are calibrated
+# to the structural failure observed on 2025-04-06 (all ~5.9 flat).
+
+_COLLAPSE_STD_THRESHOLD = 0.40        # std dev of predictions too low
+_COLLAPSE_ONE_SIDE_THRESHOLD = 0.75   # >75 % of picks on one side
+_COLLAPSE_RANGE_THRESHOLD = 1.5       # prediction max-min too narrow
+_COLLAPSE_AVG_GAP_THRESHOLD = 1.5     # |avg(pred) - avg(market)| too large
+
+
+def _detect_slate_collapse(
+    predicted_totals: list[float],
+    market_totals: list[float | None],
+) -> str | None:
+    """Return a collapse reason string if the slate looks degenerate, else None."""
+    preds = np.array(predicted_totals, dtype=float)
+    if len(preds) < 3:
+        return None  # too few games to judge
+
+    pred_std = float(np.std(preds))
+    pred_range = float(np.ptp(preds))
+
+    if pred_std < _COLLAPSE_STD_THRESHOLD:
+        return f"slate_std_too_low({pred_std:.2f})"
+    if pred_range < _COLLAPSE_RANGE_THRESHOLD:
+        return f"slate_range_too_narrow({pred_range:.2f})"
+
+    valid_markets = [m for m in market_totals if m is not None and not (isinstance(m, float) and math.isnan(m))]
+    if valid_markets:
+        sides = ["over" if p >= m else "under" for p, m in zip(preds, valid_markets) if m is not None]
+        if sides:
+            dominant = max(sides.count("over"), sides.count("under"))
+            fraction = dominant / len(sides)
+            if fraction > _COLLAPSE_ONE_SIDE_THRESHOLD:
+                return f"slate_one_sided({fraction:.0%})"
+            avg_gap = float(np.mean(preds[: len(valid_markets)]) - np.mean(valid_markets))
+            if abs(avg_gap) > _COLLAPSE_AVG_GAP_THRESHOLD:
+                return f"slate_avg_gap_extreme({avg_gap:+.2f})"
+
+    return None
 
 
 def _sigmoid(value: float) -> float:
@@ -109,6 +162,19 @@ def main() -> int:
         if market_calibrator is not None
         else residual_std
     )
+
+    # --- Slate collapse detection ---
+    market_list = [
+        float(v) if v is not None and not pd.isna(v) else None
+        for v in scoring["market_total"]
+    ]
+    collapse_reason = _detect_slate_collapse(
+        [float(p) for p in calibrated_predictions],
+        market_list,
+    )
+    if collapse_reason:
+        log.warning("Slate collapse detected for %s: %s", target_date, collapse_reason)
+
     prediction_ts = datetime.now(timezone.utc)
     rows = []
     for idx, (row, raw_pred, cal_pred, was_calibrated) in enumerate(
@@ -128,6 +194,12 @@ def main() -> int:
             over_probability = _sigmoid((predicted_total - float(row.market_total)) / effective_std)
             under_probability = 1.0 - over_probability
             edge = abs(over_probability - 0.5)
+
+        # Confidence / suppression: full-game totals is research-only.
+        # Within that, individual games may have additional suppress reasons.
+        suppress_reason = collapse_reason or "lane_research_only"
+        confidence_level = "suppress"
+
         rows.append(
             {
                 "game_id": int(row.game_id),
@@ -142,8 +214,17 @@ def main() -> int:
                 "market_sportsbook": getattr(row, "market_sportsbook", None),
                 "market_snapshot_ts": getattr(row, "line_snapshot_ts", None),
                 "edge": edge,
+                "confidence_level": confidence_level,
+                "suppress_reason": suppress_reason,
+                "lane_status": LANE_STATUS,
             }
         )
+    log.info(
+        "Full-game totals: %d predictions, lane_status=%s%s",
+        len(rows),
+        LANE_STATUS,
+        f", slate_collapse={collapse_reason}" if collapse_reason else "",
+    )
 
     run_sql(
         """

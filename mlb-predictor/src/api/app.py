@@ -1614,7 +1614,10 @@ def _fetch_totals_predictions(target_date: date) -> list[dict[str, Any]]:
             r.market_total,
             r.over_probability,
             r.under_probability,
-            r.edge
+            r.edge,
+            r.confidence_level,
+            r.suppress_reason,
+            r.lane_status
         FROM ranked r
         LEFT JOIN games g ON g.game_id = r.game_id
         WHERE r.row_rank = 1
@@ -1792,6 +1795,9 @@ def _fetch_game_board(
             p.over_probability,
             p.under_probability,
             p.edge,
+            p.confidence_level,
+            p.suppress_reason,
+            p.lane_status,
             CAST(f.feature_payload ->> 'away_runs_rate_blended' AS DOUBLE PRECISION) AS away_expected_runs,
             CAST(f.feature_payload ->> 'home_runs_rate_blended' AS DOUBLE PRECISION) AS home_expected_runs,
             CAST(f.feature_payload ->> 'away_bullpen_pitches_last3' AS DOUBLE PRECISION) AS away_bullpen_pitches_last3,
@@ -2132,6 +2138,9 @@ def _fetch_game_board(
                 "over_probability": record["over_probability"],
                 "under_probability": record["under_probability"],
                 "edge": record["edge"],
+                "confidence_level": record.get("confidence_level"),
+                "suppress_reason": record.get("suppress_reason"),
+                "lane_status": record.get("lane_status", "research_only"),
                 "away_expected_runs": record["away_expected_runs"],
                 "home_expected_runs": record["home_expected_runs"],
                 "away_bullpen_pitches_last3": record["away_bullpen_pitches_last3"],
@@ -3412,7 +3421,13 @@ def _fetch_totals_board(target_date: date) -> dict[str, Any]:
         actual = dict(game.get("actual_result") or {})
         actual_total = _to_float(actual.get("total_runs"))
         actual_side = _actual_side(actual_total, market_total) if actual.get("is_final") else None
-        recommended_side = _recommended_side(predicted_total, market_total)
+
+        # Full-game totals lane is research-only: suppress directional calls.
+        lane_status = totals.get("lane_status") or "research_only"
+        if lane_status == "research_only":
+            recommended_side = None
+        else:
+            recommended_side = _recommended_side(predicted_total, market_total)
         game_id = int(game.get("game_id") or 0)
         first5_totals = dict(first5_totals_map.get(game_id) or {"supported": False})
         if first5_totals.get("supported"):
@@ -3423,6 +3438,7 @@ def _fetch_totals_board(target_date: date) -> dict[str, Any]:
                 "actual_side": actual_side,
                 "result": _graded_pick_result(recommended_side, actual_side, bool(actual.get("is_final"))),
                 "delta_vs_market": None if predicted_total is None or market_total is None else round(predicted_total - market_total, 2),
+                "lane_status": lane_status,
             }
         )
         rows.append(
@@ -3552,6 +3568,9 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             p.over_probability,
             p.under_probability,
             p.edge,
+            p.confidence_level,
+            p.suppress_reason,
+            p.lane_status,
             CAST(f.feature_payload ->> 'away_runs_rate_blended' AS DOUBLE PRECISION) AS away_expected_runs,
             CAST(f.feature_payload ->> 'home_runs_rate_blended' AS DOUBLE PRECISION) AS home_expected_runs,
             CAST(f.feature_payload ->> 'away_bullpen_pitches_last3' AS DOUBLE PRECISION) AS away_bullpen_pitches_last3,
@@ -4499,7 +4518,7 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
         )
         for row in _frame_records(totals_frame):
             is_final = _is_final_game_status(row.get("status"))
-            recommended_side = _recommended_side(row.get("predicted_total_runs"), row.get("market_total"))
+            recommended_side = None  # Full-game totals is research_only — suppress directional picks
             actual_side = _actual_side(row.get("actual_total_runs"), row.get("market_total")) if is_final else None
             totals_rows.append(
                 {

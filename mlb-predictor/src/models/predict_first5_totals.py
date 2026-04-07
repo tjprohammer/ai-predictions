@@ -92,6 +92,8 @@ def _compute_confidence_level(row) -> tuple[str, str | None]:
     starter_cert = float(starter_cert) if starter_cert is not None and not pd.isna(starter_cert) else 0.0
     quality_gap = getattr(row, "starter_quality_gap", None)
     quality_gap = float(quality_gap) if quality_gap is not None and not pd.isna(quality_gap) else 0.0
+    asymmetry = getattr(row, "starter_asymmetry_score", None)
+    asymmetry = float(asymmetry) if asymmetry is not None and not pd.isna(asymmetry) else None
     board_state = getattr(row, "board_state", "minimal")
     if pd.isna(board_state):
         board_state = "minimal"
@@ -106,16 +108,36 @@ def _compute_confidence_level(row) -> tuple[str, str | None]:
     if not has_market:
         return "suppress", "no_market_line"
 
+    # Use asymmetry score when available; fall back to quality_gap thresholds
+    effective_asymmetry = asymmetry if asymmetry is not None else (quality_gap / 0.10)
+
     # High: confirmed starters + meaningful mismatch + decent board
-    if starter_cert >= 0.75 and quality_gap >= 0.015 and board_state != "minimal":
+    if starter_cert >= 0.75 and effective_asymmetry >= 0.15 and board_state != "minimal":
         return "high", None
 
     # Medium: some starter info + some mismatch signal
-    if starter_cert >= 0.5 and quality_gap >= 0.008:
+    if starter_cert >= 0.5 and effective_asymmetry >= 0.08:
         return "medium", None
 
     # Low: everything else that isn't suppressed
     return "low", None
+
+
+def _asymmetry_bucket(row) -> str:
+    """Classify a game into low / medium / high starter asymmetry."""
+    asymmetry = getattr(row, "starter_asymmetry_score", None)
+    if asymmetry is None or (isinstance(asymmetry, float) and pd.isna(asymmetry)):
+        quality_gap = getattr(row, "starter_quality_gap", None)
+        if quality_gap is None or (isinstance(quality_gap, float) and pd.isna(quality_gap)):
+            return "unknown"
+        asymmetry = float(quality_gap) / 0.10
+    else:
+        asymmetry = float(asymmetry)
+    if asymmetry >= 0.30:
+        return "high"
+    if asymmetry >= 0.12:
+        return "medium"
+    return "low"
 
 
 def _load_or_train_artifact() -> dict | None:
@@ -221,6 +243,8 @@ def main() -> int:
         if confidence_level == "suppress":
             suppressed_count += 1
 
+        bucket = _asymmetry_bucket(row)
+
         rows.append(
             {
                 "game_id": int(row.game_id),
@@ -237,11 +261,19 @@ def main() -> int:
                 "edge": edge,
                 "confidence_level": confidence_level,
                 "suppress_reason": suppress_reason,
+                "asymmetry_bucket": bucket,
             }
         )
     if suppressed_count:
         log.info("Suppressed %d of %d first5 predictions (insufficient certainty)", suppressed_count, len(rows))
+    bucket_counts = {}
+    for r in rows:
+        b = r.get("asymmetry_bucket", "unknown")
+        bucket_counts[b] = bucket_counts.get(b, 0) + 1
+    log.info("First5 asymmetry buckets: %s", bucket_counts)
 
+    # Strip non-DB columns before upsert; keep them for parquet
+    db_rows = [{k: v for k, v in r.items() if k != "asymmetry_bucket"} for r in rows]
     run_sql(
         """
         DELETE FROM predictions_first5_totals
@@ -253,7 +285,7 @@ def main() -> int:
     )
     upsert_rows(
         "predictions_first5_totals",
-        rows,
+        db_rows,
         ["game_id", "prediction_ts", "model_name", "model_version"],
     )
     output_dir = settings.report_dir / "first5_totals"

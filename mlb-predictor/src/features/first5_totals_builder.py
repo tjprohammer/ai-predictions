@@ -40,6 +40,34 @@ from src.utils.settings import get_settings
 log = get_logger(__name__)
 
 
+def _starter_asymmetry_score(home_starter: dict, away_starter: dict) -> float | None:
+    """Composite starter-mismatch score combining xwOBA and CSW gaps.
+
+    Returns a 0-1 score where higher means more asymmetric (bigger mismatch).
+    Returns None if neither signal is available.
+    """
+    xwoba_h = home_starter.get("xwoba")
+    xwoba_a = away_starter.get("xwoba")
+    csw_h = home_starter.get("csw")
+    csw_a = away_starter.get("csw")
+
+    xwoba_gap = abs(xwoba_h - xwoba_a) if xwoba_h is not None and xwoba_a is not None else None
+    csw_gap = abs(csw_h - csw_a) if csw_h is not None and csw_a is not None else None
+
+    if xwoba_gap is None and csw_gap is None:
+        return None
+
+    # Normalize each gap to ~0-1 range using observed MLB spread.
+    # xwOBA spread between starters: typical gap 0-0.060, cap at 0.10.
+    # CSW spread: typical gap 0-0.04, cap at 0.08.
+    xwoba_norm = min(xwoba_gap / 0.10, 1.0) if xwoba_gap is not None else None
+    csw_norm = min(csw_gap / 0.08, 1.0) if csw_gap is not None else None
+
+    if xwoba_norm is not None and csw_norm is not None:
+        return round(0.6 * xwoba_norm + 0.4 * csw_norm, 4)
+    return round(xwoba_norm or csw_norm, 4)
+
+
 def _load_frames(start_date, end_date, settings):
     history_start = f"{settings.prior_season}-01-01"
     frames = {
@@ -289,6 +317,7 @@ def main() -> int:
                     if home_starter["xwoba"] is not None and away_starter["xwoba"] is not None
                     else None
                 ),
+                "starter_asymmetry_score": _starter_asymmetry_score(home_starter, away_starter),
                 "home_lineup_top5_xwoba": home_lineup["top5_xwoba"],
                 "away_lineup_top5_xwoba": away_lineup["top5_xwoba"],
                 "home_lineup_k_pct": home_lineup["lineup_k_pct"],
