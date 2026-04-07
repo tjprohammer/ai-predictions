@@ -4110,6 +4110,31 @@
       `;
       }
 
+      function renderFirst5Pill(first5) {
+        if (!first5 || !first5.supported) {
+          return renderCompactSummaryPill(
+            "First 5 Inn",
+            "-",
+            "No first-5 prediction available",
+          );
+        }
+        const pred = numberOr(first5.predicted_total_runs);
+        const mkt = numberOr(first5.market_total);
+        const value =
+          pred != null
+            ? `${formatNumber(pred, 2)}${mkt != null ? ` / ${formatNumber(mkt, 1)}` : ""}`
+            : "-";
+        const delta =
+          pred != null && mkt != null ? pred - mkt : null;
+        const copy =
+          delta != null
+            ? `Delta ${formatTrend(delta)}`
+            : mkt == null
+              ? "No market line yet"
+              : "";
+        return renderCompactSummaryPill("First 5 Inn", value, copy);
+      }
+
       function renderResultBanner(detail) {
         const actual = detail.actual_result || {};
         if (!actual.is_final) {
@@ -4575,6 +4600,7 @@
 
       function renderGameSection(game) {
         const totals = game.totals || {};
+        const first5 = game.first5_totals || {};
         const actual = game.actual_result || {};
         const awayPlayers = game.hit_targets?.[game.away_team] || [];
         const homePlayers = game.hit_targets?.[game.home_team] || [];
@@ -4601,6 +4627,7 @@
             <div class="compact-summary-grid">
               ${renderCompactSummaryPill("Model / Market", `${formatNumber(totals.predicted_total_runs, 2)} / ${formatNumber(totals.market_total, 1)}`, `Delta ${predictedDelta == null ? "-" : formatTrend(predictedDelta)}`)}
               ${renderCompactSummaryPill("Expected Runs", `${game.away_team} ${formatNumber(totals.away_expected_runs, 2)} / ${game.home_team} ${formatNumber(totals.home_expected_runs, 2)}`, `${leanLabel(totals)} ${totalsLeanValue(totals)} · ${totalsReasonSummary(game)}`)}
+              ${renderFirst5Pill(first5)}
               ${renderStarterProjectionPill(`${game.away_team} SP Ks`, game.starters?.away, game.home_team)}
               ${renderStarterProjectionPill(`${game.home_team} SP Ks`, game.starters?.home, game.away_team)}
             </div>

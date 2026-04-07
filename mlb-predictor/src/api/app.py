@@ -2098,6 +2098,7 @@ def _fetch_game_board(
     lineup_handedness_by_game = _fetch_lineup_handedness_by_game(target_date)
     pitcher_k_market_map = _fetch_pitcher_strikeout_market_map(target_date)
     pitcher_k_prediction_map = _fetch_pitcher_strikeout_prediction_map(target_date)
+    first5_totals_map = _fetch_first5_totals_map(target_date)
 
     games_by_id: dict[int, dict[str, Any]] = {}
     for record in game_records:
@@ -2185,6 +2186,7 @@ def _fetch_game_board(
                 record["away_team"]: [],
                 record["home_team"]: [],
             },
+            "first5_totals": first5_totals_map.get(game_id) or {"supported": False},
         }
 
     for starter in starter_records:
