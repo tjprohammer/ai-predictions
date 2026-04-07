@@ -3,7 +3,10 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
+import numpy as np
+import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor, HistGradientBoostingRegressor
+from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.pipeline import make_pipeline
@@ -15,7 +18,7 @@ from src.features.contracts import (
     feature_columns_for_roles,
     feature_field_roles,
 )
-from src.models.common import chronological_split, compute_sample_weights, encode_frame, load_feature_snapshots, save_artifact, save_report
+from src.models.common import chronological_split, compute_sample_weights, encode_frame, fit_market_calibrator, load_feature_snapshots, save_artifact, save_report
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -110,8 +113,47 @@ def main() -> int:
             feature_importance[col] = round(float(imp), 4)
         log.info("Feature importance (top 10): %s", dict(_ranked[:10]))
 
+    # --- Market calibration (blend model prediction with market line) ---
+    market_calibrator = None
+    if "market_line" in val_frame.columns:
+        market_lines = pd.to_numeric(val_frame["market_line"], errors="coerce")
+        market_calibrator = fit_market_calibrator(
+            best_predictions, market_lines, y_val, min_rows=15,
+        )
+        if market_calibrator is not None:
+            log.info(
+                "Market calibrator: model_weight=%.3f market_weight=%.3f intercept=%.3f (fitted on %d rows)",
+                market_calibrator["model_weight"],
+                market_calibrator["market_weight"],
+                market_calibrator["intercept"],
+                market_calibrator["calibration_rows"],
+            )
+        else:
+            log.info("Market calibrator: not enough market lines to fit")
+
+    # --- Isotonic residual correction (monotonic mapping: raw_pred → actual) ---
+    isotonic_calibrator = None
+    if len(y_val) >= 30:
+        sort_idx = np.argsort(best_predictions)
+        isotonic_calibrator = IsotonicRegression(out_of_bounds="clip")
+        isotonic_calibrator.fit(best_predictions[sort_idx], y_val.values[sort_idx])
+        iso_preds = isotonic_calibrator.predict(best_predictions)
+        iso_mae = mean_absolute_error(y_val, iso_preds)
+        raw_mae = mean_absolute_error(y_val, best_predictions)
+        if iso_mae >= raw_mae:
+            log.info("Isotonic correction does not improve MAE (%.3f >= %.3f); discarding", iso_mae, raw_mae)
+            isotonic_calibrator = None
+        else:
+            log.info("Isotonic correction: MAE %.3f -> %.3f (improvement: +%.4f)", raw_mae, iso_mae, raw_mae - iso_mae)
+
+    # --- Compute residual_std from best available calibration ---
+    calibrated_preds = best_predictions.copy()
+    if isotonic_calibrator is not None:
+        calibrated_preds = isotonic_calibrator.predict(calibrated_preds)
+    residual_std_raw = float((y_val - best_predictions).std()) if len(y_val) else 1.0
+    residual_std_calibrated = float((y_val - calibrated_preds).std()) if len(y_val) else 1.0
+
     artifact_name = f"strikeouts_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-    residual_std = float((y_val - best_predictions).std()) if len(y_val) else 1.0
     artifact = {
         "lane": "strikeouts",
         "model_name": best_name,
@@ -125,7 +167,10 @@ def main() -> int:
         "metrics": metrics,
         "baselines": baselines,
         "feature_importance": feature_importance,
-        "residual_std": residual_std if residual_std > 0 else 1.0,
+        "residual_std": residual_std_raw if residual_std_raw > 0 else 1.0,
+        "residual_std_calibrated": residual_std_calibrated if residual_std_calibrated > 0 else 1.0,
+        "market_calibrator": market_calibrator,
+        "isotonic_calibrator": isotonic_calibrator,
         "model": best_model,
     }
     artifact_path = save_artifact("strikeouts", artifact_name, artifact)

@@ -99,7 +99,7 @@ def main() -> int:
         log.info("Not enough hits rows for validation split")
         return 0
 
-    calibration_frame, eval_frame = chronological_split(val_frame, validation_fraction=0.5)
+    calibration_frame, eval_frame = chronological_split(val_frame, validation_fraction=0.3)
     if eval_frame.empty:
         eval_frame = calibration_frame.copy()
 

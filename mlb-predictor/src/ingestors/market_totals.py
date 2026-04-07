@@ -44,6 +44,9 @@ ODDS_API_PLAYER_PROP_MARKETS = {
     "batter_hits": "player_hits",
     "pitcher_strikeouts": "pitcher_strikeouts",
 }
+ODDS_API_GAME_PERIOD_MARKETS = {
+    "totals_1st_5_innings": "first_five_total",
+}
 COVERS_PLAYER_PROP_MARKETS = {
     "MLB_GAME_PLAYER_HITS": "player_hits",
     "MLB_GAME_PLAYER_PITCHER_STRIKEOUTS": "pitcher_strikeouts",
@@ -960,10 +963,57 @@ def _extract_odds_api_event_prop_rows(
     return rows
 
 
-def _fetch_odds_api_player_prop_rows(start_date, end_date, api_key: str) -> list[dict[str, object]]:
+def _extract_odds_api_event_first5_rows(
+    event_payload: dict[str, object],
+    matched_game: dict[str, object],
+) -> list[dict[str, object]]:
+    """Extract first-5 inning totals from an Odds API per-event response."""
+    rows: list[dict[str, object]] = []
+    game_id = int(matched_game["game_id"])
+    game_date = matched_game["game_date"]
+
+    for bookmaker in event_payload.get("bookmakers", []) or []:
+        sportsbook = bookmaker.get("key") or bookmaker.get("title") or "odds_api"
+        for market in bookmaker.get("markets", []) or []:
+            market_key = str(market.get("key") or "").strip().lower()
+            internal_type = ODDS_API_GAME_PERIOD_MARKETS.get(market_key)
+            if not internal_type:
+                continue
+            outcomes = market.get("outcomes", []) or []
+            over = next((o for o in outcomes if str(o.get("name", "")).lower() == "over"), None)
+            under = next((o for o in outcomes if str(o.get("name", "")).lower() == "under"), None)
+            point = None
+            if over and over.get("point") is not None:
+                point = over.get("point")
+            elif under and under.get("point") is not None:
+                point = under.get("point")
+            last_update = pd.to_datetime(
+                market.get("last_update") or bookmaker.get("last_update") or datetime.now(timezone.utc),
+                utc=True,
+                errors="coerce",
+            )
+            rows.append(
+                {
+                    "game_id": game_id,
+                    "game_date": game_date,
+                    "sportsbook": sportsbook,
+                    "market_type": internal_type,
+                    "line_value": point,
+                    "over_price": None if not over else over.get("price"),
+                    "under_price": None if not under else under.get("price"),
+                    "snapshot_ts": last_update.to_pydatetime() if pd.notna(last_update) else datetime.now(timezone.utc),
+                    "is_opening": False,
+                    "is_closing": False,
+                    "source_name": "the_odds_api",
+                }
+            )
+    return rows
+
+
+def _fetch_odds_api_player_prop_rows(start_date, end_date, api_key: str) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     games = _load_games(start_date, end_date)
     if games.empty:
-        return []
+        return [], []
 
     events_response = requests.get(
         ODDS_API_EVENTS_URL,
@@ -979,6 +1029,7 @@ def _fetch_odds_api_player_prop_rows(start_date, end_date, api_key: str) -> list
     events_payload = events_response.json()
     slate_player_lookup = _load_slate_player_lookup(start_date, end_date)
     rows: list[dict[str, object]] = []
+    first5_rows: list[dict[str, object]] = []
 
     for event in events_payload:
         matched_game = _match_event_to_game(event, games)
@@ -987,12 +1038,13 @@ def _fetch_odds_api_player_prop_rows(start_date, end_date, api_key: str) -> list
         event_id = event.get("id")
         if not event_id:
             continue
+        all_markets = sorted(set(ODDS_API_PLAYER_PROP_MARKETS.keys()) | set(ODDS_API_GAME_PERIOD_MARKETS.keys()))
         event_response = requests.get(
             ODDS_API_EVENT_ODDS_URL.format(event_id=event_id),
             params={
                 "apiKey": api_key,
                 "regions": "us",
-                "markets": ",".join(sorted(ODDS_API_PLAYER_PROP_MARKETS.keys())),
+                "markets": ",".join(all_markets),
                 "oddsFormat": "american",
                 "dateFormat": "iso",
             },
@@ -1001,7 +1053,8 @@ def _fetch_odds_api_player_prop_rows(start_date, end_date, api_key: str) -> list
         event_response.raise_for_status()
         event_payload = event_response.json()
         rows.extend(_extract_odds_api_event_prop_rows(event_payload, matched_game, slate_player_lookup))
-    return rows
+        first5_rows.extend(_extract_odds_api_event_first5_rows(event_payload, matched_game))
+    return rows, first5_rows
 
 
 def _load_manual_csv(csv_path: Path) -> pd.DataFrame:
@@ -1188,7 +1241,7 @@ def main() -> int:
 
     if settings.odds_api_key:
         try:
-            odds_prop_rows = _timed_fetch(
+            odds_prop_rows, odds_first5_rows = _timed_fetch(
                 "odds_api_player_props",
                 _fetch_odds_api_player_prop_rows,
                 start_date,
@@ -1206,6 +1259,14 @@ def main() -> int:
                     ["game_id", "player_id", "sportsbook", "market_type", "snapshot_ts"],
                 )
                 log.info("Imported %s player prop rows from the Odds API", len(odds_prop_rows))
+            if odds_first5_rows:
+                inserted += upsert_rows(
+                    "game_markets",
+                    odds_first5_rows,
+                    ["game_id", "sportsbook", "market_type", "snapshot_ts"],
+                )
+                _write_market_snapshot_versions(odds_first5_rows)
+                log.info("Imported %s first-5 totals market rows from the Odds API", len(odds_first5_rows))
     else:
         try:
             covers_prop_rows = _timed_fetch(

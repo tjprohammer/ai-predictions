@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 
 import pandas as pd
 
-from src.models.common import encode_frame, load_feature_snapshots, load_latest_artifact
+from src.models.common import calibrate_with_market, encode_frame, load_feature_snapshots, load_latest_artifact
 from src.utils.db import query_df, run_sql, upsert_rows
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
@@ -121,26 +121,56 @@ def main() -> int:
     try:
         feature_columns = artifact["feature_columns"]
         X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
-        predictions = artifact["model"].predict(X)
+        raw_predictions = artifact["model"].predict(X)
     except Exception as exc:
         artifact = _reload_artifact_after_failure(exc)
         if artifact is None:
             return 0
         feature_columns = artifact["feature_columns"]
         X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
-        predictions = artifact["model"].predict(X)
+        raw_predictions = artifact["model"].predict(X)
+
+    # --- Apply isotonic correction (monotonic decompression) ---
+    predictions = raw_predictions.copy()
+    isotonic_calibrator = artifact.get("isotonic_calibrator")
+    if isotonic_calibrator is not None:
+        predictions = isotonic_calibrator.predict(predictions)
+        log.info("Applied isotonic correction to %d predictions", len(predictions))
+
+    # --- Apply market calibration where market lines are available ---
+    market_calibrator = artifact.get("market_calibrator")
     residual_std = max(float(artifact.get("residual_std", 1.0)), 1.0)
+    residual_std_calibrated = max(float(artifact.get("residual_std_calibrated", residual_std)), 1.0)
     prediction_ts = datetime.now(timezone.utc)
     market_map = _fetch_market_map(target_date)
+
+    # Build a Series of market lines aligned with scoring rows for batch calibration
+    market_lines_series = pd.Series(
+        [market_map.get((int(r.game_id), int(r.pitcher_id))) for r in scoring.itertuples(index=False)],
+        dtype=float,
+    )
+    if market_calibrator is not None and market_lines_series.notna().any():
+        calibrated, cal_mask = calibrate_with_market(
+            predictions, market_lines_series, market_calibrator,
+        )
+        n_calibrated = int(cal_mask.sum())
+        if n_calibrated > 0:
+            predictions = calibrated
+            log.info("Applied market calibration to %d/%d predictions", n_calibrated, len(predictions))
+
     rows = []
     missing_market_lines = 0
-    for row, predicted_strikeouts in zip(scoring.itertuples(index=False), predictions):
-        market_line = market_map.get((int(row.game_id), int(row.pitcher_id)))
+    for row, predicted_strikeouts, market_line_val in zip(
+        scoring.itertuples(index=False), predictions, market_lines_series
+    ):
+        market_line = None if pd.isna(market_line_val) else float(market_line_val)
         over_probability = None
         under_probability = None
         edge = None
         if market_line is not None:
-            over_probability = _sigmoid((float(predicted_strikeouts) - float(market_line)) / residual_std)
+            # Use the calibrated residual_std when market calibration was applied
+            effective_std = residual_std_calibrated if market_calibrator is not None else residual_std
+            over_probability = _sigmoid((float(predicted_strikeouts) - float(market_line)) / effective_std)
             under_probability = 1.0 - over_probability
             edge = abs(over_probability - 0.5)
         elif _expects_market_line(row):
