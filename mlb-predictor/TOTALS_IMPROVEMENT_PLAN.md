@@ -105,9 +105,11 @@ Your feature dictionary currently shows first 5 largely mirroring full-game tota
 ### Full-game totals strategy
 
 Model:
-- home team expected runs
-- away team expected runs
-- combine into full-game total
+- unified full-game total as the prediction target
+- team-average baseline + game-specific adjustment residual
+- focus adjustment stack on starter, lineup, bullpen, park/weather
+
+Note: home/away side modeling was tested and did not improve on the unified target. See "Experiment Log" below.
 
 ### First 5 strategy
 
@@ -131,6 +133,62 @@ Two distinct modeling specs:
 The repo no longer treats first 5 as a near-clone of full-game totals.
 
 This follows the model rework doc's direction that full-game totals and first 5 are separate lanes and that first 5 should remain starter- and top-of-lineup-first.
+
+---
+
+## Experiment Log
+
+Completed experiments and their results, kept for reference.
+
+### Phase 1: Freeze Baselines (DONE — commit 437b45a)
+
+Frozen via `src/backtest/benchmark_totals.py --freeze`.
+
+| Lane | Best baseline | MAE |
+|---|---|---|
+| totals | train_median | 3.454 |
+| first5 | train_mean | 2.658 |
+
+All future experiments compare against these.
+
+### Split-Side Modeling (TESTED — NEGATIVE RESULT)
+
+Experiment: `src/backtest/experiment_split_sides.py`
+
+Hypothesis: predicting home runs and away runs separately then summing should outperform a unified total target.
+
+Results (full-game totals MAE on chronological holdout):
+
+| Approach | MAE |
+|---|---|
+| team_avg (unified, baseline) | 3.547 |
+| direct side models (ridge) | 3.577 |
+| per-side team-avg baselines | 3.590 |
+| per-side baseline + residual | 3.626 |
+
+Verdict: **all split-side approaches lost to unified team_average.**
+
+Diagnosis: splitting ~2,100 rows into two noisier targets adds variance that outweighs structural benefit. The current feature set lacks the sharpness to model home vs away differentials better than simple team identity.
+
+Status: **structurally sensible idea, currently unsupported by data volume and feature sharpness.** Revisit when:
+- training set grows significantly (2+ full seasons)
+- lineup/starter/bullpen features become sharp enough to differentiate home vs away scoring environments
+- or per-side prediction is needed for a product surface (e.g. run-line modeling)
+
+---
+
+## The Central Question
+
+Instead of asking "how do we make totals MAE lower everywhere," the better question is:
+
+> **When does totals have any real edge at all?**
+
+The answer probably depends on:
+- board state (lineup-confirmed vs early-morning guesses)
+- input certainty (starter confirmed, weather fresh, lineup locked)
+- game environment (outdoor, warm weather, known park factors)
+
+Phase 4 (board-state slicing) directly answers this. It is the highest-value next experiment.
 
 ---
 
@@ -414,12 +472,12 @@ These are practical targets, not promises.
 
 ## Recommended Work Order
 
-1. freeze honest baselines
-2. split full-game vs first 5 strategy
-3. rebuild starter / lineup / bullpen / weather adjustments
-4. add explicit board state
-5. add certainty scaffolding
-6. add post-model calibration
+1. ~~freeze honest baselines~~ (DONE — commit 437b45a)
+2. ~~split full-game vs first 5 strategy~~ (DONE — unified target confirmed, first5 separated)
+3. **board-state slicing — answer "when does totals have edge?"** (PRIORITY)
+4. certainty scaffolding
+5. first5 calibration (post-model, market-aware)
+6. rebuild starter / lineup / bullpen / weather adjustments (only after slicing reveals where signal lives)
 7. evaluate by slice
 8. wire publish/suppress behavior
 
@@ -428,3 +486,5 @@ These are practical targets, not promises.
 ## One-line summary
 
 Totals gets better by becoming cleaner, later, and more selective — not by forcing a bigger raw model to predict every game equally well.
+
+The immediate priority is answering *when* totals has edge, not making it work everywhere.
