@@ -24,15 +24,25 @@
         --radius-md: 16px;
       }
 
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
 
       body {
         margin: 0;
         min-height: 100vh;
         color: var(--ink);
         background:
-          radial-gradient(circle at top left, rgba(11, 106, 88, 0.15), transparent 32%),
-          radial-gradient(circle at 85% 14%, rgba(183, 121, 31, 0.12), transparent 20%),
+          radial-gradient(
+            circle at top left,
+            rgba(11, 106, 88, 0.15),
+            transparent 32%
+          ),
+          radial-gradient(
+            circle at 85% 14%,
+            rgba(183, 121, 31, 0.12),
+            transparent 20%
+          ),
           linear-gradient(180deg, #fcf9f4 0%, var(--bg) 100%);
         font-family: "Bahnschrift", "Aptos", "Segoe UI Variable", sans-serif;
       }
@@ -78,7 +88,11 @@
       .nav-link,
       .button-link {
         text-decoration: none;
-        transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, color 140ms ease;
+        transition:
+          transform 140ms ease,
+          background 140ms ease,
+          border-color 140ms ease,
+          color 140ms ease;
       }
 
       .brand-link {
@@ -99,14 +113,23 @@
         width: 38px;
         height: 38px;
         border-radius: 50%;
-        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+        background: linear-gradient(
+          135deg,
+          var(--accent) 0%,
+          var(--accent-deep) 100%
+        );
         color: white;
         font-size: 0.78rem;
         letter-spacing: 0.16em;
         box-shadow: 0 10px 24px rgba(11, 106, 88, 0.22);
       }
 
-      .nav-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .nav-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
 
       .nav-link,
       .button-link {
@@ -126,8 +149,16 @@
       }
 
       .nav-link:hover,
-      .button-link:hover { transform: translateY(-1px); color: var(--accent-deep); background: rgba(11, 106, 88, 0.08); }
-      .nav-link.active { background: var(--accent); color: white; border-color: transparent; }
+      .button-link:hover {
+        transform: translateY(-1px);
+        color: var(--accent-deep);
+        background: rgba(11, 106, 88, 0.08);
+      }
+      .nav-link.active {
+        background: var(--accent);
+        color: white;
+        border-color: transparent;
+      }
 
       .hero-card,
       .panel,
@@ -145,16 +176,44 @@
         padding: 28px;
         margin-bottom: 18px;
         background:
-          linear-gradient(135deg, rgba(11, 106, 88, 0.16), rgba(255, 251, 245, 0.72) 35%, rgba(183, 121, 31, 0.1) 100%),
+          linear-gradient(
+            135deg,
+            rgba(11, 106, 88, 0.16),
+            rgba(255, 251, 245, 0.72) 35%,
+            rgba(183, 121, 31, 0.1) 100%
+          ),
           var(--panel-strong);
       }
 
-      .panel, .lineup-panel, .starter-card, .summary-card { padding: 22px; }
-      .hero-grid, .summary-grid, .starter-grid, .lineup-grid, .meta-grid { display: grid; gap: 16px; }
-      .hero-grid { grid-template-columns: 1.3fr 0.9fr; }
-      .summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 18px; }
-      .starter-grid, .lineup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 18px; }
-      .meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .panel,
+      .lineup-panel,
+      .starter-card,
+      .summary-card {
+        padding: 22px;
+      }
+      .hero-grid,
+      .summary-grid,
+      .starter-grid,
+      .lineup-grid,
+      .meta-grid {
+        display: grid;
+        gap: 16px;
+      }
+      .hero-grid {
+        grid-template-columns: 1.3fr 0.9fr;
+      }
+      .summary-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-bottom: 18px;
+      }
+      .starter-grid,
+      .lineup-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-bottom: 18px;
+      }
+      .meta-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
 
       .eyebrow,
       .chip,
@@ -170,15 +229,32 @@
         letter-spacing: 0.12em;
         text-transform: uppercase;
         border: 1px solid rgba(22, 36, 29, 0.08);
-        background: rgba(255,255,255,0.78);
+        background: rgba(255, 255, 255, 0.78);
         color: var(--accent-deep);
       }
 
-      .chip.good, .status-chip.good { background: rgba(22, 101, 52, 0.12); color: var(--good); }
-      .chip.warn, .status-chip.warn { background: rgba(183, 121, 31, 0.12); color: var(--warn); }
-      .chip.bad, .status-chip.bad { background: rgba(153, 27, 27, 0.1); color: var(--bad); }
+      .chip.good,
+      .status-chip.good {
+        background: rgba(22, 101, 52, 0.12);
+        color: var(--good);
+      }
+      .chip.warn,
+      .status-chip.warn {
+        background: rgba(183, 121, 31, 0.12);
+        color: var(--warn);
+      }
+      .chip.bad,
+      .status-chip.bad {
+        background: rgba(153, 27, 27, 0.1);
+        color: var(--bad);
+      }
 
-      h1, h2, h3, p { margin: 0; }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
       h1 {
         margin-top: 14px;
         font-family: "Iowan Old Style", "Book Antiqua", Georgia, serif;
@@ -187,26 +263,90 @@
         letter-spacing: -0.04em;
       }
 
-      .hero-copy, .muted, .empty-state, .small-copy, .data-copy { color: var(--muted); line-height: 1.55; }
-      .hero-copy { margin-top: 12px; max-width: 60ch; font-size: 1rem; }
-      .hero-head, .hero-actions, .starter-head, .lineup-head, .lineup-row, .data-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
-      .hero-actions { margin-top: 18px; }
-      .summary-value, .big-value { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.03em; }
-      .data-stack { display: grid; gap: 10px; }
-      .data-label, .metric-label { font-size: 0.74rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
-      .data-value { font-weight: 700; }
-      .lineup-list { display: grid; gap: 12px; margin-top: 14px; }
-      .lineup-row { padding: 14px 16px; border-radius: var(--radius-md); border: 1px solid var(--line); background: rgba(255,255,255,0.78); align-items: flex-start; }
-      .lineup-main { display: grid; gap: 4px; }
-      .lineup-title { font-weight: 800; font-size: 1rem; }
-      .lineup-meta { color: var(--muted); font-size: 0.92rem; }
+      .hero-copy,
+      .muted,
+      .empty-state,
+      .small-copy,
+      .data-copy {
+        color: var(--muted);
+        line-height: 1.55;
+      }
+      .hero-copy {
+        margin-top: 12px;
+        max-width: 60ch;
+        font-size: 1rem;
+      }
+      .hero-head,
+      .hero-actions,
+      .starter-head,
+      .lineup-head,
+      .lineup-row,
+      .data-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+      }
+      .hero-actions {
+        margin-top: 18px;
+      }
+      .summary-value,
+      .big-value {
+        font-size: 1.7rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+      .data-stack {
+        display: grid;
+        gap: 10px;
+      }
+      .data-label,
+      .metric-label {
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .data-value {
+        font-weight: 700;
+      }
+      .lineup-list {
+        display: grid;
+        gap: 12px;
+        margin-top: 14px;
+      }
+      .lineup-row {
+        padding: 14px 16px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.78);
+        align-items: flex-start;
+      }
+      .lineup-main {
+        display: grid;
+        gap: 4px;
+      }
+      .lineup-title {
+        font-weight: 800;
+        font-size: 1rem;
+      }
+      .lineup-meta {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
       .history-block {
         display: grid;
         gap: 10px;
         margin-top: 10px;
         padding: 12px 14px;
         border-radius: 18px;
-        background: linear-gradient(180deg, rgba(24, 30, 37, 0.98), rgba(29, 35, 43, 0.94));
+        background: linear-gradient(
+          180deg,
+          rgba(24, 30, 37, 0.98),
+          rgba(29, 35, 43, 0.94)
+        );
         border: 1px solid rgba(53, 65, 81, 0.78);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
       }
@@ -269,7 +409,10 @@
       }
       .history-baseline {
         position: absolute;
-        top: calc(var(--history-value-row) + var(--history-gap) + var(--history-baseline-offset));
+        top: calc(
+          var(--history-value-row) + var(--history-gap) +
+            var(--history-baseline-offset)
+        );
         left: 0;
         right: 0;
         border-top: 1px dashed rgba(229, 231, 235, 0.65);
@@ -291,7 +434,9 @@
       }
       .history-game {
         display: grid;
-        grid-template-rows: var(--history-value-row) var(--history-bar-max) auto auto;
+        grid-template-rows: var(--history-value-row) var(
+            --history-bar-max
+          ) auto auto;
         gap: var(--history-gap);
         justify-items: center;
         min-width: 0;
@@ -346,10 +491,207 @@
         color: #9ca3af;
         font-size: 0.76rem;
       }
-      .loading-card { padding: 28px; text-align: center; }
+      .loading-card {
+        padding: 28px;
+        text-align: center;
+      }
+
+      .first5-section {
+        margin-bottom: 18px;
+      }
+      .first5-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 14px;
+      }
+
+      .pitcher-chart-section {
+        margin-bottom: 18px;
+      }
+      .pitcher-charts-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .pitcher-chart-card {
+        background: linear-gradient(180deg, rgba(24, 30, 37, 0.98), rgba(29, 35, 43, 0.94));
+        border: 1px solid rgba(53, 65, 81, 0.78);
+        border-radius: var(--radius-lg);
+        padding: 18px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+      .pitcher-chart-title {
+        color: #f3f4f6;
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+      .pitcher-chart-subtitle {
+        color: #9ca3af;
+        font-size: 0.72rem;
+        margin-bottom: 14px;
+      }
+      .starts-chart-grid {
+        display: grid;
+        gap: 8px;
+      }
+      .start-row {
+        display: grid;
+        grid-template-columns: 60px 1fr 40px 40px 40px;
+        gap: 8px;
+        align-items: center;
+        padding: 6px 8px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .start-date {
+        color: #d1d5db;
+        font-size: 0.72rem;
+        font-weight: 800;
+      }
+      .start-bar-wrap {
+        height: 18px;
+        display: flex;
+        gap: 2px;
+        align-items: end;
+      }
+      .start-bar-ip {
+        height: 100%;
+        border-radius: 4px;
+        background: linear-gradient(180deg, #14b8a6, #10b981);
+        border: 1px solid rgba(16, 185, 129, 0.34);
+        min-width: 4px;
+      }
+      .start-bar-k {
+        height: 100%;
+        border-radius: 4px;
+        background: linear-gradient(180deg, #818cf8, #6366f1);
+        border: 1px solid rgba(99, 102, 241, 0.34);
+        min-width: 4px;
+      }
+      .start-stat {
+        color: #e5e7eb;
+        font-size: 0.74rem;
+        font-weight: 700;
+        text-align: center;
+      }
+      .start-stat.label-col {
+        color: #9ca3af;
+        font-size: 0.64rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .start-opponent {
+        color: #6ee7b7;
+        font-size: 0.62rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .chart-legend {
+        display: flex;
+        gap: 14px;
+        margin-top: 10px;
+      }
+      .chart-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: #9ca3af;
+        font-size: 0.66rem;
+        font-weight: 700;
+      }
+      .chart-legend-swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+      }
+      .chart-legend-swatch.ip { background: #10b981; }
+      .chart-legend-swatch.k { background: #6366f1; }
+
+      .hitter-heat-section {
+        margin-bottom: 18px;
+      }
+      .heat-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 14px;
+      }
+      .heat-card {
+        background: var(--panel);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        border-radius: var(--radius-lg);
+        padding: 18px;
+      }
+      .heat-list {
+        display: grid;
+        gap: 6px;
+        margin-top: 10px;
+      }
+      .heat-row {
+        display: grid;
+        grid-template-columns: 24px 1fr auto;
+        gap: 8px;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.6);
+      }
+      .heat-slot {
+        font-size: 0.72rem;
+        font-weight: 900;
+        color: var(--muted);
+      }
+      .heat-name {
+        font-weight: 700;
+        font-size: 0.88rem;
+      }
+      .heat-meta {
+        color: var(--muted);
+        font-size: 0.76rem;
+      }
+      .heat-badge {
+        display: inline-flex;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .heat-badge.hot {
+        background: rgba(22, 101, 52, 0.12);
+        color: var(--good);
+      }
+      .heat-badge.cold {
+        background: rgba(153, 27, 27, 0.1);
+        color: var(--bad);
+      }
+      .heat-badge.steady {
+        background: rgba(20, 33, 25, 0.06);
+        color: var(--muted);
+      }
 
       @media (max-width: 1100px) {
-        .hero-grid, .summary-grid, .starter-grid, .lineup-grid, .meta-grid { grid-template-columns: 1fr; }
+        .hero-grid,
+        .summary-grid,
+        .starter-grid,
+        .lineup-grid,
+        .meta-grid,
+        .first5-grid,
+        .pitcher-charts-grid,
+        .heat-grid {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
@@ -363,7 +705,9 @@
         <nav class="nav-links">
           <a class="nav-link" data-app-link="" href="#">Dashboard</a>
           <a class="nav-link" data-app-link="totals" href="#">Totals</a>
-          <a class="nav-link" data-app-link="hot-hitters" href="#">Hot Hitters</a>
+          <a class="nav-link" data-app-link="hot-hitters" href="#"
+            >Hot Hitters</a
+          >
           <a class="nav-link" data-app-link="pitchers" href="#">Pitchers</a>
         </nav>
       </header>
@@ -373,9 +717,13 @@
           <div>
             <div class="eyebrow" id="heroEyebrow">Matchup detail</div>
             <h1 id="heroTitle">Loading matchup…</h1>
-            <p class="hero-copy" id="heroCopy">Fetching lineups, starters, totals context, and matchup detail.</p>
+            <p class="hero-copy" id="heroCopy">
+              Fetching lineups, starters, totals context, and matchup detail.
+            </p>
             <div class="hero-actions">
-              <a class="button-link" id="backToBoardLink" href="#">Back To Board</a>
+              <a class="button-link" id="backToBoardLink" href="#"
+                >Back To Board</a
+              >
               <label class="button-link" for="targetDate">Slate Date</label>
               <input id="targetDate" type="date" />
             </div>
@@ -396,7 +744,22 @@
       </section>
 
       <section class="summary-grid" id="summaryGrid"></section>
+      <section class="first5-section panel" id="first5Section" style="display:none;">
+        <div class="lineup-head">
+          <div>
+            <div class="section-tag">First 5 Innings</div>
+            <h2 id="first5Headline">First 5 Innings Totals</h2>
+          </div>
+        </div>
+        <div class="first5-grid" id="first5Grid"></div>
+      </section>
+      <section class="pitcher-chart-section" id="pitcherChartSection" style="display:none;">
+        <div class="pitcher-charts-grid" id="pitcherChartsGrid"></div>
+      </section>
       <section class="starter-grid" id="starterGrid"></section>
+      <section class="hitter-heat-section" id="hitterHeatSection" style="display:none;">
+        <div class="heat-grid" id="hitterHeatGrid"></div>
+      </section>
       <section class="lineup-grid" id="lineupGrid"></section>
 
       <section class="panel" id="notesPanel">
@@ -433,7 +796,10 @@
 
       function appUrl(path = "") {
         const normalizedBase = appBase.endsWith("/") ? appBase : `${appBase}/`;
-        return new URL(path, `${window.location.origin}${normalizedBase}`).toString();
+        return new URL(
+          path,
+          `${window.location.origin}${normalizedBase}`,
+        ).toString();
       }
 
       function applyAppLinks() {
@@ -443,7 +809,17 @@
       }
 
       function escapeHtml(value) {
-        return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+        return String(value ?? "").replace(
+          /[&<>"']/g,
+          (char) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[char],
+        );
       }
 
       function numberOr(value, fallback = null) {
@@ -484,14 +860,22 @@
         if (!value) return "-";
         const parsed = parseDisplayDate(value);
         if (Number.isNaN(parsed.getTime())) return String(value);
-        return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        return parsed.toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+        });
       }
 
       function formatDateTime(value) {
         if (!value) return "TBD";
         const parsed = new Date(value);
         if (Number.isNaN(parsed.getTime())) return String(value);
-        return parsed.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        return parsed.toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
       }
 
       function lineupStatusChip(player) {
@@ -500,21 +884,28 @@
       }
 
       function playerLineupStateMeta(player) {
-        if (player?.is_confirmed_lineup) return { label: "Confirmed", tone: "good" };
+        if (player?.is_confirmed_lineup)
+          return { label: "Confirmed", tone: "good" };
         if (player?.has_lineup_snapshot) return { label: "Snapshot", tone: "" };
-        if (player?.is_inferred_lineup) return { label: "Inferred", tone: "warn" };
+        if (player?.is_inferred_lineup)
+          return { label: "Inferred", tone: "warn" };
         return { label: "Projected", tone: "warn" };
       }
 
       function teamLineupStateMeta(teamDetail) {
-        if (teamDetail?.lineup_scope === "confirmed") return { label: "Confirmed order", tone: "good" };
-        if (teamDetail?.lineup_scope === "snapshot") return { label: "Snapshot order", tone: "" };
-        if (teamDetail?.lineup_scope === "projected") return { label: "Projected order", tone: "warn" };
+        if (teamDetail?.lineup_scope === "confirmed")
+          return { label: "Confirmed order", tone: "good" };
+        if (teamDetail?.lineup_scope === "snapshot")
+          return { label: "Snapshot order", tone: "" };
+        if (teamDetail?.lineup_scope === "projected")
+          return { label: "Projected order", tone: "warn" };
         return { label: "Lineup pending", tone: "warn" };
       }
 
       function formatLineupSourceName(value) {
-        const normalized = String(value || "").trim().toLowerCase();
+        const normalized = String(value || "")
+          .trim()
+          .toLowerCase();
         if (!normalized) return "Snapshot";
         if (normalized === "projected_template") return "Projected template";
         if (normalized === "manual_template") return "Manual template";
@@ -526,21 +917,43 @@
       }
 
       function latestLineupSnapshot(teamDetail) {
-        const lineup = Array.isArray(teamDetail?.lineup) ? teamDetail.lineup : [];
-        const snapshots = lineup.map((player) => player.lineup_snapshot_ts).filter(Boolean).sort();
+        const lineup = Array.isArray(teamDetail?.lineup)
+          ? teamDetail.lineup
+          : [];
+        const snapshots = lineup
+          .map((player) => player.lineup_snapshot_ts)
+          .filter(Boolean)
+          .sort();
         return snapshots.length ? snapshots[snapshots.length - 1] : null;
       }
 
       function summarizeLineupSource(teamDetail) {
-        if (teamDetail?.lineup_source_summary) return String(teamDetail.lineup_source_summary);
+        if (teamDetail?.lineup_source_summary)
+          return String(teamDetail.lineup_source_summary);
         if (teamDetail?.confirmed_lineup) return "Confirmed lineup";
-        const lineup = Array.isArray(teamDetail?.lineup) ? teamDetail.lineup : [];
-        const sourceNames = [...new Set(lineup.map((player) => String(player.lineup_source_name || "").trim().toLowerCase()).filter(Boolean))];
-        if (sourceNames.includes("projected_template")) return "Projected template lineup";
-        if (sourceNames.includes("manual_template")) return "Manual template lineup";
-        if (sourceNames.length === 1) return `${formatLineupSourceName(sourceNames[0])} lineup snapshot`;
+        const lineup = Array.isArray(teamDetail?.lineup)
+          ? teamDetail.lineup
+          : [];
+        const sourceNames = [
+          ...new Set(
+            lineup
+              .map((player) =>
+                String(player.lineup_source_name || "")
+                  .trim()
+                  .toLowerCase(),
+              )
+              .filter(Boolean),
+          ),
+        ];
+        if (sourceNames.includes("projected_template"))
+          return "Projected template lineup";
+        if (sourceNames.includes("manual_template"))
+          return "Manual template lineup";
+        if (sourceNames.length === 1)
+          return `${formatLineupSourceName(sourceNames[0])} lineup snapshot`;
         if (sourceNames.length > 1) return "Mixed lineup snapshots";
-        if (lineup.some((player) => player.has_lineup_snapshot)) return "Latest lineup snapshot";
+        if (lineup.some((player) => player.has_lineup_snapshot))
+          return "Latest lineup snapshot";
         return "Projected lineup";
       }
 
@@ -573,7 +986,12 @@
         const value = String(opponent || "TBD").trim();
         if (!value) return "TBD";
         if (value.length <= 3) return value.toUpperCase();
-        return value.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "TBD";
+        return (
+          value
+            .replace(/[^A-Za-z0-9]/g, "")
+            .slice(0, 3)
+            .toUpperCase() || "TBD"
+        );
       }
 
       function historyFilterOptions() {
@@ -586,15 +1004,24 @@
       }
 
       function getHistoryFilter(player) {
-        const playerKey = String(player?.player_id || player?.player_name || "player");
+        const playerKey = String(
+          player?.player_id || player?.player_name || "player",
+        );
         return pageState.historyFilters[playerKey] || "l15";
       }
 
       function filteredHistory(player, history) {
         const filterKey = getHistoryFilter(player);
-        const targetOpponent = String(player?.opponent || "").trim().toUpperCase();
+        const targetOpponent = String(player?.opponent || "")
+          .trim()
+          .toUpperCase();
         if (filterKey === "h2h") {
-          return history.filter((game) => String(game.opponent || "").trim().toUpperCase() === targetOpponent);
+          return history.filter(
+            (game) =>
+              String(game.opponent || "")
+                .trim()
+                .toUpperCase() === targetOpponent,
+          );
         }
         if (filterKey === "l5") {
           return history.slice(0, 5);
@@ -606,24 +1033,37 @@
       }
 
       function recentHistoryStrip(player) {
-        const history = Array.isArray(player?.recent_hit_history) ? player.recent_hit_history : [];
+        const history = Array.isArray(player?.recent_hit_history)
+          ? player.recent_hit_history
+          : [];
         if (!history.length) return "";
         const defaultHistoryTitle = `Last ${history.length} Games`;
         const filterKey = getHistoryFilter(player);
         const shownHistory = filteredHistory(player, history);
         const hitGames = shownHistory.filter((game) => game.had_hit).length;
         const formTone = playerFormTone(player);
-        const playerKey = escapeHtml(String(player?.player_id || player?.player_name || "player"));
-        const filterTitle = historyFilterOptions().find((item) => item.key === filterKey)?.label || "L15";
+        const playerKey = escapeHtml(
+          String(player?.player_id || player?.player_name || "player"),
+        );
+        const filterTitle =
+          historyFilterOptions().find((item) => item.key === filterKey)
+            ?.label || "L15";
         return `
           <div class="history-block">
             <div class="history-head">
               <div class="history-caption ${formTone}"><strong>${filterKey === "h2h" ? filterTitle : defaultHistoryTitle}</strong>${filterKey === "h2h" ? ` · ${filterTitle}` : ""} · newest on left · ${hitGames}/${shownHistory.length || 0} hit games · Green = hit · red = no hit · taller bars = multi-hit</div>
               <div class="history-filters">
-                ${historyFilterOptions().map((item) => `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`).join("")}
+                ${historyFilterOptions()
+                  .map(
+                    (item) =>
+                      `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`,
+                  )
+                  .join("")}
               </div>
             </div>
-            ${shownHistory.length ? `
+            ${
+              shownHistory.length
+                ? `
             <div class="history-chart" style="--history-baseline-offset:${(() => {
               const historyBarMaxHeight = 62;
               const maxHits = Math.max(
@@ -636,22 +1076,26 @@
             })()}px;">
               <div class="history-baseline"><span class="history-baseline-label">1</span></div>
               <div class="history-grid" style="grid-template-columns: repeat(${shownHistory.length}, minmax(0, 1fr));">
-              ${shownHistory.map((game) => {
-                const historyBarMaxHeight = 62;
-                const missBarHeight = 16;
-                const maxHits = Math.max(
-                  1,
-                  ...shownHistory.map((entry) => numberOr(entry.hits, 0) ?? 0),
-                );
-                const hits = numberOr(game.hits, 0) ?? 0;
-                const chartHits = Math.max(hits, 0);
-                const totalBasesValue = numberOr(game.total_bases, 0) ?? 0;
-                const homeRunsValue = numberOr(game.home_runs, 0) ?? 0;
-                const barHeight = chartHits > 0
-                  ? (chartHits / maxHits) * historyBarMaxHeight
-                  : missBarHeight;
-                const title = `${formatShortDate(game.game_date)} vs ${game.opponent || "TBD"} · ${hits} H · ${totalBasesValue} TB${homeRunsValue > 0 ? ` · ${homeRunsValue} HR` : ""}`;
-                return `
+              ${shownHistory
+                .map((game) => {
+                  const historyBarMaxHeight = 62;
+                  const missBarHeight = 16;
+                  const maxHits = Math.max(
+                    1,
+                    ...shownHistory.map(
+                      (entry) => numberOr(entry.hits, 0) ?? 0,
+                    ),
+                  );
+                  const hits = numberOr(game.hits, 0) ?? 0;
+                  const chartHits = Math.max(hits, 0);
+                  const totalBasesValue = numberOr(game.total_bases, 0) ?? 0;
+                  const homeRunsValue = numberOr(game.home_runs, 0) ?? 0;
+                  const barHeight =
+                    chartHits > 0
+                      ? (chartHits / maxHits) * historyBarMaxHeight
+                      : missBarHeight;
+                  const title = `${formatShortDate(game.game_date)} vs ${game.opponent || "TBD"} · ${hits} H · ${totalBasesValue} TB${homeRunsValue > 0 ? ` · ${homeRunsValue} HR` : ""}`;
+                  return `
                   <div class="history-game" title="${escapeHtml(title)}">
                     <div class="history-value">${chartHits}</div>
                     <div class="history-bar-wrap">
@@ -661,10 +1105,13 @@
                     <div class="history-opponent">${escapeHtml(formatOpponentTag(game.opponent))}</div>
                   </div>
                 `;
-              }).join("")}
+                })
+                .join("")}
               </div>
             </div>
-            ` : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(player?.opponent))} games found for this filter.</div>`}
+            `
+                : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(player?.opponent))} games found for this filter.</div>`
+            }
           </div>
         `;
       }
@@ -689,6 +1136,7 @@
               <div class="data-row"><span class="data-label">Recent IP / K</span><span class="data-value">${formatNumber(recent.avg_ip, 1)} / ${formatNumber(recent.avg_strikeouts, 1)}</span></div>
               <div class="data-row"><span class="data-label">Last Start</span><span class="data-value">${escapeHtml(formatShortDate(recent.last_start_date))}</span></div>
               <div class="data-row"><span class="data-label">xwOBA / CSW</span><span class="data-value">${formatNumber(starter.xwoba_against, 3)} / ${formatPercent(starter.csw_pct)}</span></div>
+              <div class="data-row"><span class="data-label">Velo / Whiff</span><span class="data-value">${numberOr(starter.avg_fb_velo) == null ? '-' : formatNumber(starter.avg_fb_velo, 1) + ' mph'} / ${formatPercent(starter.whiff_pct)}</span></div>
               <div class="data-row"><span class="data-label">K Projection</span><span class="data-value">${formatNumber(starter.k_projection?.projected_strikeouts, 2)}${numberOr(market.consensus_line) == null ? "" : ` vs ${formatNumber(market.consensus_line, 1)}`}</span></div>
             </div>
           </article>
@@ -696,7 +1144,9 @@
       }
 
       function lineupPanel(teamDetail) {
-        const lineup = Array.isArray(teamDetail?.lineup) ? teamDetail.lineup : [];
+        const lineup = Array.isArray(teamDetail?.lineup)
+          ? teamDetail.lineup
+          : [];
         const lineupSource = summarizeLineupSource(teamDetail);
         const lineupSnapshot = latestLineupSnapshot(teamDetail);
         const lineupState = teamLineupStateMeta(teamDetail);
@@ -717,7 +1167,11 @@
               <div class="data-row"><span class="data-label">Last result</span><span class="data-value">${escapeHtml(teamDetail?.last_result?.summary || "No recent result loaded")}</span></div>
             </div>
             <div class="lineup-list">
-              ${lineup.length ? lineup.map((player) => `
+              ${
+                lineup.length
+                  ? lineup
+                      .map(
+                        (player) => `
                 <div class="lineup-row">
                   <div class="lineup-main">
                     <div class="lineup-title">${escapeHtml(player.lineup_slot ?? "-")} · ${escapeHtml(player.player_name || "Player")}</div>
@@ -727,7 +1181,11 @@
                   </div>
                   ${lineupStatusChip(player)}
                 </div>
-              `).join("") : '<div class="empty-state">No lineup detail is loaded for this side yet.</div>'}
+              `,
+                      )
+                      .join("")
+                  : '<div class="empty-state">No lineup detail is loaded for this side yet.</div>'
+              }
             </div>
           </article>
         `;
@@ -740,36 +1198,217 @@
         ].join("");
       }
 
+      function windDirectionLabel(degrees) {
+        const num = numberOr(degrees);
+        if (num == null) return "";
+        const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+        return dirs[Math.round(num / 22.5) % 16];
+      }
+
+      function renderFirst5Section(detail) {
+        const first5 = detail.first5_totals || {};
+        const section = document.getElementById("first5Section");
+        if (!first5.supported) {
+          section.style.display = "none";
+          return;
+        }
+        section.style.display = "";
+        const predicted = numberOr(first5.predicted_total_runs);
+        const market = numberOr(first5.market_total);
+        const edge = numberOr(first5.edge);
+        const awayExp = numberOr(first5.away_expected_runs);
+        const homeExp = numberOr(first5.home_expected_runs);
+        const side = first5.recommended_side || "-";
+        document.getElementById("first5Grid").innerHTML = `
+          <article class="summary-card">
+            <div class="data-label">F5 Model / Market</div>
+            <div class="summary-value">${formatNumber(predicted, 2)} / ${market == null ? "pending" : formatNumber(market, 1)}</div>
+            <div class="data-copy">Edge ${formatNumber(edge, 3)}${side !== "-" ? ` · Lean ${escapeHtml(side)}` : ""}</div>
+          </article>
+          <article class="summary-card">
+            <div class="data-label">F5 Expected Runs</div>
+            <div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(awayExp, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(homeExp, 2)}</div>
+            <div class="data-copy">First 5 innings projected scoring split</div>
+          </article>
+          <article class="summary-card">
+            <div class="data-label">F5 Outcome</div>
+            <div class="summary-value">${first5.result ? escapeHtml(first5.result) : "Pending"}</div>
+            <div class="data-copy">${numberOr(first5.actual_total_runs) != null ? `Actual: ${formatNumber(first5.actual_total_runs, 0)} runs` : "Waiting for game result"}</div>
+          </article>
+        `;
+      }
+
+      function renderPitcherChart(starter, teamName) {
+        if (!starter) return "";
+        const recent = starter.recent_form || {};
+        const starts = Array.isArray(recent.recent_starts) ? recent.recent_starts : [];
+        if (!starts.length) {
+          return `
+            <div class="pitcher-chart-card">
+              <div class="pitcher-chart-title">${escapeHtml(starter.pitcher_name || teamName)}</div>
+              <div class="pitcher-chart-subtitle">No recent starts loaded</div>
+            </div>
+          `;
+        }
+        const maxIp = Math.max(1, ...starts.map(s => numberOr(s.ip, 0) ?? 0));
+        const maxK = Math.max(1, ...starts.map(s => numberOr(s.strikeouts, 0) ?? 0));
+        const reversed = [...starts].reverse();
+        return `
+          <div class="pitcher-chart-card">
+            <div class="pitcher-chart-title">${escapeHtml(starter.pitcher_name || teamName)}</div>
+            <div class="pitcher-chart-subtitle">Last ${starts.length} starts · ${escapeHtml(starter.throws || "-")}HP · Avg IP ${formatNumber(recent.avg_ip, 1)} · Avg K ${formatNumber(recent.avg_strikeouts, 1)}${numberOr(recent.avg_fb_velo) != null ? ` · Velo ${formatNumber(recent.avg_fb_velo, 1)}` : ""}${numberOr(recent.whiff_pct) != null ? ` · Whiff ${formatPercent(recent.whiff_pct)}` : ""}</div>
+            <div class="starts-chart-grid">
+              <div class="start-row" style="background:transparent;border-color:transparent;">
+                <div class="start-stat label-col">Date</div>
+                <div class="start-stat label-col" style="text-align:left">IP / K bars</div>
+                <div class="start-stat label-col">IP</div>
+                <div class="start-stat label-col">K</div>
+                <div class="start-stat label-col">PC</div>
+              </div>
+              ${reversed.map(s => {
+                const ip = numberOr(s.ip, 0) ?? 0;
+                const k = numberOr(s.strikeouts, 0) ?? 0;
+                const pc = numberOr(s.pitch_count);
+                const ipPct = (ip / maxIp) * 100;
+                const kPct = (k / maxK) * 100;
+                return `
+                  <div class="start-row">
+                    <div class="start-date">${escapeHtml(formatShortDate(s.game_date))}<br><span class="start-opponent">${escapeHtml(s.opponent || "")}</span></div>
+                    <div class="start-bar-wrap">
+                      <div class="start-bar-ip" style="width:${ipPct}%;" title="IP: ${ip}"></div>
+                      <div class="start-bar-k" style="width:${kPct}%;" title="K: ${k}"></div>
+                    </div>
+                    <div class="start-stat">${formatNumber(ip, 1)}</div>
+                    <div class="start-stat">${k}</div>
+                    <div class="start-stat">${pc == null ? "-" : pc}</div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+            <div class="chart-legend">
+              <div class="chart-legend-item"><span class="chart-legend-swatch ip"></span> Innings Pitched</div>
+              <div class="chart-legend-item"><span class="chart-legend-swatch k"></span> Strikeouts</div>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderPitcherChartsSection(detail) {
+        const section = document.getElementById("pitcherChartSection");
+        const awayStarter = detail.starters?.away;
+        const homeStarter = detail.starters?.home;
+        const hasData = (awayStarter?.recent_form?.recent_starts?.length > 0) ||
+                        (homeStarter?.recent_form?.recent_starts?.length > 0);
+        if (!hasData) {
+          section.style.display = "none";
+          return;
+        }
+        section.style.display = "";
+        document.getElementById("pitcherChartsGrid").innerHTML = [
+          renderPitcherChart(awayStarter, detail.away_team),
+          renderPitcherChart(homeStarter, detail.home_team),
+        ].join("");
+      }
+
+      function renderHitterHeatSection(detail) {
+        const section = document.getElementById("hitterHeatSection");
+        const sides = ["away", "home"];
+        const cards = sides.map(side => {
+          const teamDetail = detail.teams?.[side] || {};
+          const lineup = Array.isArray(teamDetail.lineup) ? teamDetail.lineup : [];
+          const teamName = teamDetail.team || (side === "away" ? detail.away_team : detail.home_team);
+          const tagged = lineup.map(p => ({ ...p, _tone: playerFormTone(p) }));
+          const hot = tagged.filter(p => p._tone === "hot");
+          const cold = tagged.filter(p => p._tone === "cold");
+          if (!hot.length && !cold.length) return "";
+          return `
+            <div class="heat-card">
+              <div class="section-tag">${escapeHtml(teamName)}</div>
+              <h3 style="margin-top:6px;">Lineup Heat Check</h3>
+              <div class="data-copy">${hot.length} hot · ${cold.length} cold · ${tagged.length - hot.length - cold.length} steady</div>
+              <div class="heat-list">
+                ${[...hot, ...cold].map(p => `
+                  <div class="heat-row">
+                    <div class="heat-slot">${escapeHtml(p.lineup_slot ?? "-")}</div>
+                    <div>
+                      <div class="heat-name">${escapeHtml(p.player_name || "Player")}</div>
+                      <div class="heat-meta">Hit prob ${formatPercent(p.predicted_hit_probability)} · BA ${formatBattingAverage(p.batting_avg_season)} · L7 BA ${formatBattingAverage(p.batting_avg_last7)}</div>
+                    </div>
+                    <span class="heat-badge ${p._tone}">${p._tone}</span>
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+          `;
+        });
+        if (!cards.some(c => c)) {
+          section.style.display = "none";
+          return;
+        }
+        section.style.display = "";
+        document.getElementById("hitterHeatGrid").innerHTML = cards.join("");
+      }
+
       function renderSummary(detail) {
         pageState.detail = detail;
         const totals = detail.totals || {};
         const actual = detail.actual_result || {};
         const weather = detail.weather || {};
         const venue = detail.venue || {};
-        document.getElementById("heroEyebrow").textContent = `${formatDateTime(detail.game_start_ts)} · ${detail.status || "Status pending"}`;
-        document.getElementById("heroTitle").textContent = `${detail.away_team} at ${detail.home_team}`;
-        document.getElementById("heroCopy").textContent = `This page keeps the full matchup context in one place: totals prediction, starters, venue/weather, and lineup detail with batting-order slots plus recent hit history, total bases, and home runs.`;
-        document.getElementById("statusValue").textContent = actual.is_final ? `${actual.total_runs ?? "-"} runs` : String(detail.status || "Pending");
-        document.getElementById("statusCopy").textContent = actual.is_final ? `${detail.away_team} ${actual.away_runs ?? "-"}, ${detail.home_team} ${actual.home_runs ?? "-"}` : "Game outcome pending";
-        document.getElementById("venueValue").textContent = escapeHtml(venue.name || "Venue TBD");
-        document.getElementById("venueCopy").textContent = `${formatDateTime(detail.game_start_ts)} · ${[venue.city, venue.state].filter(Boolean).join(", ") || "Location pending"}`;
+        document.getElementById("heroEyebrow").textContent =
+          `${formatDateTime(detail.game_start_ts)} · ${detail.status || "Status pending"}`;
+        document.getElementById("heroTitle").textContent =
+          `${detail.away_team} at ${detail.home_team}`;
+        document.getElementById("heroCopy").textContent =
+          `This page keeps the full matchup context in one place: totals prediction, starters, venue/weather, and lineup detail with batting-order slots plus recent hit history, total bases, and home runs.`;
+        document.getElementById("statusValue").textContent = actual.is_final
+          ? `${actual.total_runs ?? "-"} runs`
+          : String(detail.status || "Pending");
+        document.getElementById("statusCopy").textContent = actual.is_final
+          ? `${detail.away_team} ${actual.away_runs ?? "-"}, ${detail.home_team} ${actual.home_runs ?? "-"}`
+          : "Game outcome pending";
+        document.getElementById("venueValue").textContent = escapeHtml(
+          venue.name || "Venue TBD",
+        );
+        document.getElementById("venueCopy").textContent =
+          `${formatDateTime(detail.game_start_ts)} · ${[venue.city, venue.state].filter(Boolean).join(", ") || "Location pending"}`;
         document.getElementById("summaryGrid").innerHTML = `
           <article class="summary-card"><div class="data-label">Model / Market</div><div class="summary-value">${formatNumber(totals.predicted_total_runs, 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">Edge ${formatNumber(totals.edge, 3)} · ${escapeHtml(totals.model_name || "model")}</div></article>
           <article class="summary-card"><div class="data-label">Expected Runs</div><div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="data-copy">Line move ${formatNumber(totals.line_movement, 2)}</div></article>
-          <article class="summary-card"><div class="data-label">Weather</div><div class="summary-value">${formatNumber(weather.temperature_f, 0)}F</div><div class="data-copy">Wind ${formatNumber(weather.wind_speed_mph, 0)} mph · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}</div></article>
+          <article class="summary-card"><div class="data-label">Weather (Game-Time Est.)</div><div class="summary-value">${formatNumber(weather.temperature_f, 0)}F</div><div class="data-copy">Wind ${formatNumber(weather.wind_speed_mph, 0)} mph ${windDirectionLabel(weather.wind_direction_deg)} · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</div></article>
           <article class="summary-card"><div class="data-label">Lineup Quality</div><div class="summary-value">${formatPercent(totals.away_lineup_k_pct)} / ${formatPercent(totals.home_lineup_k_pct)}</div><div class="data-copy">Away/Home lineup K% vs starters</div></article>
         `;
         document.getElementById("starterGrid").innerHTML = [
-          starterCard(detail.starters?.away, detail.away_team, detail.home_team),
-          starterCard(detail.starters?.home, detail.home_team, detail.away_team),
+          starterCard(
+            detail.starters?.away,
+            detail.away_team,
+            detail.home_team,
+          ),
+          starterCard(
+            detail.starters?.home,
+            detail.home_team,
+            detail.away_team,
+          ),
         ].join("");
         renderLineupPanels(detail);
+        renderFirst5Section(detail);
+        renderPitcherChartsSection(detail);
+        renderHitterHeatSection(detail);
         const notes = [
           `Venue run factor ${formatNumber(totals.venue_run_factor, 2)} and HR factor ${formatNumber(totals.venue_hr_factor, 2)} are already baked into the totals context.`,
-          `Bullpen snapshot: away ${formatNumber(totals.away_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.away_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_runs_allowed_last3, 0)} runs allowed, home ${formatNumber(totals.home_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.home_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_runs_allowed_last3, 0)} runs allowed.`,
-          actual.is_final ? `Final result: ${detail.away_team} ${actual.away_runs ?? "-"}, ${detail.home_team} ${actual.home_runs ?? "-"}.` : `Outcome is still pending for this matchup.`,
+          `Bullpen snapshot: away ${formatNumber(totals.away_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.away_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_runs_allowed_last3, 0)} RA / ${formatNumber(totals.away_bullpen_era_last3, 2)} ERA${totals.away_bullpen_b2b ? " · B2B" : ""}, home ${formatNumber(totals.home_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.home_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_runs_allowed_last3, 0)} RA / ${formatNumber(totals.home_bullpen_era_last3, 2)} ERA${totals.home_bullpen_b2b ? " · B2B" : ""}.`,
+          `Top-5 hitter xwOBA: away ${formatNumber(totals.away_lineup_top5_xwoba, 3)}, home ${formatNumber(totals.home_lineup_top5_xwoba, 3)}. Lineup K%: away ${formatPercent(totals.away_lineup_k_pct)}, home ${formatPercent(totals.home_lineup_k_pct)}.`,
+          `Market total ${formatNumber(totals.market_total, 1)}${totals.market_locked ? ` (locked at ${formatNumber(totals.locked_line_value, 1)} from ${escapeHtml(totals.locked_sportsbook || "sportsbook")})` : ""} · Line movement ${formatNumber(totals.line_movement, 2)}.`,
+          actual.is_final
+            ? `Final result: ${detail.away_team} ${actual.away_runs ?? "-"}, ${detail.home_team} ${actual.home_runs ?? "-"}.`
+            : `Outcome is still pending for this matchup.`,
         ];
-        document.getElementById("notesStack").innerHTML = notes.map((note) => `<div class="data-row"><span class="data-value">${escapeHtml(note)}</span></div>`).join("");
+        document.getElementById("notesStack").innerHTML = notes
+          .map(
+            (note) =>
+              `<div class="data-row"><span class="data-value">${escapeHtml(note)}</span></div>`,
+          )
+          .join("");
       }
 
       async function loadDetail() {
@@ -778,11 +1417,17 @@
         const targetDate = params.get("target_date") || localDateValue();
         const includeInferred = params.get("include_inferred") || "true";
         document.getElementById("targetDate").value = targetDate;
-        document.getElementById("backToBoardLink").href = appUrl(`?target_date=${encodeURIComponent(targetDate)}`);
+        document.getElementById("backToBoardLink").href = appUrl(
+          `?target_date=${encodeURIComponent(targetDate)}`,
+        );
         if (!gameId) {
           throw new Error("Missing game_id in the matchup page URL.");
         }
-        const response = await fetch(appUrl(`api/games/${encodeURIComponent(gameId)}/detail?target_date=${encodeURIComponent(targetDate)}&include_inferred=${encodeURIComponent(includeInferred)}`));
+        const response = await fetch(
+          appUrl(
+            `api/games/${encodeURIComponent(gameId)}/detail?target_date=${encodeURIComponent(targetDate)}&include_inferred=${encodeURIComponent(includeInferred)}`,
+          ),
+        );
         if (!response.ok) {
           throw new Error(`Game detail request failed: ${response.status}`);
         }
@@ -795,36 +1440,51 @@
 
       async function refreshForDate() {
         const params = new URLSearchParams(window.location.search);
-        params.set("target_date", document.getElementById("targetDate").value || localDateValue());
+        params.set(
+          "target_date",
+          document.getElementById("targetDate").value || localDateValue(),
+        );
         window.location.search = params.toString();
       }
 
       applyAppLinks();
-      document.getElementById("targetDate").addEventListener("change", refreshForDate);
-      document.getElementById("lineupGrid").addEventListener("click", (event) => {
-        const filterButton = event.target.closest("[data-history-filter]");
-        if (!filterButton || !pageState.detail) {
-          return;
-        }
-        const playerKey = String(filterButton.dataset.playerKey || "");
-        const filterKey = String(filterButton.dataset.historyFilter || "l15");
-        if (!playerKey) {
-          return;
-        }
-        pageState.historyFilters[playerKey] = filterKey;
-        renderLineupPanels(pageState.detail);
-      });
-      document.getElementById("summaryGrid").innerHTML = '<article class="summary-card loading-card">Loading matchup summary…</article>';
-      document.getElementById("starterGrid").innerHTML = '<article class="starter-card loading-card">Loading starter detail…</article>';
-      document.getElementById("lineupGrid").innerHTML = '<article class="lineup-panel loading-card">Loading lineup detail…</article>';
+      document
+        .getElementById("targetDate")
+        .addEventListener("change", refreshForDate);
+      document
+        .getElementById("lineupGrid")
+        .addEventListener("click", (event) => {
+          const filterButton = event.target.closest("[data-history-filter]");
+          if (!filterButton || !pageState.detail) {
+            return;
+          }
+          const playerKey = String(filterButton.dataset.playerKey || "");
+          const filterKey = String(filterButton.dataset.historyFilter || "l15");
+          if (!playerKey) {
+            return;
+          }
+          pageState.historyFilters[playerKey] = filterKey;
+          renderLineupPanels(pageState.detail);
+        });
+      document.getElementById("summaryGrid").innerHTML =
+        '<article class="summary-card loading-card">Loading matchup summary…</article>';
+      document.getElementById("starterGrid").innerHTML =
+        '<article class="starter-card loading-card">Loading starter detail…</article>';
+      document.getElementById("lineupGrid").innerHTML =
+        '<article class="lineup-panel loading-card">Loading lineup detail…</article>';
       loadDetail().catch((error) => {
-        const message = escapeHtml(error instanceof Error ? error.message : String(error));
-        document.getElementById("heroTitle").textContent = "Matchup detail unavailable";
+        const message = escapeHtml(
+          error instanceof Error ? error.message : String(error),
+        );
+        document.getElementById("heroTitle").textContent =
+          "Matchup detail unavailable";
         document.getElementById("heroCopy").textContent = message;
-        document.getElementById("summaryGrid").innerHTML = `<article class="summary-card loading-card">${message}</article>`;
+        document.getElementById("summaryGrid").innerHTML =
+          `<article class="summary-card loading-card">${message}</article>`;
         document.getElementById("starterGrid").innerHTML = "";
         document.getElementById("lineupGrid").innerHTML = "";
-        document.getElementById("notesStack").innerHTML = `<div class="data-row"><span class="data-value">${message}</span></div>`;
+        document.getElementById("notesStack").innerHTML =
+          `<div class="data-row"><span class="data-value">${message}</span></div>`;
       });
     </script>
   </body>

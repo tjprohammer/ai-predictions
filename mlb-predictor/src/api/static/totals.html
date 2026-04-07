@@ -464,7 +464,9 @@
         text-decoration: none;
         min-width: 0;
         height: 100%;
-        transition: background 140ms ease, transform 140ms ease;
+        transition:
+          background 140ms ease,
+          transform 140ms ease;
       }
 
       .game-card-link:hover {
@@ -896,8 +898,8 @@
               market-backed totals</label
             >
             <label class="checkbox-row"
-              ><input id="hideStartedOnly" type="checkbox" />Hide
-              started games</label
+              ><input id="hideStartedOnly" type="checkbox" />Hide started
+              games</label
             >
           </div>
 
@@ -940,7 +942,9 @@
             <div class="section-tag">First 5</div>
             <h2 id="first5Title">Not wired yet</h2>
           </div>
-          <span class="panel-subtitle" id="first5Subtitle">Full-game totals only for now</span>
+          <span class="panel-subtitle" id="first5Subtitle"
+            >Full-game totals only for now</span
+          >
         </div>
         <div class="data-copy" id="first5Copy">
           First 5 totals are not ingested yet. This page still shows why the
@@ -1102,9 +1106,15 @@
           pitchesLast3: numberOr(totals?.[`${side}_bullpen_pitches_last3`]),
           inningsLast3: numberOr(totals?.[`${side}_bullpen_innings_last3`]),
           b2b: numberOr(totals?.[`${side}_bullpen_b2b`], 0) === 1,
-          runsAllowedLast3: numberOr(totals?.[`${side}_bullpen_runs_allowed_last3`]),
-          earnedRunsLast3: numberOr(totals?.[`${side}_bullpen_earned_runs_last3`]),
-          hitsAllowedLast3: numberOr(totals?.[`${side}_bullpen_hits_allowed_last3`]),
+          runsAllowedLast3: numberOr(
+            totals?.[`${side}_bullpen_runs_allowed_last3`],
+          ),
+          earnedRunsLast3: numberOr(
+            totals?.[`${side}_bullpen_earned_runs_last3`],
+          ),
+          hitsAllowedLast3: numberOr(
+            totals?.[`${side}_bullpen_hits_allowed_last3`],
+          ),
           eraLast3: numberOr(totals?.[`${side}_bullpen_era_last3`]),
         };
       }
@@ -1120,14 +1130,22 @@
             copy: "Recent bullpen run-prevention data is not loaded yet.",
           };
         }
-        if ((era != null && era >= 5.5) || (runsAllowed != null && runsAllowed >= 7) || (hitsAllowed != null && hitsAllowed >= 12)) {
+        if (
+          (era != null && era >= 5.5) ||
+          (runsAllowed != null && runsAllowed >= 7) ||
+          (hitsAllowed != null && hitsAllowed >= 12)
+        ) {
           return {
             label: "Recent prevention slipping",
             tone: "bad",
             copy: "This bullpen has allowed meaningful recent traffic or runs, so late outs look less stable right now.",
           };
         }
-        if ((era != null && era >= 4.0) || (runsAllowed != null && runsAllowed >= 4) || (hitsAllowed != null && hitsAllowed >= 8)) {
+        if (
+          (era != null && era >= 4.0) ||
+          (runsAllowed != null && runsAllowed >= 4) ||
+          (hitsAllowed != null && hitsAllowed >= 8)
+        ) {
           return {
             label: "Recent prevention mixed",
             tone: "warn",
@@ -1152,14 +1170,24 @@
             copy: "No recent bullpen workload loaded",
           };
         }
-        if ((pitches != null && pitches >= 140) || (innings != null && innings >= 12) || (b2b && ((pitches != null && pitches >= 110) || (innings != null && innings >= 9)))) {
+        if (
+          (pitches != null && pitches >= 140) ||
+          (innings != null && innings >= 12) ||
+          (b2b &&
+            ((pitches != null && pitches >= 110) ||
+              (innings != null && innings >= 9)))
+        ) {
           return {
             label: "High recent load",
             tone: "bad",
             copy: "This bullpen has covered a heavy recent workload, which matters most once the starters are out of the game.",
           };
         }
-        if ((pitches != null && pitches >= 90) || (innings != null && innings >= 8) || b2b) {
+        if (
+          (pitches != null && pitches >= 90) ||
+          (innings != null && innings >= 8) ||
+          b2b
+        ) {
           return {
             label: "Moderate recent load",
             tone: "warn",
@@ -1191,7 +1219,10 @@
         const totalRuns = numberOr(record.total_runs);
         const delta = numberOr(record.delta_vs_market);
         const score = `${escapeHtml(team)} ${escapeHtml(record.team_runs ?? "-")}, ${escapeHtml(record.opponent || "TBD")} ${escapeHtml(record.opponent_runs ?? "-")}`;
-        const combinedCopy = totalRuns == null ? "Combined total pending" : `Combined final ${formatNumber(totalRuns, 0)} runs`;
+        const combinedCopy =
+          totalRuns == null
+            ? "Combined total pending"
+            : `Combined final ${formatNumber(totalRuns, 0)} runs`;
         const marketCopy =
           marketTotal == null
             ? "No posted full-game total loaded"
@@ -1330,19 +1361,22 @@
         const market = numberOr(first5.market_total);
         const awayExpected = numberOr(first5.away_expected_runs);
         const homeExpected = numberOr(first5.home_expected_runs);
-        const splitCopy = awayExpected == null || homeExpected == null
-          ? "Starter and lineup context pending"
-          : `Expected split ${formatNumber(awayExpected, 2)} / ${formatNumber(homeExpected, 2)}`;
-        const headline = predicted == null
-          ? "Prediction pending"
-          : market == null
-            ? `Model ${formatNumber(predicted, 2)} | Market pending`
-            : `${formatNumber(predicted, 2)} / ${formatNumber(market, 1)}`;
-        const detail = predicted == null
-          ? `${splitCopy} | Trained first-five pick not available yet`
-          : market == null
-            ? `${splitCopy} | No posted first-five total is loaded for this matchup yet.`
-            : `Delta ${formatSigned(first5.delta_vs_market, 2)} | ${first5.recommended_side ? `${escapeHtml(first5.recommended_side)} call` : "No posted first-five total"}`;
+        const splitCopy =
+          awayExpected == null || homeExpected == null
+            ? "Starter and lineup context pending"
+            : `Expected split ${formatNumber(awayExpected, 2)} / ${formatNumber(homeExpected, 2)}`;
+        const headline =
+          predicted == null
+            ? "Prediction pending"
+            : market == null
+              ? `Model ${formatNumber(predicted, 2)} | Market pending`
+              : `${formatNumber(predicted, 2)} / ${formatNumber(market, 1)}`;
+        const detail =
+          predicted == null
+            ? `${splitCopy} | Trained first-five pick not available yet`
+            : market == null
+              ? `${splitCopy} | No posted first-five total is loaded for this matchup yet.`
+              : `Delta ${formatSigned(first5.delta_vs_market, 2)} | ${first5.recommended_side ? `${escapeHtml(first5.recommended_side)} call` : "No posted first-five total"}`;
         return `
             <article class="summary-card">
               <div class="data-label">First 5 / Market</div>
@@ -1365,7 +1399,9 @@
         };
         const lean = leanSide(totals);
         const leanProb = leanProbability(totals);
-        const matchupHref = appUrl(`game?game_id=${encodeURIComponent(game.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=true`);
+        const matchupHref = appUrl(
+          `game?game_id=${encodeURIComponent(game.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=true`,
+        );
         const awayLoad = bullpenLoad(bullpens.away);
         const homeLoad = bullpenLoad(bullpens.home);
         const awayStarterLine = starters.away
@@ -1398,6 +1434,8 @@
                 <div class="data-row"><span class="data-label">Bullpen Load</span><span class="data-value">${escapeHtml(game.away_team)} ${escapeHtml(awayLoad.label)} / ${escapeHtml(game.home_team)} ${escapeHtml(homeLoad.label)}</span></div>
                 <div class="data-row"><span class="data-label">Outcome</span><span class="data-value">${escapeHtml(outcomeCopy(game))}</span></div>
               </div>
+
+              ${renderFirst5SummaryCard(first5)}
 
               <div class="team-note-grid">
                 <article class="team-note">
@@ -1567,10 +1605,12 @@
         pageStatus.textContent = `Loading ${targetDateInput.value}`;
         try {
           await loadTotalsBoard();
-          const first5MarketBacked = (state.games || []).filter(
-            (game) => Boolean(game.first5_totals?.market_backed),
+          const first5MarketBacked = (state.games || []).filter((game) =>
+            Boolean(game.first5_totals?.market_backed),
           ).length;
-          first5Title.textContent = state.first5Supported ? "Partially wired" : "Not wired yet";
+          first5Title.textContent = state.first5Supported
+            ? "Partially wired"
+            : "Not wired yet";
           first5Subtitle.textContent = state.first5Supported
             ? `${state.summary?.first5_supported_games || 0} game cards have first-five model context · ${first5MarketBacked} have posted first-five totals`
             : "Full-game totals only for now";

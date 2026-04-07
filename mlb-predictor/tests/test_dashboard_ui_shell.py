@@ -63,7 +63,7 @@ def test_matchup_detail_page_exists():
 
     assert 'MLB Predictor Matchup Detail' in html
     assert 'api/games/' in html
-    assert 'runs allowed' in html
+    assert 'Bullpen snapshot' in html
     assert 'Lineup source' in html
     assert 'Projected template lineup' in html
     assert 'Snapshot order' in html

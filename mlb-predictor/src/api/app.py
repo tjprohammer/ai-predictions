@@ -4085,6 +4085,9 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             home_market,
         )
 
+    first5_totals_map = _fetch_first5_totals_map(target_date)
+    detail["first5_totals"] = first5_totals_map.get(int(game_id)) or {"supported": False}
+
     return detail
 
 
