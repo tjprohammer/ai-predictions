@@ -533,6 +533,50 @@ def _format_metric(value: float | None, digits: int = 3) -> str:
     return f"{value:.{digits}f}"
 
 
+def _live_hit_streak(hit_history: list[dict[str, Any]]) -> int:
+    """Compute current consecutive-game hit streak from live batting history.
+
+    ``hit_history`` must be ordered most-recent-first (the default from
+    ``_fetch_recent_hit_history_map``).
+    """
+    streak = 0
+    for entry in hit_history:
+        if int(entry.get("hits") or 0) > 0:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def _overlay_live_batting_stats(
+    record: dict[str, Any],
+    hit_history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Replace potentially-stale feature-payload stats with live values.
+
+    Overrides ``streak_len``, ``streak_len_capped``, ``hit_rate_7``, and
+    ``hit_rate_30`` using the live ``hit_history`` (already fetched from
+    ``player_game_batting`` for display) and the ``games_last7`` /
+    ``hit_games_last7`` columns from the ``recent_batting`` CTE.
+    """
+    if hit_history:
+        live_streak = _live_hit_streak(hit_history)
+        record["streak_len"] = live_streak
+        record["streak_len_capped"] = min(live_streak, 5)
+
+    games_last7 = int(record.get("games_last7") or 0)
+    hit_games_last7 = int(record.get("hit_games_last7") or 0)
+    if games_last7 > 0:
+        record["hit_rate_7"] = hit_games_last7 / games_last7
+
+    # Approximate 30-game hit rate from the full hit_history when available.
+    if hit_history:
+        games_with_hits = sum(1 for e in hit_history if int(e.get("hits") or 0) > 0)
+        record["hit_rate_30"] = games_with_hits / len(hit_history)
+
+    return record
+
+
 def _hitter_heat_score(player: dict[str, Any]) -> float:
     return (
         (_to_float(player.get("hit_rate_7")) or 0.0) * 1.2
@@ -4359,7 +4403,9 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
     for player in lineup_records:
         player.update(_build_hit_actual_meta(player.get("actual_hits"), is_final))
         player_id = player.get("player_id")
-        player["recent_hit_history"] = [] if player_id is None else hit_history_map.get(int(player_id), [])
+        live_history = [] if player_id is None else hit_history_map.get(int(player_id), [])
+        _overlay_live_batting_stats(player, live_history)
+        player["recent_hit_history"] = live_history[:10]
         side = "away" if player["team"] == detail["away_team"] else "home"
         opposing_starter = detail["starters"]["home"] if side == "away" else detail["starters"]["away"]
         _attach_hitter_matchup_context(
@@ -4705,15 +4751,17 @@ def _fetch_hot_hitters(
     hit_history_map = _fetch_recent_hit_history_map(
         target_date,
         [int(record["player_id"]) for record in records if record.get("player_id") is not None],
-        limit=10,
+        limit=30,
     )
 
     all_hot_rows: list[dict[str, Any]] = []
     for record in records:
+        player_id = int(record["player_id"]) if record.get("player_id") is not None else None
+        live_history = [] if player_id is None else hit_history_map.get(player_id, [])
+        _overlay_live_batting_stats(record, live_history)
         form = _classify_hitter_form(record)
         if form["label"] not in {"Hot", "Streaking", "Hitting well"}:
             continue
-        player_id = int(record["player_id"]) if record.get("player_id") is not None else None
         actual_meta = _build_hit_actual_meta(record.get("actual_hits"), _is_final_game_status(record.get("game_status")))
         enriched = _attach_hitter_matchup_context(
             _attach_player_status_context(
@@ -4721,7 +4769,7 @@ def _fetch_hot_hitters(
                 **record,
                 **actual_meta,
                 "form": form,
-                "recent_hit_history": [] if player_id is None else hit_history_map.get(player_id, []),
+                "recent_hit_history": live_history[:10],
             },
                 player_status_map,
             ),
