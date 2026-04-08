@@ -1643,6 +1643,14 @@
                 /></svg></span
             ><span>Daily Results</span></a
           >
+          <a class="nav-link" data-app-link="experiments" href="experiments"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M7 2v2h1v5.17A3 3 0 0 0 5 12v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a3 3 0 0 0-3-3.17V4h1V2H7zm3 2h4v4.5l1.5 1.5H8.5L10 8.5V4z"
+                /></svg></span
+            ><span>Experiments</span></a
+          >
           <a class="nav-link" data-app-link="doctor" href="doctor"
             ><span class="nav-icon" aria-hidden="true"
               ><svg viewBox="0 0 24 24">
@@ -1833,14 +1841,14 @@
                 </dd>
                 <dt>Rebuild Predictions</dt>
                 <dd>
-                  Re-runs feature builds and prediction scoring for the
-                  selected date without re-fetching external data.
+                  Re-runs feature builds and prediction scoring for the selected
+                  date without re-fetching external data.
                 </dd>
                 <dt>Retrain Models</dt>
                 <dd>
-                  Re-trains all four prediction models (totals, first-5,
-                  hits, strikeouts) on current data, then re-scores
-                  predictions for the selected date.
+                  Re-trains all four prediction models (totals, first-5, hits,
+                  strikeouts) on current data, then re-scores predictions for
+                  the selected date.
                 </dd>
                 <dt>Refresh Daily Results</dt>
                 <dd>
@@ -1853,25 +1861,62 @@
                   are already final.
                 </dd>
               </dl>
-              <table class="hint control-note" style="margin-top: 6px; border-collapse: collapse; width: 100%; font-size: inherit;">
+              <table
+                class="hint control-note"
+                style="
+                  margin-top: 6px;
+                  border-collapse: collapse;
+                  width: 100%;
+                  font-size: inherit;
+                "
+              >
                 <thead>
                   <tr>
-                    <th style="text-align: left; padding: 2px 8px 2px 0; border-bottom: 1px solid var(--border, #ccc);">Phase</th>
-                    <th style="text-align: left; padding: 2px 0; border-bottom: 1px solid var(--border, #ccc);">Buttons</th>
+                    <th
+                      style="
+                        text-align: left;
+                        padding: 2px 8px 2px 0;
+                        border-bottom: 1px solid var(--border, #ccc);
+                      "
+                    >
+                      Phase
+                    </th>
+                    <th
+                      style="
+                        text-align: left;
+                        padding: 2px 0;
+                        border-bottom: 1px solid var(--border, #ccc);
+                      "
+                    >
+                      Buttons
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td style="padding: 2px 8px 2px 0; white-space: nowrap;"><strong>Pre-game</strong></td>
-                    <td style="padding: 2px 0;">Refresh Everything → Prepare Slate → Update Lineups &amp; Markets</td>
+                    <td style="padding: 2px 8px 2px 0; white-space: nowrap">
+                      <strong>Pre-game</strong>
+                    </td>
+                    <td style="padding: 2px 0">
+                      Refresh Everything → Prepare Slate → Update Lineups &amp;
+                      Markets
+                    </td>
                   </tr>
                   <tr>
-                    <td style="padding: 2px 8px 2px 0; white-space: nowrap;"><strong>Adjustments</strong></td>
-                    <td style="padding: 2px 0;">Rebuild Predictions → Retrain Models</td>
+                    <td style="padding: 2px 8px 2px 0; white-space: nowrap">
+                      <strong>Adjustments</strong>
+                    </td>
+                    <td style="padding: 2px 0">
+                      Rebuild Predictions → Retrain Models
+                    </td>
                   </tr>
                   <tr>
-                    <td style="padding: 2px 8px 2px 0; white-space: nowrap;"><strong>Post-game</strong></td>
-                    <td style="padding: 2px 0;">Refresh Daily Results → Grade Predictions</td>
+                    <td style="padding: 2px 8px 2px 0; white-space: nowrap">
+                      <strong>Post-game</strong>
+                    </td>
+                    <td style="padding: 2px 0">
+                      Refresh Daily Results → Grade Predictions
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -2258,11 +2303,21 @@
       const activityTitle = document.getElementById("activityTitle");
       const activityDetail = document.getElementById("activityDetail");
       const activityProgress = document.getElementById("activityProgress");
-      const activityProgressBar = document.getElementById("activityProgressBar");
-      const activityProgressFill = document.getElementById("activityProgressFill");
-      const activityProgressLabel = document.getElementById("activityProgressLabel");
-      const activityProgressValue = document.getElementById("activityProgressValue");
-      const activityProgressStep = document.getElementById("activityProgressStep");
+      const activityProgressBar = document.getElementById(
+        "activityProgressBar",
+      );
+      const activityProgressFill = document.getElementById(
+        "activityProgressFill",
+      );
+      const activityProgressLabel = document.getElementById(
+        "activityProgressLabel",
+      );
+      const activityProgressValue = document.getElementById(
+        "activityProgressValue",
+      );
+      const activityProgressStep = document.getElementById(
+        "activityProgressStep",
+      );
       const boardWorkspace = document.getElementById("boardWorkspace");
       const reviewWorkspace = document.getElementById("reviewWorkspace");
       const LINEUP_CONTROLS_STORAGE_KEY = "mlbPredictor.lineupControls.v2";
@@ -2383,47 +2438,38 @@
         "src.ingestors.lineups": "Lineups — import confirmed batting orders",
         "src.ingestors.market_totals": "Markets — import odds & player props",
         "src.ingestors.boxscores": "Box scores — pull final game results",
-        "src.ingestors.player_batting":
-          "Batting logs — pull hitter game stats",
-        "src.ingestors.weather":
-          "Weather — load observed game-time conditions",
+        "src.ingestors.player_batting": "Batting logs — pull hitter game stats",
+        "src.ingestors.weather": "Weather — load observed game-time conditions",
         "src.transforms.offense_daily":
           "Offense trends — refresh team rolling averages",
         "src.transforms.bullpens_daily":
           "Bullpen trends — refresh reliever workloads",
         "src.transforms.freeze_markets":
           "Market snapshot — freeze pregame lines",
-        "src.ingestors.validator":
-          "Validator — check game readiness",
+        "src.ingestors.validator": "Validator — check game readiness",
         "src.ingestors.player_status":
           "Player status — check injuries & roster moves",
-        "src.features.totals_builder":
-          "Features — build full-game totals",
+        "src.features.totals_builder": "Features — build full-game totals",
         "src.features.first5_totals_builder":
           "Features — build first-5-innings totals",
         "src.features.hits_builder": "Features — build hitter profiles",
         "src.features.strikeouts_builder":
           "Features — build pitcher strikeout profiles",
-        "src.models.predict_totals":
-          "Predict — score full-game over/under",
+        "src.models.predict_totals": "Predict — score full-game over/under",
         "src.models.predict_first5_totals":
           "Predict — score first-5-innings over/under",
-        "src.models.predict_hits":
-          "Predict — score hitter hit probabilities",
+        "src.models.predict_hits": "Predict — score hitter hit probabilities",
         "src.models.predict_strikeouts":
           "Predict — score pitcher strikeout props",
         "src.transforms.product_surfaces":
           "Publish — refresh board, results & scorecards",
         "src.transforms.grade_predictions":
           "Grading — evaluate prediction accuracy",
-        "src.models.train_totals":
-          "Train — full-game totals model",
+        "src.models.train_totals": "Train — full-game totals model",
         "src.models.train_first5_totals":
           "Train — first-5-innings totals model",
-        "src.models.train_hits":
-          "Train — hitter props model",
-        "src.models.train_strikeouts":
-          "Train — pitcher strikeout model",
+        "src.models.train_hits": "Train — hitter props model",
+        "src.models.train_strikeouts": "Train — pitcher strikeout model",
       };
 
       function humanizeUpdateStep(stepName) {
@@ -2653,8 +2699,25 @@
 
       function windCardinal(deg) {
         if (deg == null) return "";
-        const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
-        return dirs[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+        const dirs = [
+          "N",
+          "NNE",
+          "NE",
+          "ENE",
+          "E",
+          "ESE",
+          "SE",
+          "SSE",
+          "S",
+          "SSW",
+          "SW",
+          "WSW",
+          "W",
+          "WNW",
+          "NW",
+          "NNW",
+        ];
+        return dirs[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
       }
 
       function windLabel(weather, roofType) {
@@ -2664,7 +2727,9 @@
         const isDome = roofType && /dome|retractable|closed/i.test(roofType);
         if (isDome) return `${formatNumber(speed, 0)} mph (dome)`;
         const cardinal = windCardinal(deg);
-        return cardinal ? `${formatNumber(speed, 0)} mph ${cardinal}` : `${formatNumber(speed, 0)} mph`;
+        return cardinal
+          ? `${formatNumber(speed, 0)} mph ${cardinal}`
+          : `${formatNumber(speed, 0)} mph`;
       }
 
       function formatBattingAverage(value) {
@@ -2780,10 +2845,13 @@
       }
 
       function playerAvailabilityMeta(player) {
-        const description = String(player.roster_status_description || "").trim();
+        const description = String(
+          player.roster_status_description || "",
+        ).trim();
         const note = String(player.roster_status_note || "").trim();
         if (player.is_available === false) {
-          const label = description || (player.is_injured ? "Injured" : "Unavailable");
+          const label =
+            description || (player.is_injured ? "Injured" : "Unavailable");
           return {
             tone: "warn",
             label,
@@ -3821,11 +3889,20 @@
 
       function renderLateBullpenBadge(game) {
         const totals = game.totals || {};
-        const awaySnapshot = lateBullpenSnapshot(game.away_team, totals, "away");
-        const homeSnapshot = lateBullpenSnapshot(game.home_team, totals, "home");
+        const awaySnapshot = lateBullpenSnapshot(
+          game.away_team,
+          totals,
+          "away",
+        );
+        const homeSnapshot = lateBullpenSnapshot(
+          game.home_team,
+          totals,
+          "home",
+        );
         const awayScore = lateBullpenRiskScore(awaySnapshot);
         const homeScore = lateBullpenRiskScore(homeSnapshot);
-        const riskiestSnapshot = awayScore >= homeScore ? awaySnapshot : homeSnapshot;
+        const riskiestSnapshot =
+          awayScore >= homeScore ? awaySnapshot : homeSnapshot;
         const meta = lateBullpenRiskMeta(riskiestSnapshot);
         return `<span class="chip ${meta.tone}" title="${escapeHtml(meta.detail)}">${escapeHtml(meta.short)}</span>`;
       }
@@ -3853,7 +3930,12 @@
         if (key === "inferred") {
           return { key, label: "Inferred", tone: "warn", icon: "I" };
         }
-        return { key: "projected", label: "Projected", tone: "warn", icon: "P" };
+        return {
+          key: "projected",
+          label: "Projected",
+          tone: "warn",
+          icon: "P",
+        };
       }
 
       function playerLineupStateMeta(player) {
@@ -3891,7 +3973,9 @@
         players.forEach((player) => {
           counts[playerLineupStateMeta(player).key] += 1;
         });
-        const activeStates = Object.entries(counts).filter(([, count]) => count > 0);
+        const activeStates = Object.entries(counts).filter(
+          ([, count]) => count > 0,
+        );
         if (activeStates.length === 1) {
           const [key, count] = activeStates[0];
           const meta = lineupStateMeta(key);
@@ -4355,8 +4439,7 @@
           pred != null
             ? `${formatNumber(pred, 2)}${mkt != null ? ` / ${formatNumber(mkt, 1)}` : ""}`
             : "-";
-        const delta =
-          pred != null && mkt != null ? pred - mkt : null;
+        const delta = pred != null && mkt != null ? pred - mkt : null;
         const copy =
           delta != null
             ? `Delta ${formatTrend(delta)}`
@@ -4817,13 +4900,27 @@
         const board = dq.board_state ? ` · ${dq.board_state}` : "";
         const cert = game.certainty || {};
         const breakdown = [
-          cert.starter_certainty != null ? `Starter ${Math.round(cert.starter_certainty * 100)}%` : null,
-          cert.lineup_certainty != null ? `Lineup ${Math.round(cert.lineup_certainty * 100)}%` : null,
-          cert.weather_freshness != null ? `Weather ${Math.round(cert.weather_freshness * 100)}%` : null,
-          cert.market_freshness != null ? `Market ${Math.round(cert.market_freshness * 100)}%` : null,
-          cert.bullpen_completeness != null ? `Bullpen ${Math.round(cert.bullpen_completeness * 100)}%` : null,
-        ].filter(Boolean).join(" | ");
-        const tip = breakdown ? `${dq.badge_reason}\n\nCertainty: ${pct}%${board}\n${breakdown}` : dq.badge_reason;
+          cert.starter_certainty != null
+            ? `Starter ${Math.round(cert.starter_certainty * 100)}%`
+            : null,
+          cert.lineup_certainty != null
+            ? `Lineup ${Math.round(cert.lineup_certainty * 100)}%`
+            : null,
+          cert.weather_freshness != null
+            ? `Weather ${Math.round(cert.weather_freshness * 100)}%`
+            : null,
+          cert.market_freshness != null
+            ? `Market ${Math.round(cert.market_freshness * 100)}%`
+            : null,
+          cert.bullpen_completeness != null
+            ? `Bullpen ${Math.round(cert.bullpen_completeness * 100)}%`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" | ");
+        const tip = breakdown
+          ? `${dq.badge_reason}\n\nCertainty: ${pct}%${board}\n${breakdown}`
+          : dq.badge_reason;
         return `${dot}<span class="certainty-chip cert-${tier}" title="${tip}"><span class="cert-bar"><span class="cert-fill" style="width:${pct}%"></span></span>${pct}%</span>`;
       }
 
@@ -4847,7 +4944,9 @@
           totals.market_total == null || totals.predicted_total_runs == null
             ? null
             : Number(totals.predicted_total_runs) - Number(totals.market_total);
-        const matchupHref = appUrl(`game?game_id=${encodeURIComponent(game.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`);
+        const matchupHref = appUrl(
+          `game?game_id=${encodeURIComponent(game.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`,
+        );
         return `
         <article class="game-card">
           <a class="game-toggle" href="${matchupHref}">
@@ -4910,7 +5009,9 @@
       function dashboardViewMeta(view) {
         const summary = state.boardSummary || {};
         const finalGames = Number(summary.final_games || 0);
-        const totalGames = Number(summary.total_games || state.games.length || 0);
+        const totalGames = Number(
+          summary.total_games || state.games.length || 0,
+        );
         if (view === "review") {
           return {
             tag: "Review Workspace",
@@ -4940,14 +5041,12 @@
         document.getElementById("dashboardViewTitle").textContent = meta.title;
         document.getElementById("dashboardViewMeta").textContent = meta.meta;
         document.getElementById("dashboardViewCopy").textContent = meta.copy;
-        document
-          .querySelectorAll("[data-dashboard-view]")
-          .forEach((button) => {
-            button.classList.toggle(
-              "active",
-              button.dataset.dashboardView === view,
-            );
-          });
+        document.querySelectorAll("[data-dashboard-view]").forEach((button) => {
+          button.classList.toggle(
+            "active",
+            button.dataset.dashboardView === view,
+          );
+        });
       }
 
       function setDashboardView(view, { persist = true } = {}) {
@@ -5187,7 +5286,12 @@
         if (step.stderr) {
           const meaningful = step.stderr
             .split("\n")
-            .filter((l) => l.includes("INFO") || l.includes("WARNING") || l.includes("ERROR"))
+            .filter(
+              (l) =>
+                l.includes("INFO") ||
+                l.includes("WARNING") ||
+                l.includes("ERROR"),
+            )
             .map((l) => l.replace(/^.*?\| (INFO|WARNING|ERROR) \| \S+ \| /, ""))
             .join("\n");
           if (meaningful) {
@@ -5255,10 +5359,7 @@
           lines.push(`\u26a0  ${job.error}`);
         }
         if ((job.steps || []).length) {
-          lines.push(
-            "\u2500".repeat(48),
-            ...job.steps.map(formatStepLog),
-          );
+          lines.push("\u2500".repeat(48), ...job.steps.map(formatStepLog));
         }
         return lines.join("\n\n");
       }
@@ -5451,7 +5552,6 @@
           renderGames();
           return;
         }
-
       });
 
       gamesBoard.addEventListener("change", (event) => {
@@ -5477,7 +5577,9 @@
           "[data-dashboard-view]",
         );
         if (dashboardViewButton) {
-          setDashboardView(dashboardViewButton.dataset.dashboardView || "board");
+          setDashboardView(
+            dashboardViewButton.dataset.dashboardView || "board",
+          );
           return;
         }
 

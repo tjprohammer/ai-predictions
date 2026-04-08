@@ -843,6 +843,14 @@
                 /></svg></span
             ><span>Daily Results</span></a
           >
+          <a class="nav-link" data-app-link="experiments" href="experiments"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M7 2v2h1v5.17A3 3 0 0 0 5 12v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a3 3 0 0 0-3-3.17V4h1V2H7zm3 2h4v4.5l1.5 1.5H8.5L10 8.5V4z"
+                /></svg></span
+            ><span>Experiments</span></a
+          >
         </div>
       </nav>
 
@@ -1290,7 +1298,8 @@
         const homeSnapshot = bullpenSnapshot(game.home_team, totals, "home");
         const awayScore = lateBullpenRiskScore(awaySnapshot);
         const homeScore = lateBullpenRiskScore(homeSnapshot);
-        const riskiestSnapshot = awayScore >= homeScore ? awaySnapshot : homeSnapshot;
+        const riskiestSnapshot =
+          awayScore >= homeScore ? awaySnapshot : homeSnapshot;
         const quality = bullpenLateQuality(riskiestSnapshot);
         if (Math.max(awayScore, homeScore) < 0) {
           return {
@@ -1536,7 +1545,7 @@
 
             <div class="game-card-body">
               <div class="game-card-glance">
-                <div class="data-row"><span class="data-label">Model / Market</span><span class="data-value">${formatNumber(totals.predicted_total_runs, 2)} / ${formatNumber(totals.market_total, 1)}</span></div>
+                <div class="data-row"><span class="data-label">Model / Market</span><span class="data-value">${totals.predicted_total_fundamentals != null ? `<span class="tiny-label" title="Fundamentals-only prediction (no market input)">F</span> ${formatNumber(totals.predicted_total_fundamentals, 2)} · ` : ""}${formatNumber(totals.predicted_total_runs, 2)} / ${formatNumber(totals.market_total, 1)}</span></div>
                 <div class="data-row"><span class="data-label">Lean</span><span class="data-value">${leanProb == null ? escapeHtml(lean) : `${escapeHtml(lean)} · ${formatPercent(leanProb, 1)}`}</span></div>
                 <div class="data-row"><span class="data-label">Expected Runs</span><span class="data-value">${escapeHtml(game.away_team)} ${formatNumber(totals.away_expected_runs, 1)} / ${escapeHtml(game.home_team)} ${formatNumber(totals.home_expected_runs, 1)}</span></div>
                 <div class="data-row"><span class="data-label">Weather / Park</span><span class="data-value">${formatNumber(weather.temperature_f, 0)}F · Wind ${formatNumber(weather.wind_speed_mph, 0)} mph · Park ${formatNumber(totals.venue_run_factor, 2)}</span></div>

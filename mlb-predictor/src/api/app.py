@@ -58,6 +58,7 @@ RESULTS_FILE = STATIC_DIR / "results.html"
 TOTALS_FILE = STATIC_DIR / "totals.html"
 GAME_FILE = STATIC_DIR / "game.html"
 DOCTOR_FILE = STATIC_DIR / "doctor.html"
+EXPERIMENTS_FILE = STATIC_DIR / "experiments.html"
 FAVICON_FILE = STATIC_DIR / "favicon.svg"
 UPDATE_MODULE_MAINS = {
     "src.ingestors.games": ingest_games_main,
@@ -1169,6 +1170,7 @@ def _fetch_pitcher_strikeout_prediction_map(
             p.model_name,
             p.model_version,
             p.predicted_strikeouts,
+            p.predicted_strikeouts_fundamentals,
             p.over_probability,
             p.under_probability,
             p.market_line,
@@ -1195,6 +1197,7 @@ def _fetch_pitcher_strikeout_prediction_map(
             "model_name": row.get("model_name"),
             "model_version": row.get("model_version"),
             "projected_strikeouts": row.get("predicted_strikeouts"),
+            "projected_strikeouts_fundamentals": row.get("predicted_strikeouts_fundamentals"),
             "baseline_strikeouts": row.get("baseline_strikeouts"),
             "season_context": {
                 "starts": row.get("season_starts"),
@@ -1796,6 +1799,7 @@ def _fetch_totals_predictions(target_date: date) -> list[dict[str, Any]]:
             r.model_version,
             r.prediction_ts,
             r.predicted_total_runs,
+            r.predicted_total_fundamentals,
             r.market_total,
             r.over_probability,
             r.under_probability,
@@ -2331,6 +2335,7 @@ def _fetch_game_board(
                 "model_version": record["model_version"],
                 "prediction_ts": record["prediction_ts"],
                 "predicted_total_runs": record["predicted_total_runs"],
+                "predicted_total_fundamentals": record.get("predicted_total_fundamentals"),
                 "market_total": record["market_total"],
                 "over_probability": record["over_probability"],
                 "under_probability": record["under_probability"],
@@ -4253,6 +4258,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             "model_version": game["model_version"],
             "prediction_ts": game["prediction_ts"],
             "predicted_total_runs": game["predicted_total_runs"],
+            "predicted_total_fundamentals": game.get("predicted_total_fundamentals"),
             "market_total": game["market_total"],
             "market_locked": bool(total_freeze),
             "locked_sportsbook": total_freeze.get("frozen_sportsbook"),
@@ -4964,6 +4970,269 @@ def _summarize_category(rows: list[dict[str, Any]], *, result_key: str = "result
     return summary
 
 
+def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[str, Any]:
+    """Compare fundamentals-only vs market-calibrated vs market line accuracy."""
+    from datetime import timedelta
+
+    start_date = target_date - timedelta(days=window_days - 1)
+    totals_daily: list[dict[str, Any]] = []
+    strikeouts_daily: list[dict[str, Any]] = []
+
+    if _table_exists("predictions_totals") and _table_exists("games"):
+        frame = _safe_frame(
+            """
+            WITH ranked AS (
+                SELECT p.*, ROW_NUMBER() OVER (
+                    PARTITION BY p.game_id ORDER BY p.prediction_ts DESC
+                ) AS rn
+                FROM predictions_totals p
+                WHERE p.game_date BETWEEN :start_date AND :end_date
+            )
+            SELECT
+                p.game_date,
+                p.predicted_total_runs,
+                p.predicted_total_fundamentals,
+                p.market_total,
+                g.total_runs AS actual
+            FROM ranked p
+            INNER JOIN games g ON g.game_id = p.game_id AND g.game_date = p.game_date
+            WHERE p.rn = 1
+              AND g.total_runs IS NOT NULL
+            ORDER BY p.game_date
+            """,
+            {"start_date": start_date, "end_date": target_date},
+        )
+        by_date: dict[str, list[dict]] = {}
+        for row in _frame_records(frame):
+            d = str(row.get("game_date", ""))[:10]
+            by_date.setdefault(d, []).append(row)
+        for d in sorted(by_date):
+            rows = by_date[d]
+            cal_errors, fund_errors, mkt_errors = [], [], []
+            cal_preds, fund_preds, mkt_preds, actuals = [], [], [], []
+            for r in rows:
+                actual = _to_float(r.get("actual"))
+                cal = _to_float(r.get("predicted_total_runs"))
+                fund = _to_float(r.get("predicted_total_fundamentals"))
+                mkt = _to_float(r.get("market_total"))
+                if actual is not None:
+                    actuals.append(actual)
+                if cal is not None:
+                    cal_preds.append(cal)
+                if fund is not None:
+                    fund_preds.append(fund)
+                if mkt is not None:
+                    mkt_preds.append(mkt)
+                if actual is not None and cal is not None:
+                    cal_errors.append(abs(actual - cal))
+                if actual is not None and fund is not None:
+                    fund_errors.append(abs(actual - fund))
+                if actual is not None and mkt is not None:
+                    mkt_errors.append(abs(actual - mkt))
+            totals_daily.append({
+                "date": d,
+                "games": len(rows),
+                "actual_avg": round(sum(actuals) / len(actuals), 2) if actuals else None,
+                "calibrated_mae": round(sum(cal_errors) / len(cal_errors), 3) if cal_errors else None,
+                "fundamentals_mae": round(sum(fund_errors) / len(fund_errors), 3) if fund_errors else None,
+                "market_mae": round(sum(mkt_errors) / len(mkt_errors), 3) if mkt_errors else None,
+                "calibrated_avg": round(sum(cal_preds) / len(cal_preds), 2) if cal_preds else None,
+                "fundamentals_avg": round(sum(fund_preds) / len(fund_preds), 2) if fund_preds else None,
+                "market_avg": round(sum(mkt_preds) / len(mkt_preds), 2) if mkt_preds else None,
+            })
+
+    if _table_exists("predictions_pitcher_strikeouts") and _table_exists("pitcher_starts"):
+        frame = _safe_frame(
+            """
+            WITH ranked AS (
+                SELECT p.*, ROW_NUMBER() OVER (
+                    PARTITION BY p.game_id, p.pitcher_id ORDER BY p.prediction_ts DESC
+                ) AS rn
+                FROM predictions_pitcher_strikeouts p
+                WHERE p.game_date BETWEEN :start_date AND :end_date
+            )
+            SELECT
+                p.game_date,
+                p.predicted_strikeouts,
+                p.predicted_strikeouts_fundamentals,
+                p.market_line,
+                ps.strikeouts AS actual
+            FROM ranked p
+            INNER JOIN pitcher_starts ps
+                ON ps.game_id = p.game_id AND ps.pitcher_id = p.pitcher_id AND ps.game_date = p.game_date
+            WHERE p.rn = 1
+              AND ps.strikeouts IS NOT NULL
+            ORDER BY p.game_date
+            """,
+            {"start_date": start_date, "end_date": target_date},
+        )
+        by_date_k: dict[str, list[dict]] = {}
+        for row in _frame_records(frame):
+            d = str(row.get("game_date", ""))[:10]
+            by_date_k.setdefault(d, []).append(row)
+        for d in sorted(by_date_k):
+            rows = by_date_k[d]
+            cal_errors, fund_errors, mkt_errors = [], [], []
+            cal_preds, fund_preds, mkt_preds, actuals = [], [], [], []
+            for r in rows:
+                actual = _to_float(r.get("actual"))
+                cal = _to_float(r.get("predicted_strikeouts"))
+                fund = _to_float(r.get("predicted_strikeouts_fundamentals"))
+                mkt = _to_float(r.get("market_line"))
+                if actual is not None:
+                    actuals.append(actual)
+                if cal is not None:
+                    cal_preds.append(cal)
+                if fund is not None:
+                    fund_preds.append(fund)
+                if mkt is not None:
+                    mkt_preds.append(mkt)
+                if actual is not None and cal is not None:
+                    cal_errors.append(abs(actual - cal))
+                if actual is not None and fund is not None:
+                    fund_errors.append(abs(actual - fund))
+                if actual is not None and mkt is not None:
+                    mkt_errors.append(abs(actual - mkt))
+            strikeouts_daily.append({
+                "date": d,
+                "pitchers": len(rows),
+                "actual_avg": round(sum(actuals) / len(actuals), 2) if actuals else None,
+                "calibrated_mae": round(sum(cal_errors) / len(cal_errors), 3) if cal_errors else None,
+                "fundamentals_mae": round(sum(fund_errors) / len(fund_errors), 3) if fund_errors else None,
+                "market_mae": round(sum(mkt_errors) / len(mkt_errors), 3) if mkt_errors else None,
+                "calibrated_avg": round(sum(cal_preds) / len(cal_preds), 2) if cal_preds else None,
+                "fundamentals_avg": round(sum(fund_preds) / len(fund_preds), 2) if fund_preds else None,
+                "market_avg": round(sum(mkt_preds) / len(mkt_preds), 2) if mkt_preds else None,
+            })
+
+    def _agg(daily: list[dict], count_key: str) -> dict[str, Any]:
+        total_count = sum(d.get(count_key, 0) for d in daily)
+        actual_vals = [d["actual_avg"] for d in daily if d.get("actual_avg") is not None]
+        cal_vals = [d["calibrated_mae"] for d in daily if d.get("calibrated_mae") is not None]
+        fund_vals = [d["fundamentals_mae"] for d in daily if d.get("fundamentals_mae") is not None]
+        mkt_vals = [d["market_mae"] for d in daily if d.get("market_mae") is not None]
+        cal_avgs = [d["calibrated_avg"] for d in daily if d.get("calibrated_avg") is not None]
+        fund_avgs = [d["fundamentals_avg"] for d in daily if d.get("fundamentals_avg") is not None]
+        mkt_avgs = [d["market_avg"] for d in daily if d.get("market_avg") is not None]
+        return {
+            "days": len(daily),
+            "total_count": total_count,
+            "actual_avg": round(sum(actual_vals) / len(actual_vals), 2) if actual_vals else None,
+            "calibrated_mae": round(sum(cal_vals) / len(cal_vals), 3) if cal_vals else None,
+            "fundamentals_mae": round(sum(fund_vals) / len(fund_vals), 3) if fund_vals else None,
+            "market_mae": round(sum(mkt_vals) / len(mkt_vals), 3) if mkt_vals else None,
+            "calibrated_avg": round(sum(cal_avgs) / len(cal_avgs), 2) if cal_avgs else None,
+            "fundamentals_avg": round(sum(fund_avgs) / len(fund_avgs), 2) if fund_avgs else None,
+            "market_avg": round(sum(mkt_avgs) / len(mkt_avgs), 2) if mkt_avgs else None,
+        }
+
+    return {
+        "target_date": target_date.isoformat(),
+        "window_days": window_days,
+        "start_date": start_date.isoformat(),
+        "totals": {"daily": totals_daily, "aggregate": _agg(totals_daily, "games")},
+        "strikeouts": {"daily": strikeouts_daily, "aggregate": _agg(strikeouts_daily, "pitchers")},
+    }
+
+
+def _fetch_experiment_daily_detail(target_date: date) -> dict[str, Any]:
+    """Per-game detail for a single date: totals + strikeouts."""
+    totals_games: list[dict[str, Any]] = []
+    strikeouts_games: list[dict[str, Any]] = []
+
+    if _table_exists("predictions_totals") and _table_exists("games"):
+        frame = _safe_frame(
+            """
+            WITH ranked AS (
+                SELECT p.*, ROW_NUMBER() OVER (
+                    PARTITION BY p.game_id ORDER BY p.prediction_ts DESC
+                ) AS rn
+                FROM predictions_totals p
+                WHERE p.game_date = :target_date
+            )
+            SELECT
+                p.game_id,
+                g.away_team || ' @ ' || g.home_team AS matchup,
+                p.predicted_total_runs   AS calibrated,
+                p.predicted_total_fundamentals AS fundamentals,
+                p.market_total           AS market,
+                g.total_runs             AS actual
+            FROM ranked p
+            INNER JOIN games g ON g.game_id = p.game_id AND g.game_date = p.game_date
+            WHERE p.rn = 1
+            ORDER BY g.away_team
+            """,
+            {"target_date": target_date},
+        )
+        for r in _frame_records(frame):
+            actual = _to_float(r.get("actual"))
+            cal = _to_float(r.get("calibrated"))
+            fund = _to_float(r.get("fundamentals"))
+            mkt = _to_float(r.get("market"))
+            totals_games.append({
+                "game_id": r.get("game_id"),
+                "matchup": r.get("matchup", ""),
+                "calibrated": round(cal, 2) if cal is not None else None,
+                "fundamentals": round(fund, 2) if fund is not None else None,
+                "market": round(mkt, 2) if mkt is not None else None,
+                "actual": int(actual) if actual is not None else None,
+                "cal_error": round(abs(actual - cal), 2) if actual is not None and cal is not None else None,
+                "fund_error": round(abs(actual - fund), 2) if actual is not None and fund is not None else None,
+                "mkt_error": round(abs(actual - mkt), 2) if actual is not None and mkt is not None else None,
+            })
+
+    if _table_exists("predictions_pitcher_strikeouts") and _table_exists("pitcher_starts"):
+        frame = _safe_frame(
+            """
+            WITH ranked AS (
+                SELECT p.*, ROW_NUMBER() OVER (
+                    PARTITION BY p.game_id, p.pitcher_id ORDER BY p.prediction_ts DESC
+                ) AS rn
+                FROM predictions_pitcher_strikeouts p
+                WHERE p.game_date = :target_date
+            )
+            SELECT
+                p.game_id,
+                COALESCE(dp.full_name, 'ID ' || p.pitcher_id) AS pitcher_name,
+                p.team,
+                p.predicted_strikeouts         AS calibrated,
+                p.predicted_strikeouts_fundamentals AS fundamentals,
+                p.market_line                  AS market,
+                ps.strikeouts                  AS actual
+            FROM ranked p
+            LEFT JOIN dim_players dp ON dp.player_id = p.pitcher_id
+            LEFT JOIN pitcher_starts ps
+                ON ps.game_id = p.game_id AND ps.pitcher_id = p.pitcher_id AND ps.game_date = p.game_date
+            WHERE p.rn = 1
+            ORDER BY p.team, pitcher_name
+            """,
+            {"target_date": target_date},
+        )
+        for r in _frame_records(frame):
+            actual = _to_float(r.get("actual"))
+            cal = _to_float(r.get("calibrated"))
+            fund = _to_float(r.get("fundamentals"))
+            mkt = _to_float(r.get("market"))
+            strikeouts_games.append({
+                "game_id": r.get("game_id"),
+                "pitcher": r.get("pitcher_name", ""),
+                "team": r.get("team", ""),
+                "calibrated": round(cal, 2) if cal is not None else None,
+                "fundamentals": round(fund, 2) if fund is not None else None,
+                "market": round(mkt, 2) if mkt is not None else None,
+                "actual": int(actual) if actual is not None else None,
+                "cal_error": round(abs(actual - cal), 2) if actual is not None and cal is not None else None,
+                "fund_error": round(abs(actual - fund), 2) if actual is not None and fund is not None else None,
+                "mkt_error": round(abs(actual - mkt), 2) if actual is not None and mkt is not None else None,
+            })
+
+    return {
+        "target_date": target_date.isoformat(),
+        "totals": totals_games,
+        "strikeouts": strikeouts_games,
+    }
+
+
 def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) -> dict[str, Any]:
     totals_rows: list[dict[str, Any]] = []
     hitter_rows: list[dict[str, Any]] = []
@@ -4990,6 +5259,7 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
                 g.away_team,
                 g.home_team,
                 p.predicted_total_runs,
+                p.predicted_total_fundamentals,
                 p.market_total,
                 p.over_probability,
                 p.under_probability,
@@ -5021,6 +5291,7 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
                     "away_team": row.get("away_team"),
                     "home_team": row.get("home_team"),
                     "predicted_total_runs": row.get("predicted_total_runs"),
+                    "predicted_total_fundamentals": row.get("predicted_total_fundamentals"),
                     "market_total": row.get("market_total"),
                     "over_probability": row.get("over_probability"),
                     "under_probability": row.get("under_probability"),
@@ -5157,6 +5428,7 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
                     ELSE NULL
                 END AS opponent,
                 p.predicted_strikeouts,
+                p.predicted_strikeouts_fundamentals,
                 p.market_line,
                 p.over_probability,
                 p.under_probability,
@@ -5192,6 +5464,7 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
                     "team": row.get("team"),
                     "opponent": row.get("opponent"),
                     "predicted_strikeouts": row.get("predicted_strikeouts"),
+                    "predicted_strikeouts_fundamentals": row.get("predicted_strikeouts_fundamentals"),
                     "market_line": row.get("market_line"),
                     "over_probability": row.get("over_probability"),
                     "under_probability": row.get("under_probability"),
@@ -5745,6 +6018,12 @@ def doctor_page() -> FileResponse:
     return _html_file_response(DOCTOR_FILE)
 
 
+@app.get("/experiments/")
+@app.get("/experiments")
+def experiments_page() -> FileResponse:
+    return _html_file_response(EXPERIMENTS_FILE)
+
+
 @app.get("/totals/")
 @app.get("/totals")
 def totals_page() -> FileResponse:
@@ -5831,6 +6110,21 @@ def daily_results(
             **_fetch_daily_results(target_date, hit_min_probability),
         }
     )
+
+
+@app.get("/api/experiments/summary")
+def experiments_summary(
+    window_days: int = Query(default=14, ge=1, le=90),
+    target_date: date = Query(default_factory=date.today),
+) -> JSONResponse:
+    return _json_response(_fetch_experiment_summary(target_date, window_days))
+
+
+@app.get("/api/experiments/daily-detail")
+def experiments_daily_detail(
+    target_date: date = Query(...),
+) -> JSONResponse:
+    return _json_response(_fetch_experiment_daily_detail(target_date))
 
 
 @app.get("/api/model-scorecards")

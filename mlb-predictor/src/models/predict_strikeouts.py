@@ -137,6 +137,9 @@ def main() -> int:
         predictions = isotonic_calibrator.predict(predictions)
         log.info("Applied isotonic correction to %d predictions", len(predictions))
 
+    # Fundamentals-only predictions: post-isotonic but pre-market-calibration
+    fundamentals_predictions = predictions.copy()
+
     # --- Apply market calibration where market lines are available ---
     market_calibrator = artifact.get("market_calibrator")
     residual_std = max(float(artifact.get("residual_std", 1.0)), 1.0)
@@ -162,8 +165,8 @@ def main() -> int:
 
     rows = []
     missing_market_lines = 0
-    for row, predicted_strikeouts, market_line_val in zip(
-        scoring.itertuples(index=False), predictions, market_lines_series
+    for row, predicted_strikeouts, fundamentals_val, market_line_val in zip(
+        scoring.itertuples(index=False), predictions, fundamentals_predictions, market_lines_series
     ):
         market_line = None if pd.isna(market_line_val) else float(market_line_val)
         over_probability = None
@@ -187,6 +190,7 @@ def main() -> int:
                 "model_name": artifact["model_name"],
                 "model_version": artifact["model_version"],
                 "predicted_strikeouts": float(predicted_strikeouts),
+                "predicted_strikeouts_fundamentals": float(fundamentals_val),
                 "over_probability": over_probability,
                 "under_probability": under_probability,
                 "market_line": market_line,

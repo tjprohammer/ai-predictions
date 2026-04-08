@@ -52,6 +52,14 @@ def _load_frames(start_date, end_date, settings):
             """,
             {"start_date": start_date, "end_date": end_date},
         ),
+        "games_history": query_df(
+            """
+            SELECT game_id, game_date, home_team, away_team, venue_id
+            FROM games
+            WHERE game_date >= :prior_start AND game_date <= :end_date
+            """,
+            {"prior_start": prior_start, "end_date": end_date},
+        ),
         "pitcher_starts": query_df(
             """
             SELECT *
@@ -268,6 +276,112 @@ def _latest_prop_market_snapshot(game_id: int, pitcher_id: int, cutoff_ts, prop_
     }
 
 
+# ---------------------------------------------------------------------------
+# New differentiation features (experiment branch)
+# ---------------------------------------------------------------------------
+
+def _pitcher_vs_team_k_rate(
+    pitcher_id: int,
+    opponent: str,
+    game_date,
+    pitcher_starts: pd.DataFrame,
+    games_history: pd.DataFrame,
+) -> float | None:
+    """Historical K/start for this pitcher against this specific opponent."""
+    history = pitcher_starts[
+        (pitcher_starts["pitcher_id"] == pitcher_id)
+        & (pitcher_starts["game_date"].dt.date < game_date)
+    ].copy()
+    if history.empty:
+        return None
+    # Join with games_history to determine the opponent for each start
+    merged = history.merge(
+        games_history[["game_id", "home_team", "away_team"]],
+        on="game_id",
+        how="left",
+    )
+    # Determine opponent: if pitcher's team is home_team → opponent is away_team, else home_team
+    merged["opponent_team"] = np.where(
+        merged["team"] == merged["home_team"],
+        merged["away_team"],
+        merged["home_team"],
+    )
+    vs_team = merged[merged["opponent_team"] == opponent]
+    if vs_team.empty:
+        return None
+    k_vals = pd.to_numeric(vs_team["strikeouts"], errors="coerce").dropna()
+    if k_vals.empty:
+        return None
+    return float(k_vals.mean())
+
+
+def _opponent_lineup_k_pct_recent(
+    opponent_lineup: pd.DataFrame,
+    player_batting: pd.DataFrame,
+    game_date,
+    lookback_games: int = 7,
+) -> float | None:
+    """Average K% of opponent's lineup batters over their recent games."""
+    if opponent_lineup.empty:
+        return None
+    batter_ids = opponent_lineup["player_id"].dropna().unique()
+    if len(batter_ids) == 0:
+        return None
+    batting = player_batting[
+        (player_batting["player_id"].isin(batter_ids))
+        & (player_batting["game_date"].dt.date < game_date)
+    ].copy()
+    if batting.empty:
+        return None
+    # Take each batter's most recent N games
+    batting = batting.sort_values("game_date")
+    recent = batting.groupby("player_id").tail(lookback_games)
+    total_k = pd.to_numeric(recent["strikeouts"], errors="coerce").fillna(0).sum()
+    total_pa = pd.to_numeric(recent["plate_appearances"], errors="coerce").fillna(0).sum()
+    if total_pa <= 0:
+        return None
+    return float(total_k) / float(total_pa)
+
+
+def _venue_k_factor(
+    venue_id: int | None,
+    game_date,
+    pitcher_starts: pd.DataFrame,
+    games_history: pd.DataFrame,
+    min_games: int = 20,
+) -> float | None:
+    """K-per-game at this venue vs league average, as a ratio (>1 = K-friendly)."""
+    if venue_id is None:
+        return None
+    venue_games = games_history[
+        (games_history["venue_id"] == venue_id)
+        & (games_history["game_date"].dt.date < game_date)
+    ]
+    if len(venue_games) < min_games:
+        return None
+    venue_game_ids = set(venue_games["game_id"])
+    venue_starts = pitcher_starts[
+        (pitcher_starts["game_id"].isin(venue_game_ids))
+        & (pitcher_starts["game_date"].dt.date < game_date)
+    ]
+    if venue_starts.empty:
+        return None
+    venue_k = pd.to_numeric(venue_starts["strikeouts"], errors="coerce").dropna()
+    if venue_k.empty:
+        return None
+    venue_k_per_start = float(venue_k.mean())
+
+    # League average K/start for the same time window
+    all_starts = pitcher_starts[pitcher_starts["game_date"].dt.date < game_date]
+    all_k = pd.to_numeric(all_starts["strikeouts"], errors="coerce").dropna()
+    if all_k.empty:
+        return None
+    league_k_per_start = float(all_k.mean())
+    if league_k_per_start <= 0:
+        return None
+    return round(venue_k_per_start / league_k_per_start, 4)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build historical pitcher strikeout feature rows")
     add_date_range_args(parser)
@@ -284,11 +398,19 @@ def main() -> int:
     for frame_name in ("pitcher_starts", "team_offense", "lineups", "player_batting", "prop_markets"):
         if not frames[frame_name].empty and "game_date" in frames[frame_name].columns:
             frames[frame_name]["game_date"] = pd.to_datetime(frames[frame_name]["game_date"])
+    if not frames["games_history"].empty and "game_date" in frames["games_history"].columns:
+        frames["games_history"]["game_date"] = pd.to_datetime(frames["games_history"]["game_date"])
     for frame_name in ("lineups", "prop_markets"):
         if not frames[frame_name].empty and "snapshot_ts" in frames[frame_name].columns:
             frames[frame_name]["snapshot_ts"] = coerce_utc_timestamp_series(frames[frame_name]["snapshot_ts"])
     games["game_date"] = pd.to_datetime(games["game_date"]).dt.date
     games["game_start_ts"] = pd.to_datetime(games["game_start_ts"], utc=True)
+
+    # Build venue map for current games
+    venue_map = {}
+    if not frames["games_history"].empty:
+        for g_row in frames["games_history"].itertuples(index=False):
+            venue_map[int(g_row.game_id)] = getattr(g_row, "venue_id", None)
     player_meta_map = (
         frames["players"][["player_id", "full_name", "throws"]]
         .dropna(subset=["player_id"])
@@ -387,6 +509,19 @@ def main() -> int:
                 market["line_snapshot_ts"], game_start, decay_hours=(1, 6, 12, 24),
             )
 
+            # --- New differentiation features ---
+            pvt_k_rate = _pitcher_vs_team_k_rate(
+                int(starter.pitcher_id), opponent, game.game_date,
+                frames["pitcher_starts"], frames["games_history"],
+            )
+            opp_lineup_k_recent = _opponent_lineup_k_pct_recent(
+                opponent_lineup, frames["player_batting"], game.game_date,
+            )
+            v_k_factor = _venue_k_factor(
+                venue_map.get(int(game.game_id)), game.game_date,
+                frames["pitcher_starts"], frames["games_history"],
+            )
+
             rows.append(
                 {
                     "game_id": int(game.game_id),
@@ -422,6 +557,9 @@ def main() -> int:
                     "market_line": market["market_line"],
                     "opponent_lineup_k_pct": None,
                     "opponent_k_pct_blended": opponent_offense["k_pct"],
+                    "pitcher_vs_team_k_rate": pvt_k_rate,
+                    "opponent_lineup_k_pct_recent": opp_lineup_k_recent,
+                    "venue_k_factor": v_k_factor,
                     "same_hand_share": shares["same_hand_share"],
                     "opposite_hand_share": shares["opposite_hand_share"],
                     "switch_share": shares["switch_share"],

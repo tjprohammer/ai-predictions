@@ -83,6 +83,8 @@ def main() -> int:
         _run_step("src.models.predict_strikeouts", "--target-date", current_raw)
         current_date += timedelta(days=1)
 
+    _run_step("src.transforms.product_surfaces", "--start-date", start_raw, "--end-date", end_raw)
+
     log.info("Range pipeline complete for %s to %s", start_raw, end_raw)
     return 0
 

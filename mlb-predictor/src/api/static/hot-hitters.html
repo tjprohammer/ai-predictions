@@ -626,9 +626,9 @@
 
       .history-game {
         display: grid;
-        grid-template-rows: var(--history-value-row) var(
-            --history-bar-max
-          ) auto auto;
+        grid-template-rows:
+          var(--history-value-row) var(--history-bar-max)
+          auto auto;
         gap: var(--history-gap);
         justify-items: center;
         min-width: 0;
@@ -826,6 +826,14 @@
                   d="M5 4h14v2H5zm0 5h14v2H5zm0 5h9v2H5zm11.5 1.5 1.6 1.6L22 13.2"
                 /></svg></span
             ><span>Daily Results</span></a
+          >
+          <a class="nav-link" data-app-link="experiments" href="experiments"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <path
+                  d="M7 2v2h1v5.17A3 3 0 0 0 5 12v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a3 3 0 0 0-3-3.17V4h1V2H7zm3 2h4v4.5l1.5 1.5H8.5L10 8.5V4z"
+                /></svg></span
+            ><span>Experiments</span></a
           >
         </div>
       </nav>
@@ -1219,7 +1227,8 @@
         const description = String(row?.roster_status_description || "").trim();
         const note = String(row?.roster_status_note || "").trim();
         if (row?.is_available === false) {
-          const label = description || (row?.is_injured ? "Injured" : "Unavailable");
+          const label =
+            description || (row?.is_injured ? "Injured" : "Unavailable");
           return {
             tone: "warn",
             label,
@@ -1388,25 +1397,25 @@
       function sortRows(rows) {
         const sortMode = sortModeInput.value || "streak";
         const sorted = [...rows];
-          if (sortMode === "game") {
-            return sorted.sort(
-              (left, right) =>
-                String(left.game_start_ts || "").localeCompare(
-                  String(right.game_start_ts || ""),
-                ) ||
-                String(left.away_team || "").localeCompare(
-                  String(right.away_team || ""),
-                ) ||
-                String(left.home_team || "").localeCompare(
-                  String(right.home_team || ""),
-                ) ||
-                numberOr(left.lineup_slot, 99) -
-                  numberOr(right.lineup_slot, 99) ||
-                String(left.player_name || "").localeCompare(
-                  String(right.player_name || ""),
-                ),
-            );
-          }
+        if (sortMode === "game") {
+          return sorted.sort(
+            (left, right) =>
+              String(left.game_start_ts || "").localeCompare(
+                String(right.game_start_ts || ""),
+              ) ||
+              String(left.away_team || "").localeCompare(
+                String(right.away_team || ""),
+              ) ||
+              String(left.home_team || "").localeCompare(
+                String(right.home_team || ""),
+              ) ||
+              numberOr(left.lineup_slot, 99) -
+                numberOr(right.lineup_slot, 99) ||
+              String(left.player_name || "").localeCompare(
+                String(right.player_name || ""),
+              ),
+          );
+        }
         if (sortMode === "team") {
           return sorted.sort(
             (left, right) =>
