@@ -5101,6 +5101,104 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
     }
 
 
+def _fetch_experiment_daily_detail(target_date: date) -> dict[str, Any]:
+    """Per-game detail for a single date: totals + strikeouts."""
+    totals_games: list[dict[str, Any]] = []
+    strikeouts_games: list[dict[str, Any]] = []
+
+    if _table_exists("predictions_totals") and _table_exists("games"):
+        frame = _safe_frame(
+            """
+            WITH ranked AS (
+                SELECT p.*, ROW_NUMBER() OVER (
+                    PARTITION BY p.game_id ORDER BY p.prediction_ts DESC
+                ) AS rn
+                FROM predictions_totals p
+                WHERE p.game_date = :target_date
+            )
+            SELECT
+                p.game_id,
+                g.away_team || ' @ ' || g.home_team AS matchup,
+                p.predicted_total_runs   AS calibrated,
+                p.predicted_total_fundamentals AS fundamentals,
+                p.market_total           AS market,
+                g.total_runs             AS actual
+            FROM ranked p
+            INNER JOIN games g ON g.game_id = p.game_id AND g.game_date = p.game_date
+            WHERE p.rn = 1
+            ORDER BY g.away_team
+            """,
+            {"target_date": target_date},
+        )
+        for r in _frame_records(frame):
+            actual = _to_float(r.get("actual"))
+            cal = _to_float(r.get("calibrated"))
+            fund = _to_float(r.get("fundamentals"))
+            mkt = _to_float(r.get("market"))
+            totals_games.append({
+                "game_id": r.get("game_id"),
+                "matchup": r.get("matchup", ""),
+                "calibrated": round(cal, 2) if cal is not None else None,
+                "fundamentals": round(fund, 2) if fund is not None else None,
+                "market": round(mkt, 2) if mkt is not None else None,
+                "actual": int(actual) if actual is not None else None,
+                "cal_error": round(abs(actual - cal), 2) if actual is not None and cal is not None else None,
+                "fund_error": round(abs(actual - fund), 2) if actual is not None and fund is not None else None,
+                "mkt_error": round(abs(actual - mkt), 2) if actual is not None and mkt is not None else None,
+            })
+
+    if _table_exists("predictions_pitcher_strikeouts") and _table_exists("pitcher_starts"):
+        frame = _safe_frame(
+            """
+            WITH ranked AS (
+                SELECT p.*, ROW_NUMBER() OVER (
+                    PARTITION BY p.game_id, p.pitcher_id ORDER BY p.prediction_ts DESC
+                ) AS rn
+                FROM predictions_pitcher_strikeouts p
+                WHERE p.game_date = :target_date
+            )
+            SELECT
+                p.game_id,
+                COALESCE(dp.full_name, 'ID ' || p.pitcher_id) AS pitcher_name,
+                p.team,
+                p.predicted_strikeouts         AS calibrated,
+                p.predicted_strikeouts_fundamentals AS fundamentals,
+                p.market_line                  AS market,
+                ps.strikeouts                  AS actual
+            FROM ranked p
+            LEFT JOIN dim_players dp ON dp.player_id = p.pitcher_id
+            LEFT JOIN pitcher_starts ps
+                ON ps.game_id = p.game_id AND ps.pitcher_id = p.pitcher_id AND ps.game_date = p.game_date
+            WHERE p.rn = 1
+            ORDER BY p.team, pitcher_name
+            """,
+            {"target_date": target_date},
+        )
+        for r in _frame_records(frame):
+            actual = _to_float(r.get("actual"))
+            cal = _to_float(r.get("calibrated"))
+            fund = _to_float(r.get("fundamentals"))
+            mkt = _to_float(r.get("market"))
+            strikeouts_games.append({
+                "game_id": r.get("game_id"),
+                "pitcher": r.get("pitcher_name", ""),
+                "team": r.get("team", ""),
+                "calibrated": round(cal, 2) if cal is not None else None,
+                "fundamentals": round(fund, 2) if fund is not None else None,
+                "market": round(mkt, 2) if mkt is not None else None,
+                "actual": int(actual) if actual is not None else None,
+                "cal_error": round(abs(actual - cal), 2) if actual is not None and cal is not None else None,
+                "fund_error": round(abs(actual - fund), 2) if actual is not None and fund is not None else None,
+                "mkt_error": round(abs(actual - mkt), 2) if actual is not None and mkt is not None else None,
+            })
+
+    return {
+        "target_date": target_date.isoformat(),
+        "totals": totals_games,
+        "strikeouts": strikeouts_games,
+    }
+
+
 def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) -> dict[str, Any]:
     totals_rows: list[dict[str, Any]] = []
     hitter_rows: list[dict[str, Any]] = []
@@ -5986,6 +6084,13 @@ def experiments_summary(
     target_date: date = Query(default_factory=date.today),
 ) -> JSONResponse:
     return _json_response(_fetch_experiment_summary(target_date, window_days))
+
+
+@app.get("/api/experiments/daily-detail")
+def experiments_daily_detail(
+    target_date: date = Query(...),
+) -> JSONResponse:
+    return _json_response(_fetch_experiment_daily_detail(target_date))
 
 
 @app.get("/api/model-scorecards")

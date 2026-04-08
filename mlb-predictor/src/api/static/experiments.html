@@ -206,6 +206,45 @@
       .dot-fund { background: var(--accent); }
       .dot-cal { background: var(--warm); }
       .dot-mkt { background: var(--muted); }
+
+      /* Expandable detail rows */
+      tr.daily-row { cursor: pointer; transition: background 0.12s; }
+      tr.daily-row:hover { background: var(--neutral-soft); }
+      tr.daily-row td:first-child::before {
+        content: "\25B6"; font-size: 0.7rem; margin-right: 6px;
+        display: inline-block; transition: transform 0.15s;
+      }
+      tr.daily-row.expanded td:first-child::before { transform: rotate(90deg); }
+
+      tr.detail-row { display: none; }
+      tr.detail-row.visible { display: table-row; }
+      tr.detail-row td { padding: 0; }
+
+      .detail-wrap {
+        padding: 8px 16px 16px 32px;
+      }
+
+      .detail-wrap h4 {
+        font-size: 0.85rem; font-weight: 700; margin: 10px 0 4px;
+        color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px;
+      }
+
+      .detail-wrap h4:first-child { margin-top: 0; }
+
+      .detail-table {
+        width: 100%; border-collapse: collapse; font-size: 0.85rem;
+        margin-bottom: 6px;
+      }
+
+      .detail-table th {
+        padding: 6px 12px; font-size: 0.78rem; border-bottom: 1px solid var(--line);
+      }
+
+      .detail-table td {
+        padding: 6px 12px; border-bottom: 1px solid var(--line);
+      }
+
+      .detail-table tr:last-child td { border-bottom: none; }
     </style>
   </head>
   <body>
@@ -349,27 +388,125 @@
         if (!daily || daily.length === 0) {
           return `<div class="daily-table"><h2>${label} \u2014 Daily Breakdown</h2><div class="empty-state">No completed games with dual predictions yet</div></div>`;
         }
+        const lane = countKey === "games" ? "totals" : "strikeouts";
         const headerRow = `<tr><th>Date</th><th>${countKey}</th><th>Fund. MAE</th><th>Cal. MAE</th><th>Market MAE</th><th>Winner</th></tr>`;
         const bodyRows = daily.map((d) => {
           const vals = [d.fundamentals_mae, d.calibrated_mae, d.market_mae];
-          return `<tr>
+          const rid = `detail-${lane}-${d.date}`;
+          return `<tr class="daily-row" data-date="${d.date}" data-lane="${lane}" data-detail="${rid}">
             <td>${d.date}</td>
             <td>${d[countKey] || 0}</td>
             <td class="${bestClass(vals, d.fundamentals_mae)}">${fmt(d.fundamentals_mae)}</td>
             <td class="${bestClass(vals, d.calibrated_mae)}">${fmt(d.calibrated_mae)}</td>
             <td class="${bestClass(vals, d.market_mae)}">${fmt(d.market_mae)}</td>
             <td>${statusBadge(d.fundamentals_mae, d.calibrated_mae)}</td>
+          </tr>
+          <tr class="detail-row" id="${rid}">
+            <td colspan="6"><div class="detail-wrap" id="${rid}-content">Loading...</div></td>
           </tr>`;
         }).join("");
         return `
           <div class="daily-table">
-            <h2>${label} \u2014 Daily Breakdown</h2>
+            <h2>${label} \u2014 Daily Breakdown <span style="font-size:0.78rem;font-weight:400;color:var(--muted)">(click row to expand)</span></h2>
             <table>
               <thead>${headerRow}</thead>
               <tbody>${bodyRows}</tbody>
             </table>
           </div>
         `;
+      }
+
+      const detailCache = {};
+
+      async function loadDailyDetail(dateStr) {
+        if (detailCache[dateStr]) return detailCache[dateStr];
+        const resp = await fetch(`/api/experiments/daily-detail?target_date=${dateStr}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        detailCache[dateStr] = data;
+        return data;
+      }
+
+      function renderDetailGames(games, columns) {
+        if (!games || games.length === 0) return `<p style="color:var(--muted);font-size:0.85rem;">No data</p>`;
+        const ths = columns.map(c => `<th>${c.label}</th>`).join("");
+        const rows = games.map(g => {
+          const cells = columns.map(c => {
+            const v = g[c.key];
+            if (c.isError) {
+              const cls = bestClass(
+                [g.fund_error, g.cal_error, g.mkt_error].filter(x => x != null), v
+              );
+              return `<td class="${cls}">${fmt(v, 2)}</td>`;
+            }
+            return `<td>${v != null ? (typeof v === "number" ? fmt(v, 2) : v) : "\u2014"}</td>`;
+          }).join("");
+          return `<tr>${cells}</tr>`;
+        }).join("");
+        return `<table class="detail-table"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table>`;
+      }
+
+      function renderDetailPanel(data, lane, contentEl) {
+        let html = "";
+        if (lane === "totals") {
+          html += `<h4>Game Totals</h4>`;
+          html += renderDetailGames(data.totals, [
+            { key: "matchup", label: "Matchup" },
+            { key: "fundamentals", label: "Fund." },
+            { key: "calibrated", label: "Cal." },
+            { key: "market", label: "Market" },
+            { key: "actual", label: "Actual" },
+            { key: "fund_error", label: "Fund. Err", isError: true },
+            { key: "cal_error", label: "Cal. Err", isError: true },
+            { key: "mkt_error", label: "Mkt. Err", isError: true },
+          ]);
+        } else {
+          html += `<h4>Pitcher Strikeouts</h4>`;
+          html += renderDetailGames(data.strikeouts, [
+            { key: "pitcher", label: "Pitcher" },
+            { key: "team", label: "Team" },
+            { key: "fundamentals", label: "Fund." },
+            { key: "calibrated", label: "Cal." },
+            { key: "market", label: "Market" },
+            { key: "actual", label: "Actual" },
+            { key: "fund_error", label: "Fund. Err", isError: true },
+            { key: "cal_error", label: "Cal. Err", isError: true },
+            { key: "mkt_error", label: "Mkt. Err", isError: true },
+          ]);
+        }
+        contentEl.innerHTML = html;
+      }
+
+      function bindDailyRowClicks() {
+        document.querySelectorAll("tr.daily-row").forEach((row) => {
+          row.addEventListener("click", async () => {
+            const dateStr = row.dataset.date;
+            const lane = row.dataset.lane;
+            const rid = row.dataset.detail;
+            const detailRow = document.getElementById(rid);
+            const contentEl = document.getElementById(rid + "-content");
+            if (!detailRow) return;
+
+            // Toggle
+            const isOpen = detailRow.classList.contains("visible");
+            if (isOpen) {
+              detailRow.classList.remove("visible");
+              row.classList.remove("expanded");
+              return;
+            }
+
+            detailRow.classList.add("visible");
+            row.classList.add("expanded");
+            contentEl.innerHTML = "Loading game detail\u2026";
+
+            try {
+              const data = await loadDailyDetail(dateStr);
+              renderDetailPanel(data, lane, contentEl);
+            } catch (err) {
+              contentEl.innerHTML = `<p style="color:var(--warn);">Error: ${err.message}</p>`;
+            }
+          });
+        });
       }
 
       async function loadData() {
@@ -399,6 +536,7 @@
           if (hasK) html += renderDailyTable("Pitcher Strikeouts", data.strikeouts.daily, "pitchers");
 
           appEl.innerHTML = html;
+          bindDailyRowClicks();
         } catch (err) {
           appEl.innerHTML = `<div class="empty-state">Error loading experiment data: ${err.message}</div>`;
         }
