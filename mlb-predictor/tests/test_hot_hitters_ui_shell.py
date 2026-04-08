@@ -11,6 +11,8 @@ def test_hot_hitters_html_has_streak_sort_and_recent_history_chart():
     html = Path("src/api/static/hot-hitters.html").read_text(encoding="utf-8")
 
     assert '<option value="streak" selected>Hit streak</option>' in html
+    assert '<option value="game">Game / start time</option>' in html
+    assert '<option value="handmatchup">Pitcher-hand matchup</option>' in html
     assert 'history-block' in html
     assert 'history-filter' in html
     assert 'function parseDisplayDate(value)' in html
@@ -22,6 +24,14 @@ def test_hot_hitters_html_has_streak_sort_and_recent_history_chart():
     assert 'function filteredHistory(player, history)' in html
     assert 'function renderRecentHistory(row)' in html
     assert '<input id="hideStartedOnly" type="checkbox" />' in html
+    assert '<label for="searchQuery">Search player, team, or game</label>' in html
+    assert '<input id="strongHandOnly" type="checkbox" />' in html
+    assert '<input id="availableOnly" type="checkbox" />' in html
+    assert 'function hotHitterSearchText(row)' in html
+    assert 'function availabilityMeta(row)' in html
+    assert 'searchQueryInput.addEventListener("input", renderRows);' in html
+    assert 'strongHandOnlyInput.addEventListener("change", renderRows);' in html
+    assert 'availableOnlyInput.addEventListener("change", renderRows);' in html
 
 
 def test_fetch_recent_hit_history_map_groups_rows_by_player(monkeypatch):

@@ -1239,6 +1239,7 @@
             <div class="data-stack">
               <div class="data-row"><span class="data-label">Opponent</span><span class="data-value">${escapeHtml(opponentTeam)}</span></div>
               <div class="data-row"><span class="data-label">Recent IP / K</span><span class="data-value">${formatNumber(recent.avg_ip, 1)} / ${formatNumber(recent.avg_strikeouts, 1)}</span></div>
+              <div class="data-row"><span class="data-label">Season ERA / L3 / L5</span><span class="data-value">${formatNumber(recent.season_era, 2)} / ${formatNumber(recent.era_last3, 2)} / ${formatNumber(recent.era_last5, 2)}</span></div>
               <div class="data-row"><span class="data-label">Last Start</span><span class="data-value">${escapeHtml(formatShortDate(recent.last_start_date))}</span></div>
               <div class="data-row"><span class="data-label">xwOBA / CSW</span><span class="data-value">${formatNumber(starter.xwoba_against, 3)} / ${formatPercent(starter.csw_pct)}</span></div>
               <div class="data-row"><span class="data-label">Velo / Whiff</span><span class="data-value">${numberOr(starter.avg_fb_velo) == null ? '-' : formatNumber(starter.avg_fb_velo, 1) + ' mph'} / ${formatPercent(starter.whiff_pct)}</span></div>
@@ -1246,6 +1247,73 @@
             </div>
           </article>
         `;
+      }
+
+      function batterHandMatchup(player) {
+        const throwHand = String(player?.opposing_pitcher_throws || "")
+          .trim()
+          .toUpperCase()
+          .slice(0, 1);
+        if (!["R", "L"].includes(throwHand)) {
+          return {
+            tone: "warn",
+            label: "Pitcher-hand pending",
+            detail: "Starter hand is not available yet",
+          };
+        }
+
+        const atBats = numberOr(player?.vs_pitcher_hand_at_bats, 0);
+        const battingAverage = numberOr(player?.vs_pitcher_hand_batting_avg);
+        const xwoba = numberOr(player?.vs_pitcher_hand_xwoba);
+        const seasonAverage = numberOr(player?.batting_avg_season);
+        const handLabel = `${throwHand}HP`;
+
+        if (battingAverage == null || atBats <= 0) {
+          return {
+            tone: "warn",
+            label: `No read vs today's ${handLabel}`,
+            detail: `No recorded at-bats yet versus ${handLabel}`,
+          };
+        }
+
+        const baselineAverage = seasonAverage ?? 0.25;
+        const delta = battingAverage - baselineAverage;
+        const smallSample = atBats < 10;
+        let tone = "good";
+        let label = `Neutral vs today's ${handLabel}`;
+
+        if (!smallSample && delta >= 0.035) {
+          tone = "good";
+          label = `Strong vs today's ${handLabel}`;
+        } else if (!smallSample && delta <= -0.035) {
+          tone = "warn";
+          label = `Weak vs today's ${handLabel}`;
+        } else if (smallSample) {
+          tone = "warn";
+          label = `Small sample vs today's ${handLabel}`;
+        }
+
+        return {
+          tone,
+          label,
+          detail: `${formatBattingAverage(battingAverage)} BA in ${atBats} AB${xwoba == null ? "" : ` · ${formatNumber(xwoba, 3)} xwOBA`}${seasonAverage == null ? "" : ` · season ${formatBattingAverage(seasonAverage)}`}`,
+        };
+      }
+
+      function lineupPlayerRow(player) {
+        const handMatchup = batterHandMatchup(player);
+        return `
+                <div class="lineup-row">
+                  <div class="lineup-main">
+                    <div class="lineup-title">${escapeHtml(player.lineup_slot ?? "-")} · ${escapeHtml(player.player_name || "Player")}</div>
+                    <div class="lineup-meta">${escapeHtml([player.position || "-", player.bats ? `${player.bats}HB` : "Bats -", player.opponent ? `vs ${player.opponent}` : "Opp TBD"].join(" | "))}</div>
+                    <div class="lineup-meta">${escapeHtml(`${playerLineupStateMeta(player).label} row · Hit prob ${formatPercent(player.predicted_hit_probability)} · Season BA ${formatBattingAverage(player.batting_avg_season)} · Last 7 BA ${formatBattingAverage(player.batting_avg_last7)}`)}</div>
+                    <div class="lineup-meta">${escapeHtml(`${handMatchup.label} · ${handMatchup.detail}`)}</div>
+                    ${recentHistoryStrip(player)}
+                  </div>
+                  ${lineupStatusChip(player)}
+                </div>
+              `;
       }
 
       function lineupPanel(teamDetail) {
@@ -1275,19 +1343,7 @@
               ${
                 lineup.length
                   ? lineup
-                      .map(
-                        (player) => `
-                <div class="lineup-row">
-                  <div class="lineup-main">
-                    <div class="lineup-title">${escapeHtml(player.lineup_slot ?? "-")} · ${escapeHtml(player.player_name || "Player")}</div>
-                    <div class="lineup-meta">${escapeHtml([player.position || "-", player.bats ? `${player.bats}HB` : "Bats -", player.opponent ? `vs ${player.opponent}` : "Opp TBD"].join(" | "))}</div>
-                    <div class="lineup-meta">${escapeHtml(`${playerLineupStateMeta(player).label} row · Hit prob ${formatPercent(player.predicted_hit_probability)} · Season BA ${formatBattingAverage(player.batting_avg_season)} · Last 7 BA ${formatBattingAverage(player.batting_avg_last7)}`)}</div>
-                    ${recentHistoryStrip(player)}
-                  </div>
-                  ${lineupStatusChip(player)}
-                </div>
-              `,
-                      )
+                      .map((player) => lineupPlayerRow(player))
                       .join("")
                   : '<div class="empty-state">No lineup detail is loaded for this side yet.</div>'
               }
@@ -1328,12 +1384,12 @@
           <article class="summary-card">
             <div class="data-label">F5 Model / Market</div>
             <div class="summary-value">${formatNumber(predicted, 2)} / ${market == null ? "pending" : formatNumber(market, 1)}</div>
-            <div class="data-copy">Edge ${formatNumber(edge, 3)}${side !== "-" ? ` · Lean ${escapeHtml(side)}` : ""}</div>
+            <div class="data-copy">Edge ${formatNumber(edge, 3)}${side !== "-" ? ` · Lean ${escapeHtml(side)}` : ""}${first5.market_locked ? ` · Locked ${formatNumber(first5.locked_line_value, 1)} from ${escapeHtml(first5.locked_sportsbook || "sportsbook")}` : ""}</div>
           </article>
           <article class="summary-card">
-            <div class="data-label">F5 Expected Runs</div>
+            <div class="data-label">F5 Run Split</div>
             <div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(awayExp, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(homeExp, 2)}</div>
-            <div class="data-copy">First 5 innings projected scoring split</div>
+            <div class="data-copy">Model-implied first 5 scoring split</div>
           </article>
           <article class="summary-card">
             <div class="data-label">F5 Outcome</div>
@@ -1425,14 +1481,14 @@
           const tagged = lineup.map(p => ({ ...p, _tone: playerFormTone(p) }));
           const hot = tagged.filter(p => p._tone === "hot");
           const cold = tagged.filter(p => p._tone === "cold");
-          if (!hot.length && !cold.length) return "";
+          if (!tagged.length) return "";
           return `
             <div class="heat-card">
               <div class="section-tag">${escapeHtml(teamName)}</div>
-              <h3 style="margin-top:6px;">Lineup Heat Check</h3>
-              <div class="data-copy">${hot.length} hot · ${cold.length} cold · ${tagged.length - hot.length - cold.length} steady</div>
+              <h3 style="margin-top:6px;">Actual Batting Order</h3>
+              <div class="data-copy">Full 1-9 order with hot, cold, or steady tags. ${hot.length} hot · ${cold.length} cold · ${tagged.length - hot.length - cold.length} steady</div>
               <div class="heat-list">
-                ${[...hot, ...cold].map(p => `
+                ${tagged.map(p => `
                   <div class="heat-row">
                     <div class="heat-slot">${escapeHtml(p.lineup_slot ?? "-")}</div>
                     <div>
@@ -1560,13 +1616,31 @@
           const era = numberOr(totals[`${side}_bullpen_era_last3`]);
           const b2b = totals[`${side}_bullpen_b2b`];
           const pitches = numberOr(totals[`${side}_bullpen_pitches_last3`]);
-          if (era != null && era >= 5.0) {
+          const innings = numberOr(totals[`${side}_bullpen_innings_last3`]);
+          const earnedRuns = numberOr(totals[`${side}_bullpen_earned_runs_last3`]);
+          const lateEra = numberOr(totals[`${side}_bullpen_late_era_last3`]);
+          const lateInnings = numberOr(totals[`${side}_bullpen_late_innings_last3`]);
+          const lateEarnedRuns = numberOr(totals[`${side}_bullpen_late_earned_runs_last3`]);
+          if (
+            lateEra != null &&
+            lateInnings != null &&
+            lateInnings >= 3 &&
+            lateEra >= 5.0
+          ) {
+            signals.push({
+              direction: "over",
+              strength: lateEra >= 7 ? 3 : 2,
+              category: `${team} Late Bullpen`,
+              icon: "\u{1F6A8}",
+              copy: `${team} bullpen has allowed ${formatNumber(lateEarnedRuns, 0)} ER in ${formatNumber(lateInnings, 1)} IP across innings 7+ over the last 3 bullpen days (${formatNumber(lateEra, 2)} ERA). Late-game prevention is under stress.`,
+            });
+          } else if (era != null && era >= 5.0) {
             signals.push({
               direction: "over",
               strength: era >= 7 ? 3 : 2,
               category: `${team} Bullpen`,
               icon: "\u{1F6A8}",
-              copy: `${team} bullpen has a ${formatNumber(era, 2)} ERA over last 3 days${b2b ? " and working back-to-back" : ""}${pitches != null ? ` on ${formatNumber(pitches, 0)} pitches` : ""}. Relief corps under stress.`,
+              copy: `${team} bullpen logged ${formatNumber(earnedRuns, 0)} ER in ${formatNumber(innings, 1)} IP over the last 3 bullpen days (${formatNumber(era, 2)} ERA)${b2b ? " and is working back-to-back" : ""}${pitches != null ? ` on ${formatNumber(pitches, 0)} pitches` : ""}. Relief corps under stress.`,
             });
           } else if (b2b && pitches != null && pitches >= 60) {
             signals.push({
@@ -1574,7 +1648,7 @@
               strength: 1,
               category: `${team} Bullpen Load`,
               icon: "\u{1F4AA}",
-              copy: `${team} bullpen is back-to-back with ${formatNumber(pitches, 0)} pitches in the last 3 days. Fatigue could expand scoring late.`,
+              copy: `${team} bullpen is back-to-back with ${formatNumber(pitches, 0)} pitches over the last 3 bullpen days. Fatigue could expand scoring late.`,
             });
           }
         }
@@ -1674,8 +1748,9 @@
               copy: `First 5 model projects ${formatNumber(f5predicted, 2)} vs market ${formatNumber(f5market, 1)}. Starter matchup drives a ${f5side} lean before bullpens enter.`,
             });
           } else if (awayExp != null && homeExp != null) {
-            const total5 = awayExp + homeExp;
-            if (total5 >= 5.5) {
+            const splitTotal = awayExp + homeExp;
+            const total5 = f5predicted != null ? f5predicted : splitTotal;
+            if (total5 != null && Math.abs(splitTotal - total5) <= 0.35 && total5 >= 5.5) {
               signals.push({
                 direction: "over",
                 strength: 1,
@@ -1795,7 +1870,8 @@
         renderHitterHeatSection(detail);
         const notes = [
           `Venue run factor ${formatNumber(totals.venue_run_factor, 2)} and HR factor ${formatNumber(totals.venue_hr_factor, 2)} are already baked into the totals context.`,
-          `Bullpen snapshot: away ${formatNumber(totals.away_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.away_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_runs_allowed_last3, 0)} RA / ${formatNumber(totals.away_bullpen_era_last3, 2)} ERA${totals.away_bullpen_b2b ? " · B2B" : ""}, home ${formatNumber(totals.home_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.home_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_runs_allowed_last3, 0)} RA / ${formatNumber(totals.home_bullpen_era_last3, 2)} ERA${totals.home_bullpen_b2b ? " · B2B" : ""}.`,
+          `Bullpen snapshot over the last 3 bullpen days: away ${formatNumber(totals.away_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.away_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_era_last3, 2)} ERA${totals.away_bullpen_b2b ? " · B2B" : ""}, home ${formatNumber(totals.home_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.home_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_era_last3, 2)} ERA${totals.home_bullpen_b2b ? " · B2B" : ""}.`,
+          `Late innings 7+: away ${formatNumber(totals.away_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.away_bullpen_late_era_last3, 2)} ERA, home ${formatNumber(totals.home_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.home_bullpen_late_era_last3, 2)} ERA.`,
           `Top-5 hitter xwOBA: away ${formatNumber(totals.away_lineup_top5_xwoba, 3)}, home ${formatNumber(totals.home_lineup_top5_xwoba, 3)}. Lineup K%: away ${formatPercent(totals.away_lineup_k_pct)}, home ${formatPercent(totals.home_lineup_k_pct)}.`,
           `Market total ${formatNumber(totals.market_total, 1)}${totals.market_locked ? ` (locked at ${formatNumber(totals.locked_line_value, 1)} from ${escapeHtml(totals.locked_sportsbook || "sportsbook")})` : ""} · Line movement ${formatNumber(totals.line_movement, 2)}.`,
           actual.is_final

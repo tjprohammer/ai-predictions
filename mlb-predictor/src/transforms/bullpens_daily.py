@@ -59,7 +59,17 @@ def main() -> int:
     rows = []
     for (game_date, team), group in frame.groupby(["game_date", "team"], dropna=False):
         outs = int(group["innings_pitched"].apply(_outs_from_baseball_ip).sum())
+        late_innings_series = group["late_innings_pitched"] if "late_innings_pitched" in group.columns else pd.Series(0.0, index=group.index)
+        late_runs_series = group["late_runs_allowed"] if "late_runs_allowed" in group.columns else pd.Series(0, index=group.index)
+        late_earned_runs_series = group["late_earned_runs"] if "late_earned_runs" in group.columns else pd.Series(0, index=group.index)
+        late_hits_series = group["late_hits_allowed"] if "late_hits_allowed" in group.columns else pd.Series(0, index=group.index)
+        late_outs = int(late_innings_series.fillna(0).apply(_outs_from_baseball_ip).sum())
+        late_usage_mask = (
+            late_innings_series.fillna(0).apply(_outs_from_baseball_ip) > 0
+        ) | (late_runs_series.fillna(0).astype(int) > 0) | (late_earned_runs_series.fillna(0).astype(int) > 0) | (late_hits_series.fillna(0).astype(int) > 0)
         pitches = group["pitches_thrown"].fillna(0).astype(int)
+        late_earned_runs = int(late_earned_runs_series.fillna(0).sum())
+        late_innings_decimal = late_outs / 3 if late_outs else 0
         rows.append(
             {
                 "game_date": game_date,
@@ -73,6 +83,12 @@ def main() -> int:
                 "walks": int(group["walks"].fillna(0).sum()),
                 "strikeouts": int(group["strikeouts"].fillna(0).sum()),
                 "hard_hit_pct": _weighted_mean(group, "hard_hit_pct", "pitches_thrown"),
+                "late_innings_pitched": _baseball_ip_from_outs(late_outs),
+                "late_relievers_used": int(group.loc[late_usage_mask, "player_id"].nunique()),
+                "late_runs_allowed": int(late_runs_series.fillna(0).sum()),
+                "late_earned_runs": late_earned_runs,
+                "late_hits_allowed": int(late_hits_series.fillna(0).sum()),
+                "late_era": None if late_innings_decimal <= 0 else float((late_earned_runs * 9) / late_innings_decimal),
             }
         )
 

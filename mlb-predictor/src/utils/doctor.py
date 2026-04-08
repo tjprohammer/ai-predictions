@@ -7,8 +7,10 @@ import os
 from datetime import date
 from pathlib import Path
 
+# settings import triggers the same auto-detection, so just importing is enough.
+from src.utils.settings import _LEGACY_DEFAULT_DATABASE_URL, _resolve_database_url  # noqa: F401
 
-LEGACY_DEFAULT_DATABASE_URL = "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"
+LEGACY_DEFAULT_DATABASE_URL = _LEGACY_DEFAULT_DATABASE_URL
 
 
 def _runtime_database_candidates() -> list[Path]:
@@ -24,13 +26,7 @@ def _runtime_database_candidates() -> list[Path]:
 
 
 def _bootstrap_database_url() -> None:
-    current_database_url = str(os.environ.get("DATABASE_URL") or "").strip()
-    if current_database_url and current_database_url != LEGACY_DEFAULT_DATABASE_URL:
-        return
-    for candidate in _runtime_database_candidates():
-        if candidate.exists():
-            os.environ["DATABASE_URL"] = f"sqlite:///{candidate.resolve().as_posix()}"
-            return
+    _resolve_database_url()
 
 
 _bootstrap_database_url()

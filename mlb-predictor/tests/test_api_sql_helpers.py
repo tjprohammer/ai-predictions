@@ -209,10 +209,50 @@ def test_fetch_clv_review_payload_sorts_best_and_worst(monkeypatch):
     assert payload["worst_clv"][0]["game_id"] == 12
 
 
+def test_scale_expected_run_split_keeps_first5_total_consistent():
+    away, home = app_module._scale_expected_run_split(5.0737114168, 3.7666666667, 4.8)
+
+    assert away == 2.231
+    assert home == 2.843
+    assert round(away + home, 3) == 5.074
+
+
+def test_apply_market_freeze_payload_overlays_frozen_line_and_grading():
+    payload = {
+        "predicted_total_runs": 5.07,
+        "market_total": 4.5,
+        "market_backed": True,
+        "actual_total_runs": 3.0,
+        "recommended_side": "over",
+        "actual_side": "under",
+        "result": "lost",
+        "delta_vs_market": 0.57,
+    }
+
+    updated = app_module._apply_market_freeze_payload(
+        payload,
+        {
+            "frozen_sportsbook": "consensus",
+            "frozen_snapshot_ts": "2026-04-07T22:00:00Z",
+            "frozen_line_value": 3.5,
+        },
+    )
+
+    assert updated["market_total"] == 3.5
+    assert updated["market_locked"] is True
+    assert updated["locked_sportsbook"] == "consensus"
+    assert updated["recommended_side"] == "over"
+    assert updated["actual_side"] == "under"
+    assert updated["result"] == "lost"
+    assert updated["delta_vs_market"] == 1.57
+
+
 def test_summarize_team_lineup_prefers_confirmed_rows_when_available():
     summary = app_module._summarize_team_lineup(
         [
             {
+                "player_id": 1,
+                "lineup_slot": 1,
                 "player_name": "Confirmed One",
                 "is_confirmed_lineup": True,
                 "has_lineup_snapshot": True,
@@ -220,6 +260,8 @@ def test_summarize_team_lineup_prefers_confirmed_rows_when_available():
                 "lineup_source_name": "mlb_statsapi",
             },
             {
+                "player_id": 2,
+                "lineup_slot": 2,
                 "player_name": "Projected Extra",
                 "is_confirmed_lineup": False,
                 "has_lineup_snapshot": False,
@@ -241,10 +283,50 @@ def test_summarize_team_lineup_prefers_confirmed_rows_when_available():
     }
 
 
+def test_summarize_team_lineup_does_not_pad_confirmed_rows_with_projected_fallbacks():
+    summary = app_module._summarize_team_lineup(
+        [
+            {
+                "player_id": 11,
+                "lineup_slot": 1,
+                "player_name": "Confirmed Leadoff",
+                "is_confirmed_lineup": True,
+                "has_lineup_snapshot": True,
+                "is_inferred_lineup": False,
+                "lineup_source_name": "mlb_statsapi",
+            },
+            {
+                "player_id": 12,
+                "lineup_slot": 2,
+                "player_name": "Projected Two-Hole",
+                "is_confirmed_lineup": False,
+                "has_lineup_snapshot": False,
+                "is_inferred_lineup": True,
+                "lineup_source_name": "projected_template",
+            },
+            {
+                "player_id": 13,
+                "lineup_slot": 3,
+                "player_name": "Projected Three-Hole",
+                "is_confirmed_lineup": False,
+                "has_lineup_snapshot": False,
+                "is_inferred_lineup": True,
+                "lineup_source_name": "projected_template",
+            },
+        ]
+    )
+
+    assert summary["lineup_scope"] == "confirmed"
+    assert [row["player_name"] for row in summary["lineup"]] == ["Confirmed Leadoff"]
+    assert summary["lineup_counts"]["displayed_rows"] == 1
+
+
 def test_summarize_team_lineup_prefers_snapshot_rows_before_inferred_rows():
     summary = app_module._summarize_team_lineup(
         [
             {
+                "player_id": 21,
+                "lineup_slot": 1,
                 "player_name": "Snapshot One",
                 "is_confirmed_lineup": False,
                 "has_lineup_snapshot": True,
@@ -252,6 +334,8 @@ def test_summarize_team_lineup_prefers_snapshot_rows_before_inferred_rows():
                 "lineup_source_name": "rotowire",
             },
             {
+                "player_id": 22,
+                "lineup_slot": 2,
                 "player_name": "Projected Extra",
                 "is_confirmed_lineup": False,
                 "has_lineup_snapshot": False,

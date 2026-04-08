@@ -4,6 +4,7 @@ import contextlib
 import importlib
 import io
 import json
+import math
 import subprocess
 import sys
 import threading
@@ -30,6 +31,7 @@ from src.ingestors.games import main as ingest_games_main
 from src.ingestors.lineups import main as import_lineups_main
 from src.ingestors.market_totals import main as import_market_totals_main
 from src.ingestors.player_batting import main as ingest_player_batting_main
+from src.ingestors.player_status import main as ingest_player_status_main
 from src.ingestors.prepare_slate_inputs import main as prepare_slate_inputs_main
 from src.ingestors.starters import main as ingest_starters_main
 from src.models.predict_first5_totals import main as predict_first5_totals_main
@@ -62,6 +64,7 @@ UPDATE_MODULE_MAINS = {
     "src.ingestors.starters": ingest_starters_main,
     "src.ingestors.prepare_slate_inputs": prepare_slate_inputs_main,
     "src.ingestors.lineups": import_lineups_main,
+    "src.ingestors.player_status": ingest_player_status_main,
     "src.ingestors.market_totals": import_market_totals_main,
     "src.ingestors.boxscores": ingest_boxscores_main,
     "src.ingestors.player_batting": ingest_player_batting_main,
@@ -112,6 +115,7 @@ UpdateAction = Literal[
     "refresh_results",
     "rebuild_predictions",
     "grade_predictions",
+    "retrain_models",
 ]
 
 
@@ -319,9 +323,9 @@ def _desktop_rebuild_blocker(target_date: date) -> dict[str, Any] | None:
     return {
         "code": "desktop_history_missing",
         "message": (
-            "Desktop historical data is incomplete. Rebuild predictions is blocked because the bundled "
-            f"SQLite seed has no prior rows in {missing_labels} ({missing_tables}). "
-            "Rebuild the desktop bundle with a populated SQLite seed exported from Postgres before running predictions."
+            "Desktop historical data is incomplete. Rebuild predictions is blocked because the "
+            f"SQLite database has no prior rows in {missing_labels} ({missing_tables}). "
+            "Run 'Refresh Everything' first to populate the required history tables."
         ),
         "missing": missing,
         "row_counts": row_counts,
@@ -329,7 +333,7 @@ def _desktop_rebuild_blocker(target_date: date) -> dict[str, Any] | None:
 
 
 def _action_blocker(action: UpdateAction, target_date: date) -> dict[str, Any] | None:
-    if action not in {"refresh_everything", "rebuild_predictions"}:
+    if action not in {"refresh_everything", "rebuild_predictions", "retrain_models"}:
         return None
     return _desktop_rebuild_blocker(target_date)
 
@@ -430,43 +434,9 @@ def _summarize_team_lineup(records: list[dict[str, Any]]) -> dict[str, Any]:
     confirmed_records = [record for record in records if record.get("is_confirmed_lineup")]
     snapshot_records = [record for record in records if record.get("has_lineup_snapshot")]
 
-    def _merge_lineup_records(primary: list[dict[str, Any]], fallback: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        primary_slots = {
-            int(record["lineup_slot"])
-            for record in primary
-            if record.get("lineup_slot") is not None
-        }
-        if not primary_slots:
-            return sorted(
-                list(primary),
-                key=lambda record: (
-                    record.get("lineup_slot") is None,
-                    record.get("lineup_slot") if record.get("lineup_slot") is not None else 999,
-                    str(record.get("player_name") or ""),
-                ),
-            )
-        merged: list[dict[str, Any]] = []
-        used_slots: set[int] = set()
-        used_players: set[int] = set()
-        for record in primary + fallback:
-            player_id = record.get("player_id")
-            lineup_slot = record.get("lineup_slot")
-            if player_id is not None:
-                player_id = int(player_id)
-                if player_id in used_players:
-                    continue
-            if lineup_slot is not None:
-                lineup_slot = int(lineup_slot)
-                if lineup_slot in used_slots:
-                    continue
-                used_slots.add(lineup_slot)
-            elif record not in primary:
-                continue
-            if player_id is not None:
-                used_players.add(player_id)
-            merged.append(record)
+    def _sort_lineup_records(lineup_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(
-            merged,
+            list(lineup_records),
             key=lambda record: (
                 record.get("lineup_slot") is None,
                 record.get("lineup_slot") if record.get("lineup_slot") is not None else 999,
@@ -475,15 +445,13 @@ def _summarize_team_lineup(records: list[dict[str, Any]]) -> dict[str, Any]:
         )
 
     if confirmed_records:
-        fallback_records = [record for record in records if not record.get("is_confirmed_lineup")]
-        displayed_records = _merge_lineup_records(confirmed_records, fallback_records)
+        displayed_records = _sort_lineup_records(confirmed_records)
         scope = "confirmed"
     elif snapshot_records:
-        fallback_records = [record for record in records if not record.get("has_lineup_snapshot")]
-        displayed_records = _merge_lineup_records(snapshot_records, fallback_records)
+        displayed_records = _sort_lineup_records(snapshot_records)
         scope = "snapshot"
     elif records:
-        displayed_records = _merge_lineup_records(list(records), [])
+        displayed_records = _sort_lineup_records(records)
         scope = "projected"
     else:
         displayed_records = []
@@ -909,6 +877,123 @@ def _attach_hitter_matchup_context(
     return player
 
 
+PLAYER_STATUS_DEFAULTS = {
+    "availability_bucket": None,
+    "is_active_roster": None,
+    "is_available": None,
+    "is_injured": None,
+    "roster_status_code": None,
+    "roster_status_description": None,
+    "roster_status_note": None,
+    "roster_snapshot_ts": None,
+}
+
+
+def _fetch_player_status_map(
+    target_date: date,
+    rows: list[dict[str, Any]],
+) -> dict[tuple[int, str], dict[str, Any]]:
+    if not rows or not _table_exists("player_status_daily"):
+        return {}
+
+    params: dict[str, Any] = {"target_date": target_date}
+    player_ids = sorted(
+        {
+            int(row["player_id"])
+            for row in rows
+            if row.get("player_id") is not None
+        }
+    )
+    teams = sorted(
+        {
+            str(row["team"]).strip().upper()
+            for row in rows
+            if row.get("team")
+        }
+    )
+    if not player_ids or not teams:
+        return {}
+
+    player_placeholders = _sql_bind_list("status_player_id", player_ids, params)
+    team_placeholders = _sql_bind_list("status_team", teams, params)
+    frame = _safe_frame(
+        f"""
+        WITH ranked AS (
+            SELECT
+                ps.player_id,
+                UPPER(ps.team) AS team,
+                ps.availability_bucket,
+                ps.is_active_roster,
+                ps.is_available,
+                ps.is_injured,
+                ps.status_code,
+                ps.status_description,
+                ps.status_note,
+                ps.snapshot_ts,
+                ROW_NUMBER() OVER (
+                    PARTITION BY ps.player_id, UPPER(ps.team)
+                    ORDER BY ps.snapshot_ts DESC
+                ) AS row_rank
+            FROM player_status_daily ps
+            WHERE ps.game_date = :target_date
+              AND ps.player_id IN ({player_placeholders})
+              AND UPPER(ps.team) IN ({team_placeholders})
+        )
+        SELECT
+            player_id,
+            team,
+            availability_bucket,
+            is_active_roster,
+            is_available,
+            is_injured,
+            status_code,
+            status_description,
+            status_note,
+            snapshot_ts
+        FROM ranked
+        WHERE row_rank = 1
+        """,
+        params,
+    )
+    if frame.empty:
+        return {}
+
+    status_map: dict[tuple[int, str], dict[str, Any]] = {}
+    for record in _frame_records(frame):
+        status_map[(int(record["player_id"]), str(record["team"]).strip().upper())] = {
+            "availability_bucket": record.get("availability_bucket"),
+            "is_active_roster": None if record.get("is_active_roster") is None else bool(record.get("is_active_roster")),
+            "is_available": None if record.get("is_available") is None else bool(record.get("is_available")),
+            "is_injured": None if record.get("is_injured") is None else bool(record.get("is_injured")),
+            "roster_status_code": record.get("status_code"),
+            "roster_status_description": record.get("status_description"),
+            "roster_status_note": record.get("status_note"),
+            "roster_snapshot_ts": record.get("snapshot_ts"),
+        }
+    return status_map
+
+
+def _attach_player_status_context(
+    player: dict[str, Any],
+    status_map: dict[tuple[int, str], dict[str, Any]],
+) -> dict[str, Any]:
+    player_id = player.get("player_id")
+    team = str(player.get("team") or "").strip().upper()
+    status = None
+    if player_id is not None and team:
+        status = status_map.get((int(player_id), team))
+    if status is None and player_id is not None:
+        matching = [
+            record
+            for (status_player_id, _), record in status_map.items()
+            if status_player_id == int(player_id)
+        ]
+        if len(matching) == 1:
+            status = matching[0]
+    player.update(status or PLAYER_STATUS_DEFAULTS)
+    return player
+
+
 def _fetch_pitcher_strikeout_market_map(
     target_date: date,
     game_id: int | None = None,
@@ -1040,6 +1125,12 @@ def _fetch_pitcher_strikeout_prediction_map(
         )
         """
         feature_select = """
+            CAST(NULLIF(f.feature_payload ->> 'throws', '') AS TEXT) AS throws,
+            CAST(NULLIF(f.feature_payload ->> 'season_starts', '') AS INTEGER) AS season_starts,
+            CAST(NULLIF(f.feature_payload ->> 'season_innings', '') AS DOUBLE PRECISION) AS season_innings,
+            CAST(NULLIF(f.feature_payload ->> 'season_strikeouts', '') AS INTEGER) AS season_strikeouts,
+            CAST(NULLIF(f.feature_payload ->> 'season_k_per_start', '') AS DOUBLE PRECISION) AS season_k_per_start,
+            CAST(NULLIF(f.feature_payload ->> 'season_k_per_batter', '') AS DOUBLE PRECISION) AS season_k_per_batter,
             CAST(NULLIF(f.feature_payload ->> 'baseline_strikeouts', '') AS DOUBLE PRECISION) AS baseline_strikeouts,
             CAST(NULLIF(f.feature_payload ->> 'opponent_lineup_k_pct', '') AS DOUBLE PRECISION) AS opponent_lineup_k_pct,
             CAST(NULLIF(f.feature_payload ->> 'opponent_k_pct_blended', '') AS DOUBLE PRECISION) AS opponent_k_pct_blended,
@@ -1099,11 +1190,19 @@ def _fetch_pitcher_strikeout_prediction_map(
         prediction_map[(int(row["game_id"]), int(row["pitcher_id"]))] = {
             "source": "model",
             "pitcher_name": row.get("pitcher_name"),
+            "throws": row.get("throws"),
             "prediction_ts": row.get("prediction_ts"),
             "model_name": row.get("model_name"),
             "model_version": row.get("model_version"),
             "projected_strikeouts": row.get("predicted_strikeouts"),
             "baseline_strikeouts": row.get("baseline_strikeouts"),
+            "season_context": {
+                "starts": row.get("season_starts"),
+                "innings": row.get("season_innings"),
+                "strikeouts": row.get("season_strikeouts"),
+                "strikeouts_per_start": row.get("season_k_per_start"),
+                "strikeouts_per_batter": row.get("season_k_per_batter"),
+            },
             "opponent_lineup_k_pct": row.get("opponent_lineup_k_pct"),
             "opponent_k_pct_blended": row.get("opponent_k_pct_blended"),
             "opponent_k_pct_used": row.get("opponent_lineup_k_pct") if row.get("opponent_lineup_k_pct") is not None else row.get("opponent_k_pct_blended"),
@@ -1553,6 +1652,7 @@ def _fetch_pitcher_recent_starts(pitcher_id: int | None, target_date: date, limi
             ps.game_id,
             ps.team,
             ps.ip,
+            ps.earned_runs,
             ps.strikeouts,
             ps.pitch_count,
             CASE
@@ -1578,6 +1678,9 @@ def _fetch_pitcher_recent_starts(pitcher_id: int | None, target_date: date, limi
             "team": row.get("team"),
             "opponent": row.get("opponent"),
             "ip": _coerce_float(row.get("ip")),
+            "earned_runs": int(row.get("earned_runs") or 0)
+            if row.get("earned_runs") is not None
+            else None,
             "strikeouts": int(row.get("strikeouts") or 0),
             "pitch_count": int(row.get("pitch_count") or 0)
             if row.get("pitch_count") is not None
@@ -1585,6 +1688,30 @@ def _fetch_pitcher_recent_starts(pitcher_id: int | None, target_date: date, limi
         }
         for row in _frame_records(history_frame)
     ]
+
+
+def _baseball_ip_to_outs(ip_value: Any) -> int:
+    innings = _coerce_float(ip_value)
+    if innings is None or math.isnan(innings):
+        return 0
+    whole_innings = int(innings)
+    partial_innings = round(innings - whole_innings, 1)
+    partial_outs = 0
+    if abs(partial_innings - 0.1) < 0.05:
+        partial_outs = 1
+    elif abs(partial_innings - 0.2) < 0.05:
+        partial_outs = 2
+    return max((whole_innings * 3) + partial_outs, 0)
+
+
+def _era_from_pitcher_history(frame: pd.DataFrame) -> float | None:
+    if frame.empty:
+        return None
+    outs_recorded = pd.to_numeric(frame.get("ip"), errors="coerce").apply(_baseball_ip_to_outs).sum()
+    if outs_recorded <= 0:
+        return None
+    earned_runs = pd.to_numeric(frame.get("earned_runs"), errors="coerce").fillna(0).sum()
+    return float(earned_runs) * 27.0 / float(outs_recorded)
 
 
 def _fetch_model_scorecards(target_date: date, window_days: int = 14) -> dict[str, Any]:
@@ -1872,6 +1999,16 @@ def _fetch_game_board(
             CAST(f.feature_payload ->> 'home_bullpen_hits_allowed_last3' AS DOUBLE PRECISION) AS home_bullpen_hits_allowed_last3,
             CAST(f.feature_payload ->> 'away_bullpen_era_last3' AS DOUBLE PRECISION) AS away_bullpen_era_last3,
             CAST(f.feature_payload ->> 'home_bullpen_era_last3' AS DOUBLE PRECISION) AS home_bullpen_era_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_late_innings_last3' AS DOUBLE PRECISION) AS away_bullpen_late_innings_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_late_innings_last3' AS DOUBLE PRECISION) AS home_bullpen_late_innings_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_late_runs_allowed_last3' AS DOUBLE PRECISION) AS away_bullpen_late_runs_allowed_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_late_runs_allowed_last3' AS DOUBLE PRECISION) AS home_bullpen_late_runs_allowed_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_late_earned_runs_last3' AS DOUBLE PRECISION) AS away_bullpen_late_earned_runs_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_late_earned_runs_last3' AS DOUBLE PRECISION) AS home_bullpen_late_earned_runs_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_late_hits_allowed_last3' AS DOUBLE PRECISION) AS away_bullpen_late_hits_allowed_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_late_hits_allowed_last3' AS DOUBLE PRECISION) AS home_bullpen_late_hits_allowed_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_late_era_last3' AS DOUBLE PRECISION) AS away_bullpen_late_era_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_late_era_last3' AS DOUBLE PRECISION) AS home_bullpen_late_era_last3,
             CAST(f.feature_payload ->> 'away_lineup_top5_xwoba' AS DOUBLE PRECISION) AS away_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'home_lineup_top5_xwoba' AS DOUBLE PRECISION) AS home_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'away_lineup_k_pct' AS DOUBLE PRECISION) AS away_lineup_k_pct,
@@ -2149,6 +2286,7 @@ def _fetch_game_board(
     hit_records = _annotate_lineup_confidence(hit_records, _fetch_lineup_snapshot_keys(target_date))
     if not include_inferred:
         hit_records = [record for record in hit_records if not record.get("is_inferred_lineup")]
+    player_status_map = _fetch_player_status_map(target_date, hit_records)
     hit_split_map = _fetch_hitter_pitch_hand_splits(
         target_date,
         [int(hit["player_id"]) for hit in hit_records if hit.get("player_id") is not None],
@@ -2216,6 +2354,16 @@ def _fetch_game_board(
                 "home_bullpen_hits_allowed_last3": record["home_bullpen_hits_allowed_last3"],
                 "away_bullpen_era_last3": record["away_bullpen_era_last3"],
                 "home_bullpen_era_last3": record["home_bullpen_era_last3"],
+                "away_bullpen_late_innings_last3": record["away_bullpen_late_innings_last3"],
+                "home_bullpen_late_innings_last3": record["home_bullpen_late_innings_last3"],
+                "away_bullpen_late_runs_allowed_last3": record["away_bullpen_late_runs_allowed_last3"],
+                "home_bullpen_late_runs_allowed_last3": record["home_bullpen_late_runs_allowed_last3"],
+                "away_bullpen_late_earned_runs_last3": record["away_bullpen_late_earned_runs_last3"],
+                "home_bullpen_late_earned_runs_last3": record["home_bullpen_late_earned_runs_last3"],
+                "away_bullpen_late_hits_allowed_last3": record["away_bullpen_late_hits_allowed_last3"],
+                "home_bullpen_late_hits_allowed_last3": record["home_bullpen_late_hits_allowed_last3"],
+                "away_bullpen_late_era_last3": record["away_bullpen_late_era_last3"],
+                "home_bullpen_late_era_last3": record["home_bullpen_late_era_last3"],
                 "away_lineup_top5_xwoba": record["away_lineup_top5_xwoba"],
                 "home_lineup_top5_xwoba": record["home_lineup_top5_xwoba"],
                 "away_lineup_k_pct": record["away_lineup_k_pct"],
@@ -2319,51 +2467,55 @@ def _fetch_game_board(
             game["hit_targets"][team] = []
         opposing_starter = game["starters"]["home"] if team == game["away_team"] else game["starters"]["away"]
         actual_meta = _build_hit_actual_meta(hit["actual_hits"], bool(game["actual_result"]["is_final"]))
+        player_payload = _attach_player_status_context(
+            {
+            "player_id": hit["player_id"],
+            "player_name": hit["player_name"],
+            "bats": hit["bats"],
+            "position": hit["position"],
+            "team": team,
+            "opponent": hit["opponent"],
+            "lineup_slot": hit["lineup_slot"],
+            "is_confirmed_lineup": hit["is_confirmed_lineup"],
+            "projected_plate_appearances": hit["projected_plate_appearances"],
+            "streak_len_capped": hit["streak_len_capped"],
+            "streak_len": hit.get("streak_len") or hit["streak_len_capped"],
+            "predicted_hit_probability": hit["predicted_hit_probability"],
+            "fair_price": hit["fair_price"],
+            "market_price": hit["market_price"],
+            "edge": hit["edge"],
+            "hit_rate_blended": hit["hit_rate_blended"],
+            "xwoba_14": hit["xwoba_14"],
+            "opposing_starter_xwoba": hit["opposing_starter_xwoba"],
+            "opposing_starter_csw": hit["opposing_starter_csw"],
+            "team_run_environment": hit["team_run_environment"],
+            "park_hr_factor": hit["park_hr_factor"],
+            "games_last7": hit["games_last7"],
+            "hits_last7": hit["hits_last7"],
+            "at_bats_last7": hit["at_bats_last7"],
+            "batting_avg_last7": hit["batting_avg_last7"],
+            "games_season": hit["games_season"],
+            "season_hits": hit["season_hits"],
+            "season_at_bats": hit["season_at_bats"],
+            "batting_avg_season": hit["batting_avg_season"],
+            "actual_plate_appearances": hit["actual_plate_appearances"],
+            "actual_at_bats": hit["actual_at_bats"],
+            "actual_hits": hit["actual_hits"],
+            "actual_runs": hit["actual_runs"],
+            "actual_rbi": hit["actual_rbi"],
+            "actual_walks": hit["actual_walks"],
+            "actual_home_runs": hit["actual_home_runs"],
+            "actual_stolen_bases": hit["actual_stolen_bases"],
+            "actual_total_bases": hit["actual_total_bases"],
+            "opposing_pitcher_name": opposing_starter["pitcher_name"] if opposing_starter else None,
+            "opposing_pitcher_throws": opposing_starter["throws"] if opposing_starter else None,
+            **actual_meta,
+            },
+            player_status_map,
+        )
         game["hit_targets"][team].append(
             _attach_hitter_matchup_context(
-                {
-                "player_id": hit["player_id"],
-                "player_name": hit["player_name"],
-                "bats": hit["bats"],
-                "position": hit["position"],
-                "team": team,
-                "opponent": hit["opponent"],
-                "lineup_slot": hit["lineup_slot"],
-                "is_confirmed_lineup": hit["is_confirmed_lineup"],
-                "projected_plate_appearances": hit["projected_plate_appearances"],
-                "streak_len_capped": hit["streak_len_capped"],
-                "streak_len": hit.get("streak_len") or hit["streak_len_capped"],
-                "predicted_hit_probability": hit["predicted_hit_probability"],
-                "fair_price": hit["fair_price"],
-                "market_price": hit["market_price"],
-                "edge": hit["edge"],
-                "hit_rate_blended": hit["hit_rate_blended"],
-                "xwoba_14": hit["xwoba_14"],
-                "opposing_starter_xwoba": hit["opposing_starter_xwoba"],
-                "opposing_starter_csw": hit["opposing_starter_csw"],
-                "team_run_environment": hit["team_run_environment"],
-                "park_hr_factor": hit["park_hr_factor"],
-                "games_last7": hit["games_last7"],
-                "hits_last7": hit["hits_last7"],
-                "at_bats_last7": hit["at_bats_last7"],
-                "batting_avg_last7": hit["batting_avg_last7"],
-                "games_season": hit["games_season"],
-                "season_hits": hit["season_hits"],
-                "season_at_bats": hit["season_at_bats"],
-                "batting_avg_season": hit["batting_avg_season"],
-                "actual_plate_appearances": hit["actual_plate_appearances"],
-                "actual_at_bats": hit["actual_at_bats"],
-                "actual_hits": hit["actual_hits"],
-                "actual_runs": hit["actual_runs"],
-                "actual_rbi": hit["actual_rbi"],
-                "actual_walks": hit["actual_walks"],
-                "actual_home_runs": hit["actual_home_runs"],
-                "actual_stolen_bases": hit["actual_stolen_bases"],
-                "actual_total_bases": hit["actual_total_bases"],
-                "opposing_pitcher_name": opposing_starter["pitcher_name"] if opposing_starter else None,
-                "opposing_pitcher_throws": opposing_starter["throws"] if opposing_starter else None,
-                **actual_meta,
-                },
+                player_payload,
                 opposing_starter["throws"] if opposing_starter else None,
                 hit_split_map,
             )
@@ -2375,10 +2527,11 @@ def _fetch_game_board(
     readiness_map = _fetch_game_readiness_map(target_date)
     for game in games_by_id.values():
         total_freeze = market_freezes.get((int(game["game_id"]), "total"), {})
-        game["totals"]["market_locked"] = bool(total_freeze)
-        game["totals"]["locked_sportsbook"] = total_freeze.get("frozen_sportsbook")
-        game["totals"]["locked_snapshot_ts"] = total_freeze.get("frozen_snapshot_ts")
-        game["totals"]["locked_line_value"] = total_freeze.get("frozen_line_value")
+        _apply_market_freeze_payload(game["totals"], total_freeze)
+        _apply_market_freeze_payload(
+            game["first5_totals"],
+            market_freezes.get((int(game["game_id"]), "first_five_total"), {}),
+        )
         game["data_quality"] = _compute_data_quality_badge(game, ingest_freshness, readiness_map)
 
     return [games_by_id[game_id] for game_id in games_by_id]
@@ -2448,6 +2601,61 @@ def _coerce_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _scale_expected_run_split(
+    predicted_total: Any,
+    away_weight: Any,
+    home_weight: Any,
+) -> tuple[float | None, float | None]:
+    total = _coerce_float(predicted_total)
+    away = _coerce_float(away_weight)
+    home = _coerce_float(home_weight)
+    if total is None:
+        return None, None
+    if away is None and home is None:
+        return None, None
+    if away is None or away <= 0:
+        away = home if home is not None and home > 0 else 1.0
+    if home is None or home <= 0:
+        home = away if away is not None and away > 0 else 1.0
+    denominator = away + home
+    if denominator <= 0:
+        return None, None
+    away_share = round(total * away / denominator, 3)
+    home_share = round(total - away_share, 3)
+    return away_share, home_share
+
+
+def _apply_market_freeze_payload(payload: dict[str, Any], freeze_row: dict[str, Any] | None) -> dict[str, Any]:
+    freeze = freeze_row or {}
+    frozen_line_value = freeze.get("frozen_line_value")
+    payload["market_locked"] = bool(freeze)
+    payload["locked_sportsbook"] = freeze.get("frozen_sportsbook")
+    payload["locked_snapshot_ts"] = freeze.get("frozen_snapshot_ts")
+    payload["locked_line_value"] = frozen_line_value
+    if frozen_line_value is not None:
+        payload["market_total"] = frozen_line_value
+        payload["market_backed"] = True
+
+    predicted_total = _coerce_float(payload.get("predicted_total_runs"))
+    market_total = _coerce_float(payload.get("market_total"))
+    actual_total = _coerce_float(payload.get("actual_total_runs"))
+    if "recommended_side" in payload:
+        payload["recommended_side"] = _recommended_side(predicted_total, market_total)
+    if "actual_side" in payload:
+        payload["actual_side"] = _actual_side(actual_total, market_total) if actual_total is not None else None
+    if "result" in payload:
+        payload["result"] = _graded_pick_result(
+            payload.get("recommended_side"),
+            payload.get("actual_side"),
+            actual_total is not None,
+        )
+    if "delta_vs_market" in payload:
+        payload["delta_vs_market"] = (
+            None if predicted_total is None or market_total is None else round(predicted_total - market_total, 2)
+        )
+    return payload
 
 
 def _totals_lean_direction(totals: dict[str, Any]) -> str | None:
@@ -3352,6 +3560,7 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
     prediction_created_order = _sql_order_nulls_last("p.created_at", "DESC")
     feature_cutoff_order = _sql_order_nulls_last("f.feature_cutoff_ts", "DESC")
     market_line_order = _sql_order_nulls_last("gm.line_value", "DESC")
+    market_freezes = _fetch_market_freeze_map(target_date)
     frame = _safe_frame(
         f"""
         WITH ranked_predictions AS (
@@ -3409,8 +3618,8 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
             p.over_probability,
             p.under_probability,
             p.edge,
-            CAST(f.feature_payload ->> 'away_runs_rate_blended' AS DOUBLE PRECISION) AS away_expected_runs,
-            CAST(f.feature_payload ->> 'home_runs_rate_blended' AS DOUBLE PRECISION) AS home_expected_runs
+            CAST(f.feature_payload ->> 'away_runs_rate_blended' AS DOUBLE PRECISION) AS away_context_runs,
+            CAST(f.feature_payload ->> 'home_runs_rate_blended' AS DOUBLE PRECISION) AS home_context_runs
         FROM games g
         LEFT JOIN ranked_predictions p ON p.game_id = g.game_id AND p.row_rank = 1
         LEFT JOIN ranked_features f ON f.game_id = g.game_id AND f.row_rank = 1
@@ -3427,19 +3636,24 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
         predicted_total = _to_float(row.get("predicted_total_runs"))
         market_total = _to_float(row.get("market_total"))
         actual_total = _to_float(row.get("total_runs_first5"))
+        away_expected_runs, home_expected_runs = _scale_expected_run_split(
+            predicted_total,
+            row.get("away_context_runs"),
+            row.get("home_context_runs"),
+        )
         supported = any(
             value is not None
             for value in (
                 predicted_total,
                 market_total,
                 actual_total,
-                _to_float(row.get("away_expected_runs")),
-                _to_float(row.get("home_expected_runs")),
+                away_expected_runs,
+                home_expected_runs,
             )
         )
         recommended_side = _recommended_side(predicted_total, market_total)
         actual_side = _actual_side(actual_total, market_total) if actual_total is not None else None
-        payload_by_game[int(game_id)] = {
+        payload = {
             "supported": supported,
             "model_name": row.get("model_name"),
             "model_version": row.get("model_version"),
@@ -3450,8 +3664,8 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
             "under_probability": row.get("under_probability"),
             "edge": row.get("edge"),
             "market_backed": market_total is not None,
-            "away_expected_runs": row.get("away_expected_runs"),
-            "home_expected_runs": row.get("home_expected_runs"),
+            "away_expected_runs": away_expected_runs,
+            "home_expected_runs": home_expected_runs,
             "away_runs": row.get("away_runs_first5"),
             "home_runs": row.get("home_runs_first5"),
             "actual_total_runs": row.get("total_runs_first5"),
@@ -3460,6 +3674,10 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
             "result": _graded_pick_result(recommended_side, actual_side, actual_total is not None),
             "delta_vs_market": None if predicted_total is None or market_total is None else round(predicted_total - market_total, 2),
         }
+        payload_by_game[int(game_id)] = _apply_market_freeze_payload(
+            payload,
+            market_freezes.get((int(game_id), "first_five_total")),
+        )
     return payload_by_game
 
 
@@ -3541,44 +3759,72 @@ def _fetch_starter_recent_form(pitcher_id: int | None, target_date: date) -> dic
         "avg_ip": None,
         "avg_strikeouts": None,
         "avg_walks": None,
+        "avg_earned_runs": None,
         "avg_pitch_count": None,
         "xwoba_against": None,
         "csw_pct": None,
         "whiff_pct": None,
         "avg_fb_velo": None,
         "last_start_date": None,
+        "season_starts": 0,
+        "season_era": None,
+        "era_last3": None,
+        "era_last5": None,
         "recent_starts": [],
     }
     if pitcher_id is None or not _table_exists("pitcher_starts"):
         return default
     frame = _safe_frame(
         """
-        WITH recent AS (
-            SELECT *
-            FROM pitcher_starts
-            WHERE pitcher_id = :pitcher_id
-              AND game_date < :target_date
-            ORDER BY game_date DESC
-            LIMIT 5
-        )
         SELECT
-            COUNT(*) AS sample_starts,
-            AVG(ip) AS avg_ip,
-            AVG(strikeouts) AS avg_strikeouts,
-            AVG(walks) AS avg_walks,
-            AVG(pitch_count) AS avg_pitch_count,
-            AVG(xwoba_against) AS xwoba_against,
-            AVG(csw_pct) AS csw_pct,
-            AVG(whiff_pct) AS whiff_pct,
-            AVG(avg_fb_velo) AS avg_fb_velo,
-            MAX(game_date) AS last_start_date
-        FROM recent
+            game_date,
+            ip,
+            earned_runs,
+            strikeouts,
+            walks,
+            pitch_count,
+            xwoba_against,
+            csw_pct,
+            whiff_pct,
+            avg_fb_velo
+        FROM pitcher_starts
+        WHERE pitcher_id = :pitcher_id
+          AND game_date < :target_date
+        ORDER BY game_date DESC, game_id DESC
         """,
         {"pitcher_id": pitcher_id, "target_date": target_date},
     )
     if frame.empty:
         return default
-    record = _frame_records(frame)[0]
+    history = frame.copy()
+    history["game_date"] = pd.to_datetime(history["game_date"])
+    recent_frame = history.head(5).copy()
+    recent3_frame = recent_frame.head(3).copy()
+    season_frame = history[history["game_date"].dt.year == int(target_date.year)].copy()
+
+    def _mean(column: str) -> float | None:
+        if recent_frame.empty:
+            return None
+        value = pd.to_numeric(recent_frame[column], errors="coerce").mean()
+        return None if pd.isna(value) else float(value)
+
+    record = {
+        "sample_starts": int(len(recent_frame.index)),
+        "avg_ip": _mean("ip"),
+        "avg_strikeouts": _mean("strikeouts"),
+        "avg_walks": _mean("walks"),
+        "avg_earned_runs": _mean("earned_runs"),
+        "avg_pitch_count": _mean("pitch_count"),
+        "xwoba_against": _mean("xwoba_against"),
+        "csw_pct": _mean("csw_pct"),
+        "whiff_pct": _mean("whiff_pct"),
+        "avg_fb_velo": _mean("avg_fb_velo"),
+        "last_start_date": None if recent_frame.empty else recent_frame.iloc[0]["game_date"].date().isoformat(),
+        "season_starts": int(len(season_frame.index)),
+        "season_era": _era_from_pitcher_history(season_frame),
+        "era_last3": _era_from_pitcher_history(recent3_frame),
+        "era_last5": _era_from_pitcher_history(recent_frame),
+    }
     recent_starts = _fetch_pitcher_recent_starts(pitcher_id, target_date, limit=5)
     return {**default, **record, "recent_starts": recent_starts}
 
@@ -3647,6 +3893,16 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             CAST(f.feature_payload ->> 'home_bullpen_hits_allowed_last3' AS DOUBLE PRECISION) AS home_bullpen_hits_allowed_last3,
             CAST(f.feature_payload ->> 'away_bullpen_era_last3' AS DOUBLE PRECISION) AS away_bullpen_era_last3,
             CAST(f.feature_payload ->> 'home_bullpen_era_last3' AS DOUBLE PRECISION) AS home_bullpen_era_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_late_innings_last3' AS DOUBLE PRECISION) AS away_bullpen_late_innings_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_late_innings_last3' AS DOUBLE PRECISION) AS home_bullpen_late_innings_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_late_runs_allowed_last3' AS DOUBLE PRECISION) AS away_bullpen_late_runs_allowed_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_late_runs_allowed_last3' AS DOUBLE PRECISION) AS home_bullpen_late_runs_allowed_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_late_earned_runs_last3' AS DOUBLE PRECISION) AS away_bullpen_late_earned_runs_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_late_earned_runs_last3' AS DOUBLE PRECISION) AS home_bullpen_late_earned_runs_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_late_hits_allowed_last3' AS DOUBLE PRECISION) AS away_bullpen_late_hits_allowed_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_late_hits_allowed_last3' AS DOUBLE PRECISION) AS home_bullpen_late_hits_allowed_last3,
+            CAST(f.feature_payload ->> 'away_bullpen_late_era_last3' AS DOUBLE PRECISION) AS away_bullpen_late_era_last3,
+            CAST(f.feature_payload ->> 'home_bullpen_late_era_last3' AS DOUBLE PRECISION) AS home_bullpen_late_era_last3,
             CAST(f.feature_payload ->> 'away_lineup_top5_xwoba' AS DOUBLE PRECISION) AS away_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'home_lineup_top5_xwoba' AS DOUBLE PRECISION) AS home_lineup_top5_xwoba,
             CAST(f.feature_payload ->> 'away_lineup_k_pct' AS DOUBLE PRECISION) AS away_lineup_k_pct,
@@ -3963,7 +4219,8 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         hit_history_map = {}
         lineup_split_map = {}
 
-    total_freeze = _fetch_market_freeze_map(target_date).get((int(game_id), "total"), {})
+    market_freezes = _fetch_market_freeze_map(target_date)
+    total_freeze = market_freezes.get((int(game_id), "total"), {})
 
     detail = {
         "game_id": int(game["game_id"]),
@@ -4020,6 +4277,16 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             "home_bullpen_hits_allowed_last3": game["home_bullpen_hits_allowed_last3"],
             "away_bullpen_era_last3": game["away_bullpen_era_last3"],
             "home_bullpen_era_last3": game["home_bullpen_era_last3"],
+            "away_bullpen_late_innings_last3": game["away_bullpen_late_innings_last3"],
+            "home_bullpen_late_innings_last3": game["home_bullpen_late_innings_last3"],
+            "away_bullpen_late_runs_allowed_last3": game["away_bullpen_late_runs_allowed_last3"],
+            "home_bullpen_late_runs_allowed_last3": game["home_bullpen_late_runs_allowed_last3"],
+            "away_bullpen_late_earned_runs_last3": game["away_bullpen_late_earned_runs_last3"],
+            "home_bullpen_late_earned_runs_last3": game["home_bullpen_late_earned_runs_last3"],
+            "away_bullpen_late_hits_allowed_last3": game["away_bullpen_late_hits_allowed_last3"],
+            "home_bullpen_late_hits_allowed_last3": game["home_bullpen_late_hits_allowed_last3"],
+            "away_bullpen_late_era_last3": game["away_bullpen_late_era_last3"],
+            "home_bullpen_late_era_last3": game["home_bullpen_late_era_last3"],
             "away_lineup_top5_xwoba": game["away_lineup_top5_xwoba"],
             "home_lineup_top5_xwoba": game["home_lineup_top5_xwoba"],
             "away_lineup_k_pct": game["away_lineup_k_pct"],
@@ -4152,6 +4419,11 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
 
     first5_totals_map = _fetch_first5_totals_map(target_date)
     detail["first5_totals"] = first5_totals_map.get(int(game_id)) or {"supported": False}
+    _apply_market_freeze_payload(detail["totals"], total_freeze)
+    _apply_market_freeze_payload(
+        detail["first5_totals"],
+        market_freezes.get((int(game_id), "first_five_total"), {}),
+    )
 
     return detail
 
@@ -4423,6 +4695,7 @@ def _fetch_hot_hitters(
         target_date,
         [int(record["player_id"]) for record in records if record.get("player_id") is not None],
     )
+    player_status_map = _fetch_player_status_map(target_date, records)
     hit_history_map = _fetch_recent_hit_history_map(
         target_date,
         [int(record["player_id"]) for record in records if record.get("player_id") is not None],
@@ -4437,12 +4710,15 @@ def _fetch_hot_hitters(
         player_id = int(record["player_id"]) if record.get("player_id") is not None else None
         actual_meta = _build_hit_actual_meta(record.get("actual_hits"), _is_final_game_status(record.get("game_status")))
         enriched = _attach_hitter_matchup_context(
-            {
+            _attach_player_status_context(
+                {
                 **record,
                 **actual_meta,
                 "form": form,
                 "recent_hit_history": [] if player_id is None else hit_history_map.get(player_id, []),
             },
+                player_status_map,
+            ),
             record.get("opposing_pitcher_throws"),
             hit_split_map,
         )
@@ -4486,6 +4762,148 @@ def _fetch_hot_hitters(
             "average_hit_probability": round(sum(valid_probabilities) / len(valid_probabilities), 4) if valid_probabilities else None,
             "latest_prediction_ts": max((row.get("prediction_ts") for row in hot_rows if row.get("prediction_ts") is not None), default=None),
         },
+    }
+
+
+def _fetch_season_leaderboards(target_date: date, limit: int = 10) -> dict[str, Any]:
+    season_start = date(int(target_date.year), 1, 1)
+
+    pitcher_rows = _safe_frame(
+        """
+        WITH season_rows AS (
+            SELECT
+                ps.pitcher_id,
+                COALESCE(dp.full_name, CAST(ps.pitcher_id AS TEXT)) AS player_name,
+                ps.team,
+                ps.game_date,
+                COALESCE(ps.strikeouts, 0) AS strikeouts,
+                COALESCE(ps.batters_faced, 0) AS batters_faced
+            FROM pitcher_starts ps
+            LEFT JOIN dim_players dp ON dp.player_id = ps.pitcher_id
+            WHERE ps.game_date >= :season_start
+              AND ps.game_date < :target_date
+        ),
+        latest_team AS (
+            SELECT
+                pitcher_id,
+                team,
+                ROW_NUMBER() OVER (
+                    PARTITION BY pitcher_id
+                    ORDER BY game_date DESC, pitcher_id
+                ) AS row_rank
+            FROM season_rows
+        )
+        SELECT
+            sr.pitcher_id,
+            MAX(sr.player_name) AS player_name,
+            lt.team,
+            COUNT(*) AS starts,
+            SUM(sr.strikeouts) AS strikeouts,
+            CASE WHEN COUNT(*) <= 0 THEN NULL ELSE SUM(sr.strikeouts) * 1.0 / COUNT(*) END AS strikeouts_per_start,
+            CASE WHEN SUM(sr.batters_faced) <= 0 THEN NULL ELSE SUM(sr.strikeouts) * 1.0 / SUM(sr.batters_faced) END AS strikeouts_per_batter
+        FROM season_rows sr
+        LEFT JOIN latest_team lt ON lt.pitcher_id = sr.pitcher_id AND lt.row_rank = 1
+        GROUP BY sr.pitcher_id, lt.team
+        HAVING COUNT(*) > 0
+        ORDER BY strikeouts DESC, strikeouts_per_start DESC, player_name ASC
+        LIMIT :limit
+        """,
+        {"season_start": season_start, "target_date": target_date, "limit": limit},
+    )
+
+    hitter_rows = _safe_frame(
+        """
+        WITH season_rows AS (
+            SELECT
+                pgb.player_id,
+                COALESCE(dp.full_name, CAST(pgb.player_id AS TEXT)) AS player_name,
+                pgb.team,
+                pgb.game_date,
+                COALESCE(pgb.hits, 0) AS hits,
+                pgb.game_id
+            FROM player_game_batting pgb
+            LEFT JOIN dim_players dp ON dp.player_id = pgb.player_id
+            WHERE pgb.game_date >= :season_start
+              AND pgb.game_date < :target_date
+        ),
+        latest_team AS (
+            SELECT
+                player_id,
+                team,
+                ROW_NUMBER() OVER (
+                    PARTITION BY player_id
+                    ORDER BY game_date DESC, player_id
+                ) AS row_rank
+            FROM season_rows
+        )
+        SELECT
+            sr.player_id,
+            MAX(sr.player_name) AS player_name,
+            lt.team,
+            COUNT(DISTINCT sr.game_id) AS games,
+            SUM(sr.hits) AS hits,
+            CASE WHEN COUNT(DISTINCT sr.game_id) <= 0 THEN NULL ELSE SUM(sr.hits) * 1.0 / COUNT(DISTINCT sr.game_id) END AS hits_per_game
+        FROM season_rows sr
+        LEFT JOIN latest_team lt ON lt.player_id = sr.player_id AND lt.row_rank = 1
+        GROUP BY sr.player_id, lt.team
+        HAVING COUNT(DISTINCT sr.game_id) > 0
+        ORDER BY hits DESC, hits_per_game DESC, player_name ASC
+        LIMIT :limit
+        """,
+        {"season_start": season_start, "target_date": target_date, "limit": limit},
+    )
+
+    team_runs_rows = _safe_frame(
+        """
+        WITH season_rows AS (
+            SELECT away_team AS team, away_runs AS runs, game_id
+            FROM games
+            WHERE game_date >= :season_start AND game_date < :target_date AND away_runs IS NOT NULL
+            UNION ALL
+            SELECT home_team AS team, home_runs AS runs, game_id
+            FROM games
+            WHERE game_date >= :season_start AND game_date < :target_date AND home_runs IS NOT NULL
+        )
+        SELECT
+            team,
+            COUNT(DISTINCT game_id) AS games,
+            SUM(runs) AS runs,
+            CASE WHEN COUNT(DISTINCT game_id) <= 0 THEN NULL ELSE SUM(runs) * 1.0 / COUNT(DISTINCT game_id) END AS runs_per_game
+        FROM season_rows
+        GROUP BY team
+        HAVING COUNT(DISTINCT game_id) > 0
+        ORDER BY runs DESC, runs_per_game DESC, team ASC
+        LIMIT :limit
+        """,
+        {"season_start": season_start, "target_date": target_date, "limit": limit},
+    )
+
+    team_strikeout_rows = _safe_frame(
+        """
+        SELECT
+            team,
+            COUNT(DISTINCT game_id) AS games,
+            SUM(COALESCE(strikeouts, 0)) AS strikeouts,
+            CASE WHEN COUNT(DISTINCT game_id) <= 0 THEN NULL ELSE SUM(COALESCE(strikeouts, 0)) * 1.0 / COUNT(DISTINCT game_id) END AS strikeouts_per_game
+        FROM player_game_batting
+        WHERE game_date >= :season_start
+          AND game_date < :target_date
+        GROUP BY team
+        HAVING COUNT(DISTINCT game_id) > 0
+        ORDER BY strikeouts DESC, strikeouts_per_game DESC, team ASC
+        LIMIT :limit
+        """,
+        {"season_start": season_start, "target_date": target_date, "limit": limit},
+    )
+
+    return {
+        "season": int(target_date.year),
+        "season_start": season_start.isoformat(),
+        "through_date": target_date.isoformat(),
+        "pitcher_strikeouts": _frame_records(pitcher_rows),
+        "hitter_hits": _frame_records(hitter_rows),
+        "team_runs": _frame_records(team_runs_rows),
+        "team_strikeouts": _frame_records(team_strikeout_rows),
     }
 
 
@@ -4588,7 +5006,9 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
         )
         for row in _frame_records(totals_frame):
             is_final = _is_final_game_status(row.get("status"))
-            recommended_side = None  # Full-game totals is research_only — suppress directional picks
+            predicted_total = _to_float(row.get("predicted_total_runs"))
+            market_total_val = _to_float(row.get("market_total"))
+            recommended_side = _recommended_side(predicted_total, market_total_val)
             actual_side = _actual_side(row.get("actual_total_runs"), row.get("market_total")) if is_final else None
             totals_rows.append(
                 {
@@ -4924,7 +5344,7 @@ def _hydrate_persisted_job(payload: dict[str, Any]) -> dict[str, Any] | None:
     action = payload.get("action")
     target_date = str(payload.get("target_date") or "").strip()
     created_at = str(payload.get("created_at") or "").strip()
-    if not job_id or action not in {"refresh_everything", "prepare_slate", "import_manual_inputs", "refresh_results", "rebuild_predictions", "grade_predictions"}:
+    if not job_id or action not in {"refresh_everything", "prepare_slate", "import_manual_inputs", "refresh_results", "rebuild_predictions", "grade_predictions", "retrain_models"}:
         return None
     if not target_date or not created_at:
         return None
@@ -5203,6 +5623,7 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.ingestors.starters", ["--target-date", target_date]),
             ("src.ingestors.prepare_slate_inputs", ["--target-date", target_date]),
             ("src.ingestors.lineups", ["--target-date", target_date]),
+            ("src.ingestors.player_status", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
             ("src.ingestors.weather", ["--target-date", target_date]),
             ("src.transforms.freeze_markets", ["--target-date", target_date]),
@@ -5225,6 +5646,7 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.ingestors.starters", ["--target-date", target_date]),
             ("src.ingestors.prepare_slate_inputs", ["--target-date", target_date]),
             ("src.ingestors.lineups", ["--target-date", target_date]),
+            ("src.ingestors.player_status", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
             ("src.ingestors.weather", ["--target-date", target_date]),
             ("src.transforms.freeze_markets", ["--target-date", target_date]),
@@ -5239,6 +5661,7 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
     if action == "import_manual_inputs":
         return [
             ("src.ingestors.lineups", ["--target-date", target_date]),
+            ("src.ingestors.player_status", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
             ("src.transforms.freeze_markets", ["--target-date", target_date]),
             ("src.ingestors.validator", ["--target-date", target_date]),
@@ -5253,6 +5676,19 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
         return _results_refresh_sequence(target_date)
     if action == "grade_predictions":
         return _results_refresh_sequence(target_date)
+    if action == "retrain_models":
+        return [
+            ("src.models.train_totals", []),
+            ("src.models.train_first5_totals", []),
+            ("src.models.train_hits", []),
+            ("src.models.train_strikeouts", []),
+            *_publish_target_date_sequence(
+                target_date,
+                refresh_aggregates=False,
+                rebuild_features=False,
+                include_market_freeze=False,
+            ),
+        ]
     return _pipeline_sequence(target_date, refresh_aggregates=False, rebuild_features=True)
 
 
@@ -5264,6 +5700,7 @@ def _update_job_label(action: UpdateAction) -> str:
         "refresh_results": "Refresh Daily Results",
         "rebuild_predictions": "Rebuild Predictions",
         "grade_predictions": "Grade Predictions",
+        "retrain_models": "Retrain Models",
     }[action]
 
 
@@ -5399,6 +5836,11 @@ def daily_results(
 @app.get("/api/model-scorecards")
 def model_scorecards(target_date: date = Query(default_factory=date.today), window_days: int = Query(default=14, ge=1, le=60)) -> JSONResponse:
     return _json_response({"target_date": target_date.isoformat(), **_fetch_model_scorecards(target_date, window_days)})
+
+
+@app.get("/api/leaders/season")
+def season_leaderboards(target_date: date = Query(default_factory=date.today), limit: int = Query(default=10, ge=3, le=25)) -> JSONResponse:
+    return _json_response({"target_date": target_date.isoformat(), **_fetch_season_leaderboards(target_date, limit)})
 
 
 @app.get("/api/trends/players/{player_id}")

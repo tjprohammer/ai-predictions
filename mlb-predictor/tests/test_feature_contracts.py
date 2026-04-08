@@ -70,10 +70,12 @@ def test_feature_columns_for_roles_excludes_certainty_and_diagnostic_strikeout_f
     roles = feature_field_roles("strikeouts")
 
     assert set(roles) == set(STRIKEOUTS_FEATURE_COLUMNS)
-    assert roles["throws"] == FIELD_ROLE_DIAGNOSTIC_FLAG
+    assert roles["throws"] == FIELD_ROLE_CORE_PREDICTOR
     assert roles["confirmed_hitters"] == FIELD_ROLE_CERTAINTY_SIGNAL
     assert roles["handedness_adjustment_applied"] == FIELD_ROLE_DIAGNOSTIC_FLAG
-    assert "throws" not in selected
+    assert "throws" in selected
+    assert "season_strikeouts" in selected
+    assert "season_k_per_start" in selected
     assert "confirmed_hitters" not in selected
     assert "handedness_adjustment_applied" not in selected
     assert "baseline_strikeouts" in selected

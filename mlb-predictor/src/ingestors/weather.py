@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import time as timer
 from datetime import date, datetime, time, timezone
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -48,9 +49,23 @@ def _weather_endpoint(game_date, *, force_mode: str | None = None) -> tuple[str,
     return "https://api.open-meteo.com/v1/forecast", "forecast"
 
 
-def _target_local_dt(game_date, game_start_ts):
+def _resolve_local_timezone(timezone_name: object | None) -> ZoneInfo | None:
+    text = str(timezone_name or "").strip()
+    if not text:
+        return None
+    try:
+        return ZoneInfo(text)
+    except Exception:
+        return None
+
+
+def _target_local_dt(game_date, game_start_ts, *, timezone_name: object | None = None):
     if game_start_ts is not None:
-        return game_start_ts.replace(tzinfo=None)
+        resolved_start = game_start_ts if game_start_ts.tzinfo is not None else game_start_ts.replace(tzinfo=timezone.utc)
+        local_timezone = _resolve_local_timezone(timezone_name)
+        if local_timezone is not None:
+            return resolved_start.astimezone(local_timezone).replace(tzinfo=None)
+        return resolved_start.astimezone(timezone.utc).replace(tzinfo=None)
     return datetime.combine(game_date, time(hour=19, minute=0))
 
 
@@ -94,7 +109,7 @@ def main() -> int:
 
     games = query_df(
         """
-        SELECT g.game_id, g.game_date, g.game_start_ts, v.latitude, v.longitude, v.roof_type
+        SELECT g.game_id, g.game_date, g.game_start_ts, v.latitude, v.longitude, v.roof_type, v.timezone_name
         FROM games g
         JOIN dim_venues v ON v.venue_id = g.venue_id
         WHERE g.game_date BETWEEN :start_date AND :end_date
@@ -141,7 +156,14 @@ def main() -> int:
             response_time_ms=int((timer.perf_counter() - started) * 1000),
         )
         payload = response.json()
-        selected = _pick_hour(payload, _target_local_dt(game_date, game_start_ts))
+        selected = _pick_hour(
+            payload,
+            _target_local_dt(
+                game_date,
+                game_start_ts,
+                timezone_name=payload.get("timezone") or getattr(game, "timezone_name", None),
+            ),
+        )
         if not selected:
             continue
         roof_type = (game.roof_type or "").lower() if game.roof_type else None

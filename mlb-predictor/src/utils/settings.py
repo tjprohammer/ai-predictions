@@ -14,6 +14,28 @@ for env_path in (BASE_DIR / "config" / ".env", BASE_DIR / ".env"):
     if env_path.exists():
         load_dotenv(env_path, override=False)
 
+_LEGACY_DEFAULT_DATABASE_URL = "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"
+
+
+def _resolve_database_url() -> str:
+    """Return the DATABASE_URL, auto-detecting a local SQLite file when unset."""
+    raw = (os.environ.get("DATABASE_URL") or "").strip()
+    if raw and raw != _LEGACY_DEFAULT_DATABASE_URL:
+        return raw
+    # Check well-known SQLite locations (runtime dir, then project dir).
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        runtime_db = Path(local_app_data) / "MLBPredictor" / "db" / "mlb_predictor.sqlite3"
+    else:
+        runtime_db = Path.home() / ".mlb-predictor" / "db" / "mlb_predictor.sqlite3"
+    project_db = BASE_DIR / "db" / "mlb_predictor.sqlite3"
+    for candidate in (runtime_db, project_db):
+        if candidate.exists():
+            url = f"sqlite:///{candidate.resolve().as_posix()}"
+            os.environ["DATABASE_URL"] = url
+            return url
+    return raw or _LEGACY_DEFAULT_DATABASE_URL
+
 
 def _parse_windows(raw: str) -> tuple[int, ...]:
     return tuple(int(part.strip()) for part in raw.split(",") if part.strip())
@@ -54,7 +76,7 @@ def get_settings() -> Settings:
     park_factors_csv = BASE_DIR / os.getenv("PARK_FACTORS_CSV", "db/seeds/park_factors.csv")
     return Settings(
         base_dir=BASE_DIR,
-        database_url=os.getenv("DATABASE_URL", "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"),
+        database_url=_resolve_database_url(),
         prior_season=int(os.getenv("PRIOR_SEASON", "2025")),
         current_season=int(os.getenv("CURRENT_SEASON", "2026")),
         rolling_windows=_parse_windows(os.getenv("ROLLING_WINDOWS", "7,14,30")),

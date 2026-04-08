@@ -13,6 +13,8 @@ from scripts.windows_signing import SigningConfigurationError, discover_signable
 ROOT = Path(__file__).resolve().parents[1]
 ADD_DATA_SEPARATOR = ";" if os.name == "nt" else ":"
 SQLITE_SEED_PATH = ROOT / "db" / "mlb_predictor.sqlite3"
+INSTALLER_DIR = ROOT / "installer" / "windows"
+APP_ICON_PATH = INSTALLER_DIR / "mlb_predictor.ico"
 DESKTOP_HISTORY_REQUIRED_TABLES = (
     ("team_offense_daily", "team offense history"),
     ("bullpens_daily", "bullpen history"),
@@ -155,6 +157,8 @@ def main() -> int:
         command.extend(["--hidden-import", module_name])
     if args.onefile:
         command.append("--onefile")
+    if APP_ICON_PATH.exists():
+        command.extend(["--icon", str(APP_ICON_PATH)])
     command.append(str(launcher_path))
 
     completed = subprocess.run(command, cwd=ROOT)

@@ -143,6 +143,7 @@ def main() -> int:
     residual_std_calibrated = max(float(artifact.get("residual_std_calibrated", residual_std)), 1.0)
     prediction_ts = datetime.now(timezone.utc)
     market_map = _fetch_market_map(target_date)
+    used_market_calibration = False
 
     # Build a Series of market lines aligned with scoring rows for batch calibration
     market_lines_series = pd.Series(
@@ -156,6 +157,7 @@ def main() -> int:
         n_calibrated = int(cal_mask.sum())
         if n_calibrated > 0:
             predictions = calibrated
+            used_market_calibration = True
             log.info("Applied market calibration to %d/%d predictions", n_calibrated, len(predictions))
 
     rows = []
@@ -169,7 +171,7 @@ def main() -> int:
         edge = None
         if market_line is not None:
             # Use the calibrated residual_std when market calibration was applied
-            effective_std = residual_std_calibrated if market_calibrator is not None else residual_std
+            effective_std = residual_std_calibrated if used_market_calibration else residual_std
             over_probability = _sigmoid((float(predicted_strikeouts) - float(market_line)) / effective_std)
             under_probability = 1.0 - over_probability
             edge = abs(over_probability - 0.5)

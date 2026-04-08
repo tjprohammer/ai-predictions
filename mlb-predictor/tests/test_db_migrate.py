@@ -13,13 +13,20 @@ def test_run_migrations_builds_sqlite_schema(tmp_path):
     applied_count = run_migrations(engine=engine)
     inspector = inspect(engine)
 
-    assert applied_count >= 14
+    assert applied_count >= 18
     assert inspector.has_table("games") is True
     assert inspector.has_table("player_prop_markets") is True
+    assert inspector.has_table("player_status_daily") is True
     assert inspector.has_table("predictions_first5_totals") is True
 
     game_columns = {column["name"] for column in inspector.get_columns("games")}
     assert {"home_runs_first5", "away_runs_first5", "total_runs_first5"}.issubset(game_columns)
+
+    pitching_columns = {column["name"] for column in inspector.get_columns("player_game_pitching")}
+    assert {"late_innings_pitched", "late_runs_allowed", "late_earned_runs", "late_hits_allowed"}.issubset(pitching_columns)
+
+    bullpen_columns = {column["name"] for column in inspector.get_columns("bullpens_daily")}
+    assert {"late_innings_pitched", "late_runs_allowed", "late_earned_runs", "late_hits_allowed", "late_era"}.issubset(bullpen_columns)
 
     pitcher_columns = {column["name"] for column in inspector.get_columns("pitcher_starts")}
     assert "batters_faced" in pitcher_columns

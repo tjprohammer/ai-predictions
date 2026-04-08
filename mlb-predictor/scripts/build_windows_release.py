@@ -157,9 +157,21 @@ def main() -> int:
     artifact_prefix = _release_artifact_prefix(args.name, args.app_version)
     sign_requested = getattr(args, "sign", False)
 
-    seed_result = _run_step([sys.executable, "scripts/build_desktop_sqlite_seed.py"])
-    if seed_result != 0:
-        return seed_result
+    # Skip the seed rebuild when the configured source IS the SQLite seed file
+    # itself (common in local-development-as-source workflows).  Deleting and
+    # re-creating from the same file would zero it out.
+    from src.utils.settings import get_settings as _get_settings
+
+    _source_url = _get_settings().database_url.strip()
+    _seed_path = ROOT / "db" / "mlb_predictor.sqlite3"
+    _source_is_seed = _source_url.startswith("sqlite") and _seed_path.resolve().as_posix().lower() in _source_url.lower()
+
+    if _source_is_seed:
+        print(f"Source database IS the SQLite seed ({_seed_path.name}) — skipping seed rebuild.")
+    else:
+        seed_result = _run_step([sys.executable, "scripts/build_desktop_sqlite_seed.py"])
+        if seed_result != 0:
+            return seed_result
 
     desktop_command = [sys.executable, "scripts/build_windows_app.py", "--name", args.name]
     if args.onefile:

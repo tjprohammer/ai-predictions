@@ -37,6 +37,16 @@ _COLLAPSE_ONE_SIDE_THRESHOLD = 0.75   # >75 % of picks on one side
 _COLLAPSE_RANGE_THRESHOLD = 1.5       # prediction max-min too narrow
 _COLLAPSE_AVG_GAP_THRESHOLD = 1.5     # |avg(pred) - avg(market)| too large
 
+# ---------------------------------------------------------------------------
+# Fallback market anchor
+# ---------------------------------------------------------------------------
+# When the trained Ridge calibrator is unavailable (too few rows or negative
+# model weight), predictions are dominated by the team-average baseline which
+# runs ~1-2 runs above game-specific market lines.  Instead of blending the
+# full prediction, we anchor to the market line and layer the residual model's
+# game-specific adjustment on top, scaled conservatively.
+_FALLBACK_RESIDUAL_SCALE = 0.50
+
 
 def _detect_slate_collapse(
     predicted_totals: list[float],
@@ -157,6 +167,20 @@ def main() -> int:
     calibrated_predictions, calibration_mask = calibrate_with_market(
         predictions, scoring["market_total"], market_calibrator,
     )
+
+    # --- Fallback market anchor for uncalibrated rows ---
+    # If the trained calibrator was skipped (None or rejected), anchor to
+    # the market line and layer only the residual model's game-specific
+    # adjustment (starters, lineups, bullpen, park) on top.  This avoids
+    # the systematic upward bias from the team-average baseline.
+    market_vals = scoring["market_total"]
+    for i in range(len(calibrated_predictions)):
+        if not calibration_mask[i] and market_vals.iloc[i] is not None and not pd.isna(market_vals.iloc[i]):
+            mkt = float(market_vals.iloc[i])
+            residual = float(raw_model_output[i])
+            calibrated_predictions[i] = mkt + _FALLBACK_RESIDUAL_SCALE * residual
+            calibration_mask[i] = True  # treated as "calibrated" for std selection
+
     calibration_residual_std = (
         max(float(market_calibrator["calibration_residual_std"]), 1.0)
         if market_calibrator is not None
@@ -193,7 +217,8 @@ def main() -> int:
         if row.market_total is not None and not pd.isna(row.market_total):
             over_probability = _sigmoid((predicted_total - float(row.market_total)) / effective_std)
             under_probability = 1.0 - over_probability
-            edge = abs(over_probability - 0.5)
+            # Signed edge: positive  → over lean, negative → under lean.
+            edge = over_probability - 0.5
 
         # Confidence / suppression: full-game totals is research-only.
         # Within that, individual games may have additional suppress reasons.

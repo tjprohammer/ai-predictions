@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from src.features.common import (
+    baseball_ip_to_outs,
     build_pitcher_priors,
     build_team_priors,
     coerce_utc_timestamp_series,
@@ -17,6 +18,7 @@ from src.features.common import (
     default_cutoff,
     infer_lineup_from_history,
     offense_snapshot,
+    outs_to_baseball_ip,
     persist_strikeout_features,
     pitcher_snapshot,
     write_feature_snapshot,
@@ -202,6 +204,33 @@ def _recent_pitcher_form(history: pd.DataFrame) -> dict[str, float | None]:
     }
 
 
+def _season_pitcher_context(history: pd.DataFrame, season: int) -> dict[str, float | int | None]:
+    season_history = history[history["game_date"].dt.year == int(season)].copy()
+    if season_history.empty:
+        return {
+            "season_starts": 0,
+            "season_innings": None,
+            "season_strikeouts": 0,
+            "season_k_per_start": None,
+            "season_k_per_batter": None,
+        }
+
+    strikeout_series = pd.to_numeric(season_history["strikeouts"], errors="coerce").fillna(0)
+    strikeout_total = int(strikeout_series.sum())
+    starts = int(len(season_history.index))
+    outs = int(pd.to_numeric(season_history["ip"], errors="coerce").apply(baseball_ip_to_outs).sum())
+    batters_faced = pd.to_numeric(season_history.get("batters_faced"), errors="coerce")
+    batters_faced_total = float(batters_faced.fillna(0).sum()) if batters_faced is not None else 0.0
+
+    return {
+        "season_starts": starts,
+        "season_innings": outs_to_baseball_ip(outs) if outs > 0 else None,
+        "season_strikeouts": strikeout_total,
+        "season_k_per_start": None if starts <= 0 else float(strikeout_total) / float(starts),
+        "season_k_per_batter": None if batters_faced_total <= 0 else float(strikeout_total) / batters_faced_total,
+    }
+
+
 def _usage_opportunity_series(frame: pd.DataFrame) -> pd.Series:
     batters_faced = pd.to_numeric(frame.get("batters_faced"), errors="coerce")
     if batters_faced.dropna().empty:
@@ -260,12 +289,12 @@ def main() -> int:
             frames[frame_name]["snapshot_ts"] = coerce_utc_timestamp_series(frames[frame_name]["snapshot_ts"])
     games["game_date"] = pd.to_datetime(games["game_date"]).dt.date
     games["game_start_ts"] = pd.to_datetime(games["game_start_ts"], utc=True)
-    player_name_map = (
-        frames["players"][["player_id", "full_name"]]
+    player_meta_map = (
+        frames["players"][["player_id", "full_name", "throws"]]
         .dropna(subset=["player_id"])
         .drop_duplicates(subset=["player_id"])
-        .set_index("player_id")["full_name"]
-        .to_dict()
+        .set_index("player_id")
+        .to_dict("index")
     )
 
     team_priors = build_team_priors(frames["team_offense"], settings.prior_season)
@@ -321,19 +350,21 @@ def main() -> int:
         )
 
         for starter in starters.sort_values(["side", "pitcher_id"]).itertuples(index=False):
-            throw_hand = str(getattr(starter, "throws", "") or "").strip().upper()[:1]
             team = starter.team
             opponent = game.away_team if team == game.home_team else game.home_team
             opponent_lineup = away_lineup if team == game.home_team else home_lineup
             opponent_handedness = away_handedness if team == game.home_team else home_handedness
             opponent_offense = away_offense if team == game.home_team else home_offense
-            pitcher_name = player_name_map.get(int(starter.pitcher_id)) or getattr(starter, "pitcher_name", None) or str(starter.pitcher_id)
+            pitcher_meta = player_meta_map.get(int(starter.pitcher_id), {})
+            pitcher_name = pitcher_meta.get("full_name") or getattr(starter, "pitcher_name", None) or str(starter.pitcher_id)
+            throw_hand = str(pitcher_meta.get("throws") or getattr(starter, "throws", "") or "").strip().upper()[:1]
 
             history = frames["pitcher_starts"][
                 (frames["pitcher_starts"]["pitcher_id"] == starter.pitcher_id)
                 & (frames["pitcher_starts"]["game_date"].dt.date < game.game_date)
             ].sort_values("game_date")
             recent_form = _recent_pitcher_form(history)
+            season_context = _season_pitcher_context(history, int(game.game_date.year))
             pitcher_snapshot(
                 int(starter.pitcher_id),
                 game.game_date,
@@ -345,8 +376,8 @@ def main() -> int:
             )
             shares = _same_hand_shares(throw_hand, opponent_handedness)
             market = _latest_prop_market_snapshot(int(game.game_id), int(starter.pitcher_id), cutoff_ts, frames["prop_markets"])
-            baseline_strikeouts = recent_form["recent_avg_strikeouts_5"] or recent_form["recent_avg_strikeouts_3"]
-            projected_innings = recent_form["recent_avg_ip_5"] or recent_form["recent_avg_ip_3"]
+            baseline_strikeouts = recent_form["recent_avg_strikeouts_5"] or recent_form["recent_avg_strikeouts_3"] or season_context["season_k_per_start"]
+            projected_innings = recent_form["recent_avg_ip_5"] or recent_form["recent_avg_ip_3"] or season_context["season_innings"]
             projected_innings = projected_innings if projected_innings and not pd.isna(projected_innings) else None
             handedness_adjustment_applied = shares["same_hand_share"] is not None and shares["opposite_hand_share"] is not None
             handedness_data_missing = int(opponent_handedness["known_hitters"] or 0) == 0
@@ -372,6 +403,11 @@ def main() -> int:
                     "throws": throw_hand or None,
                     "days_rest": starter.days_rest,
                     "projected_innings": projected_innings,
+                    "season_starts": season_context["season_starts"],
+                    "season_innings": season_context["season_innings"],
+                    "season_strikeouts": season_context["season_strikeouts"],
+                    "season_k_per_start": season_context["season_k_per_start"],
+                    "season_k_per_batter": season_context["season_k_per_batter"],
                     "recent_avg_ip_3": recent_form["recent_avg_ip_3"],
                     "recent_avg_ip_5": recent_form["recent_avg_ip_5"],
                     "recent_avg_strikeouts_3": recent_form["recent_avg_strikeouts_3"],

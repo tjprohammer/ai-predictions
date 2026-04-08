@@ -19,6 +19,9 @@
 #ifndef AppExeName
   #define AppExeName "MLBPredictor.exe"
 #endif
+#ifndef SetupIconFile
+  #define SetupIconFile AddBackslash(SourcePath) + "mlb_predictor.ico"
+#endif
 #ifndef AppInstallDirName
   #define AppInstallDirName "MLBPredictor"
 #endif
@@ -54,6 +57,7 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\{#AppExeName}
+SetupIconFile={#SetupIconFile}
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} desktop installer
 VersionInfoProductName={#AppName}
@@ -61,10 +65,11 @@ VersionInfoProductVersion={#VersionInfoProductVersion}
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SetupIconFile}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\mlb_predictor.ico"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\mlb_predictor.ico"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked

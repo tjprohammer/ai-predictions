@@ -59,9 +59,9 @@ def test_pitcher_snapshot_handles_string_game_dates():
 def test_bullpen_snapshot_surfaces_recent_run_prevention_metrics():
     frame = pd.DataFrame(
         [
-            {"team": "DET", "game_date": "2026-03-29", "innings_pitched": 2.0, "pitches_thrown": 31, "runs_allowed": 1, "earned_runs": 1, "hits_allowed": 3},
-            {"team": "DET", "game_date": "2026-03-31", "innings_pitched": 1.2, "pitches_thrown": 27, "runs_allowed": 0, "earned_runs": 0, "hits_allowed": 1},
-            {"team": "DET", "game_date": "2026-04-01", "innings_pitched": 3.0, "pitches_thrown": 42, "runs_allowed": 2, "earned_runs": 2, "hits_allowed": 4},
+            {"team": "DET", "game_date": "2026-03-29", "innings_pitched": 2.0, "pitches_thrown": 31, "runs_allowed": 1, "earned_runs": 1, "hits_allowed": 3, "late_innings_pitched": 1.0, "late_runs_allowed": 1, "late_earned_runs": 1, "late_hits_allowed": 2},
+            {"team": "DET", "game_date": "2026-03-31", "innings_pitched": 1.2, "pitches_thrown": 27, "runs_allowed": 0, "earned_runs": 0, "hits_allowed": 1, "late_innings_pitched": 0.2, "late_runs_allowed": 0, "late_earned_runs": 0, "late_hits_allowed": 1},
+            {"team": "DET", "game_date": "2026-04-01", "innings_pitched": 3.0, "pitches_thrown": 42, "runs_allowed": 2, "earned_runs": 2, "hits_allowed": 4, "late_innings_pitched": 2.0, "late_runs_allowed": 2, "late_earned_runs": 2, "late_hits_allowed": 3},
         ]
     )
 
@@ -72,6 +72,11 @@ def test_bullpen_snapshot_surfaces_recent_run_prevention_metrics():
     assert result["earned_runs_last3"] == 3
     assert result["hits_allowed_last3"] == 8
     assert result["era_last3"] == pytest.approx(4.05, rel=1e-2)
+    assert result["late_innings_last3"] == 3.2
+    assert result["late_runs_allowed_last3"] == 3
+    assert result["late_earned_runs_last3"] == 3
+    assert result["late_hits_allowed_last3"] == 6
+    assert result["late_era_last3"] == pytest.approx(7.36, rel=1e-2)
 
 
 def test_latest_market_snapshot_returns_selected_sportsbook():

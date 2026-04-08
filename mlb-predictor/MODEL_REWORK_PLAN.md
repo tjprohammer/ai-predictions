@@ -20,12 +20,12 @@ The app should no longer present every prediction as if it is equally trustworth
 Every prediction should produce two outputs:
 
 1. **Projection**
-	 - expected total runs
-	 - expected hitter outcome
-	 - expected strikeout outcome
+   - expected total runs
+   - expected hitter outcome
+   - expected strikeout outcome
 2. **Certainty**
-	 - how reliable the current inputs are
-	 - whether the play is actionable now or should wait for better confirmation
+   - how reliable the current inputs are
+   - whether the play is actionable now or should wait for better confirmation
 
 This is the core system change: edge and certainty must be separate. A strong edge with weak inputs should not be displayed the same way as a strong edge with confirmed inputs.
 
@@ -460,17 +460,17 @@ Success should be judged on decision quality in high-trust spots, not only on av
 This rework should map into the existing codebase as follows:
 
 - `db/migrations/`
-	- schema additions for certainty, freshness, and bullpen context
+  - schema additions for certainty, freshness, and bullpen context
 - `src/features/`
-	- certainty features, lineup transforms, bullpen transforms, and park or weather transforms
+  - certainty features, lineup transforms, bullpen transforms, and park or weather transforms
 - `src/models/`
-	- reworked totals modeling, hitter ranking logic, strikeout modeling, and confidence modeling
+  - reworked totals modeling, hitter ranking logic, strikeout modeling, and confidence modeling
 - `src/backtest/`
-	- board-state backtests, certainty-sliced evaluation, and old-versus-new comparisons
+  - board-state backtests, certainty-sliced evaluation, and old-versus-new comparisons
 - `src/transforms/`
-	- confidence labels, publish or suppress logic, and explanation drivers
+  - confidence labels, publish or suppress logic, and explanation drivers
 - `src/api/`
-	- prediction payload updates, certainty explanations, and product-surface output contracts
+  - prediction payload updates, certainty explanations, and product-surface output contracts
 
 ## Implementation Phases
 
@@ -554,24 +554,24 @@ Deliverables:
 The rework should start with three concrete artifacts plus one product contract:
 
 1. **Feature dictionary**
-	 - exact formula
-	 - source table or API
-	 - refresh timing
-	 - pregame-safe status
-	 - missing fallback
-	 - leakage risk
+   - exact formula
+   - source table or API
+   - refresh timing
+   - pregame-safe status
+   - missing fallback
+   - leakage risk
 2. **Board-state spec**
-	 - early board
-	 - morning board
-	 - lineup-confirmed board
-	 - pre-lock final
+   - early board
+   - morning board
+   - lineup-confirmed board
+   - pre-lock final
 3. **Decision policy**
-	 - publish rules
-	 - downgrade rules
-	 - suppress rules
-	 - rerank triggers after confirmation
+   - publish rules
+   - downgrade rules
+   - suppress rules
+   - rerank triggers after confirmation
 4. **Backtest harness**
-	 - old versus new comparisons split by board state and confidence bucket
+   - old versus new comparisons split by board state and confidence bucket
 
 ## Definition Of Done
 

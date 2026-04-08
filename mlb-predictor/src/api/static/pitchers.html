@@ -392,6 +392,55 @@
         margin-top: 18px;
       }
 
+      .leaders-grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        margin-top: 18px;
+      }
+
+      .leader-card {
+        padding: 18px;
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.75);
+        border: 1px solid var(--line);
+      }
+
+      .leader-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .leader-row {
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: baseline;
+      }
+
+      .leader-rank {
+        color: var(--muted);
+        font-size: 0.76rem;
+        font-weight: 800;
+      }
+
+      .leader-name {
+        font-weight: 800;
+      }
+
+      .leader-meta {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        line-height: 1.4;
+      }
+
+      .leader-value {
+        font-weight: 800;
+        text-align: right;
+      }
+
       .pitcher-card {
         display: grid;
         gap: 14px;
@@ -444,7 +493,11 @@
         margin-top: 2px;
         padding: 12px 14px;
         border-radius: 18px;
-        background: linear-gradient(180deg, rgba(24, 30, 37, 0.98), rgba(29, 35, 43, 0.94));
+        background: linear-gradient(
+          180deg,
+          rgba(24, 30, 37, 0.98),
+          rgba(29, 35, 43, 0.94)
+        );
         border: 1px solid rgba(53, 65, 81, 0.78);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
       }
@@ -506,7 +559,10 @@
 
       .history-baseline {
         position: absolute;
-        top: calc(var(--history-value-row) + var(--history-gap) + var(--history-baseline-offset));
+        top: calc(
+          var(--history-value-row) + var(--history-gap) +
+            var(--history-baseline-offset)
+        );
         left: 0;
         right: 0;
         border-top: 1px dashed rgba(229, 231, 235, 0.65);
@@ -531,7 +587,9 @@
 
       .history-game {
         display: grid;
-        grid-template-rows: var(--history-value-row) var(--history-bar-max) auto auto;
+        grid-template-rows: var(--history-value-row) var(
+            --history-bar-max
+          ) auto auto;
         gap: var(--history-gap);
         justify-items: center;
         min-width: 0;
@@ -805,6 +863,21 @@
       <section class="panel">
         <div class="panel-head">
           <div>
+            <div class="section-tag">Season Leaders</div>
+            <h2>League context entering today</h2>
+          </div>
+          <span class="panel-subtitle" id="leadersSubtitle"
+            >Loading season leaderboards</span
+          >
+        </div>
+        <div class="leaders-grid" id="leadersGrid">
+          <div class="empty-state">Loading season leaders...</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
             <div class="section-tag">Pitcher Board</div>
             <h2>Strikeout projection stack</h2>
           </div>
@@ -890,7 +963,7 @@
 
       applyAppLinks();
 
-      const state = { rows: [], historyFilters: {}, historyCache: {} };
+      const state = { rows: [], leaders: null, historyFilters: {}, historyCache: {} };
       const targetDateInput = document.getElementById("targetDate");
       const sortModeInput = document.getElementById("sortMode");
       const marketBackedOnlyInput = document.getElementById("marketBackedOnly");
@@ -898,6 +971,8 @@
       const hideStartedOnlyInput = document.getElementById("hideStartedOnly");
       const refreshButton = document.getElementById("refreshButton");
       const cardsGrid = document.getElementById("cardsGrid");
+      const leadersGrid = document.getElementById("leadersGrid");
+      const leadersSubtitle = document.getElementById("leadersSubtitle");
       const resultsSubtitle = document.getElementById("resultsSubtitle");
       const pageStatus = document.getElementById("pageStatus");
       const pitcherDataWarning = document.getElementById("pitcherDataWarning");
@@ -950,7 +1025,12 @@
         const value = String(opponent || "TBD").trim();
         if (!value) return "TBD";
         if (value.length <= 3) return value.toUpperCase();
-        return value.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "TBD";
+        return (
+          value
+            .replace(/[^A-Za-z0-9]/g, "")
+            .slice(0, 3)
+            .toUpperCase() || "TBD"
+        );
       }
 
       function pitcherHistoryFilterOptions() {
@@ -962,16 +1042,23 @@
       }
 
       function getPitcherHistoryFilter(row) {
-        const pitcherKey = String(row?.pitcher_id || row?.pitcher_name || "pitcher");
+        const pitcherKey = String(
+          row?.pitcher_id || row?.pitcher_name || "pitcher",
+        );
         return state.historyFilters[pitcherKey] || "l5";
       }
 
       function filteredPitcherHistory(row, history) {
         const filterKey = getPitcherHistoryFilter(row);
-        const targetOpponent = String(row?.opponent || "").trim().toUpperCase();
+        const targetOpponent = String(row?.opponent || "")
+          .trim()
+          .toUpperCase();
         if (filterKey === "h2h") {
           return history.filter(
-            (start) => String(start.opponent || "").trim().toUpperCase() === targetOpponent,
+            (start) =>
+              String(start.opponent || "")
+                .trim()
+                .toUpperCase() === targetOpponent,
           );
         }
         if (filterKey === "l3") {
@@ -982,7 +1069,10 @@
 
       function normalizePitcherTrendRows(row, trendRows) {
         return (Array.isArray(trendRows) ? trendRows : [])
-          .filter((entry) => String(entry?.game_date || "") !== String(row?.game_date || ""))
+          .filter(
+            (entry) =>
+              String(entry?.game_date || "") !== String(row?.game_date || ""),
+          )
           .slice(0, 5)
           .map((entry) => ({
             game_date: entry.game_date,
@@ -998,7 +1088,8 @@
         const pendingRows = (rows || []).filter((row) => {
           if (row?.pitcher_id == null) return false;
           const existingHistory = row?.recent_form?.recent_starts;
-          if (Array.isArray(existingHistory) && existingHistory.length) return false;
+          if (Array.isArray(existingHistory) && existingHistory.length)
+            return false;
           return true;
         });
         if (!pendingRows.length) {
@@ -1010,19 +1101,29 @@
             if (!(cacheKey in state.historyCache)) {
               try {
                 let response = await fetch(
-                  appUrl(`api/pitchers/${row.pitcher_id}/recent-starts?target_date=${targetDateInput.value}&limit=5`),
+                  appUrl(
+                    `api/pitchers/${row.pitcher_id}/recent-starts?target_date=${targetDateInput.value}&limit=5`,
+                  ),
                 );
                 if (response.ok) {
                   const payload = await response.json();
-                  state.historyCache[cacheKey] = normalizePitcherTrendRows(row, payload.rows || []);
+                  state.historyCache[cacheKey] = normalizePitcherTrendRows(
+                    row,
+                    payload.rows || [],
+                  );
                 }
                 if (!state.historyCache[cacheKey]?.length) {
                   response = await fetch(
-                    appUrl(`api/trends/pitchers/${row.pitcher_id}?target_date=${targetDateInput.value}&limit=10`),
+                    appUrl(
+                      `api/trends/pitchers/${row.pitcher_id}?target_date=${targetDateInput.value}&limit=10`,
+                    ),
                   );
                   if (response.ok) {
                     const payload = await response.json();
-                    state.historyCache[cacheKey] = normalizePitcherTrendRows(row, payload.rows || []);
+                    state.historyCache[cacheKey] = normalizePitcherTrendRows(
+                      row,
+                      payload.rows || [],
+                    );
                   }
                 }
                 if (!state.historyCache[cacheKey]) {
@@ -1059,11 +1160,12 @@
         const projectedLine = numberOr(row?.k_projection?.projected_strikeouts);
         const recentAvg = numberOr(row?.recent_form?.avg_strikeouts);
         const referenceValue = marketLine ?? projectedLine ?? recentAvg ?? 0;
-        const referenceLabel = marketLine != null
-          ? `Line ${formatNumber(marketLine, 1)}`
-          : projectedLine != null
-            ? `Proj ${formatNumber(projectedLine, 1)}`
-            : `Avg ${formatNumber(recentAvg, 1)}`;
+        const referenceLabel =
+          marketLine != null
+            ? `Line ${formatNumber(marketLine, 1)}`
+            : projectedLine != null
+              ? `Proj ${formatNumber(projectedLine, 1)}`
+              : `Avg ${formatNumber(recentAvg, 1)}`;
         const clearedStarts = shownHistory.filter(
           (start) => (numberOr(start.strikeouts, 0) ?? 0) >= referenceValue,
         ).length;
@@ -1073,32 +1175,54 @@
           ...shownHistory.map((start) => numberOr(start.strikeouts, 0) ?? 0),
         );
         const historyBarMaxHeight = 62;
-        const clampedReference = Math.max(0, Math.min(referenceValue, maxStrikeouts));
-        const baselineOffset = ((maxStrikeouts - clampedReference) / maxStrikeouts) * historyBarMaxHeight;
+        const clampedReference = Math.max(
+          0,
+          Math.min(referenceValue, maxStrikeouts),
+        );
+        const baselineOffset =
+          ((maxStrikeouts - clampedReference) / maxStrikeouts) *
+          historyBarMaxHeight;
         const defaultTitle = `Last ${Math.min(history.length, 5)} Starts`;
-        const filterTitle = pitcherHistoryFilterOptions().find((item) => item.key === filterKey)?.label || "L5";
-        const pitcherKey = escapeHtml(String(row?.pitcher_id || row?.pitcher_name || "pitcher"));
-        const captionTail = marketLine != null
-          ? `Green = cleared line · red = under line`
-          : `Green = above reference · red = below reference`;
+        const filterTitle =
+          pitcherHistoryFilterOptions().find((item) => item.key === filterKey)
+            ?.label || "L5";
+        const pitcherKey = escapeHtml(
+          String(row?.pitcher_id || row?.pitcher_name || "pitcher"),
+        );
+        const captionTail =
+          marketLine != null
+            ? `Green = cleared line · red = under line`
+            : `Green = above reference · red = below reference`;
         return `
           <div class="history-block">
             <div class="history-head">
               <div class="history-caption"><strong>${filterKey === "h2h" ? filterTitle : defaultTitle}</strong>${filterKey === "h2h" ? ` · ${filterTitle}` : ""} · newest on left · ${clearedStarts}/${shownHistory.length || 0} starts at or above ${referenceLabel} · ${captionTail}</div>
               <div class="history-filters">
-                ${pitcherHistoryFilterOptions().map((item) => `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-pitcher-key="${pitcherKey}">${item.label}</button>`).join("")}
+                ${pitcherHistoryFilterOptions()
+                  .map(
+                    (item) =>
+                      `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-pitcher-key="${pitcherKey}">${item.label}</button>`,
+                  )
+                  .join("")}
               </div>
             </div>
-            ${shownHistory.length ? `
+            ${
+              shownHistory.length
+                ? `
             <div class="history-chart" style="--history-baseline-offset:${baselineOffset}px;">
               <div class="history-baseline"><span class="history-baseline-label">${escapeHtml(referenceLabel)}</span></div>
               <div class="history-grid" style="grid-template-columns: repeat(${shownHistory.length}, minmax(0, 1fr));">
-              ${shownHistory.map((start) => {
-                const strikeouts = numberOr(start.strikeouts, 0) ?? 0;
-                const barHeight = Math.max(14, (Math.max(strikeouts, 0) / maxStrikeouts) * historyBarMaxHeight);
-                const cleared = strikeouts >= referenceValue;
-                const title = `${formatShortDate(start.game_date)} vs ${start.opponent || "TBD"} · ${strikeouts} K · ${formatNumber(start.ip, 1)} IP${start.pitch_count == null ? "" : ` · ${start.pitch_count} pitches`}`;
-                return `
+              ${shownHistory
+                .map((start) => {
+                  const strikeouts = numberOr(start.strikeouts, 0) ?? 0;
+                  const barHeight = Math.max(
+                    14,
+                    (Math.max(strikeouts, 0) / maxStrikeouts) *
+                      historyBarMaxHeight,
+                  );
+                  const cleared = strikeouts >= referenceValue;
+                  const title = `${formatShortDate(start.game_date)} vs ${start.opponent || "TBD"} · ${strikeouts} K · ${formatNumber(start.ip, 1)} IP${start.pitch_count == null ? "" : ` · ${start.pitch_count} pitches`}`;
+                  return `
                   <div class="history-game" title="${escapeHtml(title)}">
                     <div class="history-value">${strikeouts}</div>
                     <div class="history-bar-wrap">
@@ -1108,10 +1232,13 @@
                     <div class="history-opponent">${escapeHtml(formatOpponentTag(start.opponent))}</div>
                   </div>
                 `;
-              }).join("")}
+                })
+                .join("")}
               </div>
             </div>
-            ` : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(row?.opponent))} starts found for this filter.</div>`}
+            `
+                : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(row?.opponent))} starts found for this filter.</div>`
+            }
           </div>
         `;
       }
@@ -1289,6 +1416,94 @@
         }
       }
 
+      function renderLeaderCard(title, valueLabel, rows, formatter) {
+        if (!Array.isArray(rows) || !rows.length) {
+          return `
+            <article class="leader-card">
+              <div class="section-tag">${escapeHtml(title)}</div>
+              <div class="leader-list"><div class="small-copy">No season rows available yet.</div></div>
+            </article>
+          `;
+        }
+        return `
+          <article class="leader-card">
+            <div class="section-tag">${escapeHtml(title)}</div>
+            <div class="leader-list">
+              ${rows.map((row, index) => formatter(row, index + 1, valueLabel)).join("")}
+            </div>
+          </article>
+        `;
+      }
+
+      function renderLeaderboards() {
+        const leaders = state.leaders || {};
+        leadersSubtitle.textContent = leaders.season
+          ? `Season-to-date through ${leaders.through_date}`
+          : "Season leaderboards unavailable";
+        leadersGrid.innerHTML = [
+          renderLeaderCard(
+            "Pitcher Ks",
+            "Ks",
+            leaders.pitcher_strikeouts,
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.player_name)}</div>
+                  <div class="leader-meta">${escapeHtml(row.team || "-")} · ${formatNumber(row.strikeouts_per_start, 2)} K/start · ${formatPercent(row.strikeouts_per_batter, 1)} K/BF</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.strikeouts, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
+            "Hitter Hits",
+            "Hits",
+            leaders.hitter_hits,
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.player_name)}</div>
+                  <div class="leader-meta">${escapeHtml(row.team || "-")} · ${formatNumber(row.hits_per_game, 2)} hits/game</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.hits, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
+            "Team Runs",
+            "Runs",
+            leaders.team_runs,
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.team)}</div>
+                  <div class="leader-meta">${formatNumber(row.runs_per_game, 2)} runs/game</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.runs, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
+            "Team Strikeouts",
+            "Ks",
+            leaders.team_strikeouts,
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.team)}</div>
+                  <div class="leader-meta">${formatNumber(row.strikeouts_per_game, 2)} K/game</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.strikeouts, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+        ].join("");
+      }
+
       function renderCard(row) {
         const projection = row.k_projection || {};
         const market = projection.market || {};
@@ -1356,6 +1571,10 @@
                 <span class="data-value">${formatNumber(recent.avg_strikeouts, 2)} over ${recent.sample_starts ?? projection.sample_starts ?? 0} starts</span>
               </div>
               <div class="data-row">
+                <span class="data-label">Season Ks</span>
+                <span class="data-value">${formatNumber(projection.season_context?.strikeouts, 0)} in ${formatNumber(projection.season_context?.starts, 0)} starts · ${formatNumber(projection.season_context?.strikeouts_per_start, 2)} K/start</span>
+              </div>
+              <div class="data-row">
                 <span class="data-label">Recent Avg IP</span>
                 <span class="data-value">${formatNumber(recent.avg_ip, 2)}</span>
               </div>
@@ -1410,19 +1629,57 @@
         state.rows = flattenPitchers(payload.games || []);
       }
 
+      async function loadLeaders() {
+        const params = new URLSearchParams({
+          target_date: targetDateInput.value,
+          limit: "8",
+        });
+        const response = await fetch(appUrl(`api/leaders/season?${params.toString()}`));
+        if (!response.ok) {
+          throw new Error(`Season leaders request failed: ${response.status}`);
+        }
+        state.leaders = await response.json();
+      }
+
       async function refreshPage() {
         refreshButton.disabled = true;
         cardsGrid.innerHTML =
           '<div class="empty-state">Refreshing pitcher board...</div>';
+        leadersGrid.innerHTML =
+          '<div class="empty-state">Refreshing season leaders...</div>';
         resultsSubtitle.textContent = "Refreshing";
         pageStatus.textContent = `Loading ${targetDateInput.value}`;
+        let leadersError = null;
         try {
-          await loadPitchers();
+          const [pitchersResult, leadersResult] = await Promise.allSettled([
+            loadPitchers(),
+            loadLeaders(),
+          ]);
+          if (pitchersResult.status !== "fulfilled") {
+            throw pitchersResult.reason;
+          }
+          if (leadersResult.status !== "fulfilled") {
+            leadersError = leadersResult.reason;
+            state.leaders = null;
+          }
           await hydratePitcherHistory(state.rows);
           renderRows();
+          if (leadersError) {
+            leadersGrid.innerHTML = `<div class="empty-state">${escapeHtml(String(leadersError))}</div>`;
+            leadersSubtitle.textContent = "Season leaders unavailable on this backend";
+            pageStatus.textContent = `Loaded ${targetDateInput.value} with season leaders unavailable`;
+          } else {
+            renderLeaderboards();
+          }
         } catch (error) {
           cardsGrid.innerHTML = `<div class="empty-state">${escapeHtml(String(error))}</div>`;
+          if (!leadersError) {
+            leadersGrid.innerHTML = `<div class="empty-state">${escapeHtml(String(error))}</div>`;
+          }
           resultsSubtitle.textContent = "Pitcher board request failed";
+          if (!leadersError) {
+            leadersSubtitle.textContent = "Season leaders request failed";
+          }
           pageStatus.textContent = "Load failed";
         } finally {
           refreshButton.disabled = false;

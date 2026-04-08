@@ -215,7 +215,15 @@ def main() -> int:
         )
         calibration_residual_std = max(float(market_calibrator["calibration_residual_std"]), 1.0)
     else:
-        calibrated_predictions = predictions.copy()
+        # No calibrator — anchor to the market line so raw model bias
+        # does not push every game to one side.
+        _FALLBACK_RESIDUAL_SCALE = 0.50
+        market_values = scoring["market_total"].values.astype(float)
+        calibrated_predictions = np.where(
+            np.isfinite(market_values),
+            market_values + _FALLBACK_RESIDUAL_SCALE * (predictions - market_values),
+            predictions,
+        )
         calibration_mask = np.zeros(len(predictions), dtype=bool)
         calibration_residual_std = residual_std
     prediction_ts = datetime.now(timezone.utc)
@@ -237,7 +245,7 @@ def main() -> int:
         if row.market_total is not None and not pd.isna(row.market_total):
             over_probability = _sigmoid((predicted_total - float(row.market_total)) / effective_std)
             under_probability = 1.0 - over_probability
-            edge = abs(over_probability - 0.5)
+            edge = over_probability - 0.5
 
         confidence_level, suppress_reason = _compute_confidence_level(row)
         if confidence_level == "suppress":

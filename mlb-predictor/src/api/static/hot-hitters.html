@@ -521,7 +521,11 @@
         margin-top: 2px;
         padding: 12px 14px;
         border-radius: 18px;
-        background: linear-gradient(180deg, rgba(24, 30, 37, 0.98), rgba(29, 35, 43, 0.94));
+        background: linear-gradient(
+          180deg,
+          rgba(24, 30, 37, 0.98),
+          rgba(29, 35, 43, 0.94)
+        );
         border: 1px solid rgba(53, 65, 81, 0.78);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
       }
@@ -594,7 +598,10 @@
 
       .history-baseline {
         position: absolute;
-        top: calc(var(--history-value-row) + var(--history-gap) + var(--history-baseline-offset));
+        top: calc(
+          var(--history-value-row) + var(--history-gap) +
+            var(--history-baseline-offset)
+        );
         left: 0;
         right: 0;
         border-top: 1px dashed rgba(229, 231, 235, 0.65);
@@ -619,7 +626,9 @@
 
       .history-game {
         display: grid;
-        grid-template-rows: var(--history-value-row) var(--history-bar-max) auto auto;
+        grid-template-rows: var(--history-value-row) var(
+            --history-bar-max
+          ) auto auto;
         gap: var(--history-gap);
         justify-items: center;
         min-width: 0;
@@ -880,7 +889,9 @@
               <label for="sortMode">Sort By</label>
               <select id="sortMode">
                 <option value="team">Team</option>
+                <option value="game">Game / start time</option>
                 <option value="heat">Heat score</option>
+                <option value="handmatchup">Pitcher-hand matchup</option>
                 <option value="streak" selected>Hit streak</option>
                 <option value="probability">Model probability</option>
                 <option value="edge">Betting edge</option>
@@ -895,6 +906,14 @@
                 <option value="50">50</option>
                 <option value="75" selected>75</option>
               </select>
+            </div>
+            <div class="field">
+              <label for="searchQuery">Search player, team, or game</label>
+              <input
+                id="searchQuery"
+                type="search"
+                placeholder="Player, team, opponent, or matchup"
+              />
             </div>
           </div>
 
@@ -914,6 +933,14 @@
             <label class="checkbox-row" for="hideStartedOnly">
               <input id="hideStartedOnly" type="checkbox" />
               Hide started games
+            </label>
+            <label class="checkbox-row" for="strongHandOnly">
+              <input id="strongHandOnly" type="checkbox" />
+              Strong vs today's pitch hand
+            </label>
+            <label class="checkbox-row" for="availableOnly">
+              <input id="availableOnly" type="checkbox" />
+              Available roster only
             </label>
             <button class="primary" id="refreshButton">
               Refresh hot hitters
@@ -1174,9 +1201,66 @@
 
         return {
           tone,
+          rank:
+            !smallSample && delta >= 0.035
+              ? 3
+              : !smallSample && delta <= -0.035
+                ? 0
+                : smallSample
+                  ? 1
+                  : 2,
+          isStrong: !smallSample && delta >= 0.035,
           chip: summary,
           detail: `${formatBattingAverage(battingAverage)} BA in ${atBats} AB${seasonCopy}`,
         };
+      }
+
+      function availabilityMeta(row) {
+        const description = String(row?.roster_status_description || "").trim();
+        const note = String(row?.roster_status_note || "").trim();
+        if (row?.is_available === false) {
+          const label = description || (row?.is_injured ? "Injured" : "Unavailable");
+          return {
+            tone: "warn",
+            label,
+            detail: note ? `${label} · ${note}` : label,
+          };
+        }
+        if (description) {
+          return {
+            tone: description.toLowerCase() === "active" ? "good" : "warn",
+            label: description,
+            detail: note ? `${description} · ${note}` : description,
+          };
+        }
+        return {
+          tone: "warn",
+          label: "Status pending",
+          detail: "Roster status pending",
+        };
+      }
+
+      function availabilityChip(row) {
+        if (row?.is_available !== false) {
+          return "";
+        }
+        const meta = availabilityMeta(row);
+        return `<span class="status-chip ${escapeHtml(meta.tone)}">${escapeHtml(meta.label)}</span>`;
+      }
+
+      function hotHitterSearchText(row) {
+        return [
+          row?.player_name,
+          row?.team,
+          row?.opponent,
+          row?.away_team,
+          row?.home_team,
+          matchupLabel(row),
+          row?.opposing_pitcher_name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
       }
 
       const state = {
@@ -1191,10 +1275,13 @@
       const minProbabilityInput = document.getElementById("minProbability");
       const sortModeInput = document.getElementById("sortMode");
       const resultLimitInput = document.getElementById("resultLimit");
+      const searchQueryInput = document.getElementById("searchQuery");
       const confirmedOnlyInput = document.getElementById("confirmedOnly");
       const includeInferredInput = document.getElementById("includeInferred");
       const streakOnlyInput = document.getElementById("streakOnly");
       const hideStartedOnlyInput = document.getElementById("hideStartedOnly");
+      const strongHandOnlyInput = document.getElementById("strongHandOnly");
+      const availableOnlyInput = document.getElementById("availableOnly");
       const refreshButton = document.getElementById("refreshButton");
       const cardsGrid = document.getElementById("cardsGrid");
       const resultsSubtitle = document.getElementById("resultsSubtitle");
@@ -1253,7 +1340,12 @@
         const value = String(opponent || "TBD").trim();
         if (!value) return "TBD";
         if (value.length <= 3) return value.toUpperCase();
-        return value.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "TBD";
+        return (
+          value
+            .replace(/[^A-Za-z0-9]/g, "")
+            .slice(0, 3)
+            .toUpperCase() || "TBD"
+        );
       }
 
       function historyFilterOptions() {
@@ -1265,16 +1357,23 @@
       }
 
       function getHistoryFilter(player) {
-        const playerKey = String(player?.player_id || player?.player_name || "player");
+        const playerKey = String(
+          player?.player_id || player?.player_name || "player",
+        );
         return state.historyFilters[playerKey] || "l10";
       }
 
       function filteredHistory(player, history) {
         const filterKey = getHistoryFilter(player);
-        const targetOpponent = String(player?.opponent || "").trim().toUpperCase();
+        const targetOpponent = String(player?.opponent || "")
+          .trim()
+          .toUpperCase();
         if (filterKey === "h2h") {
           return history.filter(
-            (game) => String(game.opponent || "").trim().toUpperCase() === targetOpponent,
+            (game) =>
+              String(game.opponent || "")
+                .trim()
+                .toUpperCase() === targetOpponent,
           );
         }
         if (filterKey === "l5") {
@@ -1289,13 +1388,36 @@
       function sortRows(rows) {
         const sortMode = sortModeInput.value || "streak";
         const sorted = [...rows];
+          if (sortMode === "game") {
+            return sorted.sort(
+              (left, right) =>
+                String(left.game_start_ts || "").localeCompare(
+                  String(right.game_start_ts || ""),
+                ) ||
+                String(left.away_team || "").localeCompare(
+                  String(right.away_team || ""),
+                ) ||
+                String(left.home_team || "").localeCompare(
+                  String(right.home_team || ""),
+                ) ||
+                numberOr(left.lineup_slot, 99) -
+                  numberOr(right.lineup_slot, 99) ||
+                String(left.player_name || "").localeCompare(
+                  String(right.player_name || ""),
+                ),
+            );
+          }
         if (sortMode === "team") {
           return sorted.sort(
             (left, right) =>
               String(left.team || "").localeCompare(String(right.team || "")) ||
-              numberOr(left.lineup_slot, 99) - numberOr(right.lineup_slot, 99) ||
-              numberOr(right.form?.heat_score, -1) - numberOr(left.form?.heat_score, -1) ||
-              String(left.player_name || "").localeCompare(String(right.player_name || "")),
+              numberOr(left.lineup_slot, 99) -
+                numberOr(right.lineup_slot, 99) ||
+              numberOr(right.form?.heat_score, -1) -
+                numberOr(left.form?.heat_score, -1) ||
+              String(left.player_name || "").localeCompare(
+                String(right.player_name || ""),
+              ),
           );
         }
         if (sortMode === "streak") {
@@ -1346,6 +1468,20 @@
                 numberOr(left.predicted_hit_probability, -1),
           );
         }
+        if (sortMode === "handmatchup") {
+          return sorted.sort(
+            (left, right) =>
+              numberOr(pitcherHandMatchup(right).rank, -1) -
+                numberOr(pitcherHandMatchup(left).rank, -1) ||
+              numberOr(right.predicted_hit_probability, -1) -
+                numberOr(left.predicted_hit_probability, -1) ||
+              numberOr(right.form?.heat_score, -1) -
+                numberOr(left.form?.heat_score, -1) ||
+              String(left.player_name || "").localeCompare(
+                String(right.player_name || ""),
+              ),
+          );
+        }
         return sorted.sort(
           (left, right) =>
             numberOr(right.streak_len_capped, -1) -
@@ -1375,17 +1511,28 @@
         const shownHistory = filteredHistory(row, history);
         const hitGames = shownHistory.filter((game) => game.had_hit).length;
         const formTone = playerFormTone(row);
-        const playerKey = escapeHtml(String(row?.player_id || row?.player_name || "player"));
-        const filterTitle = historyFilterOptions().find((item) => item.key === filterKey)?.label || "L10";
+        const playerKey = escapeHtml(
+          String(row?.player_id || row?.player_name || "player"),
+        );
+        const filterTitle =
+          historyFilterOptions().find((item) => item.key === filterKey)
+            ?.label || "L10";
         return `
           <div class="history-block">
             <div class="history-head">
               <div class="history-caption ${formTone}"><strong>${filterKey === "h2h" ? filterTitle : defaultHistoryTitle}</strong>${filterKey === "h2h" ? ` · ${filterTitle}` : ""} · newest on left · ${hitGames}/${shownHistory.length || 0} hit games · Green = hit · red = no hit · taller bars = multi-hit</div>
               <div class="history-filters">
-                ${historyFilterOptions().map((item) => `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`).join("")}
+                ${historyFilterOptions()
+                  .map(
+                    (item) =>
+                      `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`,
+                  )
+                  .join("")}
               </div>
             </div>
-            ${shownHistory.length ? `
+            ${
+              shownHistory.length
+                ? `
             <div class="history-chart" style="--history-baseline-offset:${(() => {
               const historyBarMaxHeight = 62;
               const maxHits = Math.max(
@@ -1411,9 +1558,10 @@
                   const chartHits = Math.max(hits, 0);
                   const totalBasesValue = numberOr(entry.total_bases, 0) ?? 0;
                   const homeRunsValue = numberOr(entry.home_runs, 0) ?? 0;
-                  const barHeight = chartHits > 0
-                    ? (chartHits / maxHits) * historyBarMaxHeight
-                    : missBarHeight;
+                  const barHeight =
+                    chartHits > 0
+                      ? (chartHits / maxHits) * historyBarMaxHeight
+                      : missBarHeight;
                   const title = `${formatShortDate(entry.game_date)} vs ${entry.opponent || "TBD"} · ${hits} H · ${totalBasesValue} TB${homeRunsValue > 0 ? ` · ${homeRunsValue} HR` : ""}`;
                   return `
                     <div class="history-game" title="${escapeHtml(title)}">
@@ -1429,7 +1577,9 @@
                 .join("")}
               </div>
             </div>
-            ` : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(row?.opponent))} games found for this filter.</div>`}
+            `
+                : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(row?.opponent))} games found for this filter.</div>`
+            }
           </div>
         `;
       }
@@ -1437,6 +1587,9 @@
       function filteredRows() {
         return sortRows(
           (state.rows || []).filter((row) => {
+            const searchQuery = String(searchQueryInput.value || "")
+              .trim()
+              .toLowerCase();
             if (
               streakOnlyInput.checked &&
               numberOr(row.streak_len_capped, 0) < 2
@@ -1447,6 +1600,15 @@
               isTodayTarget() &&
               hasStarted(row.game_start_ts)
             )
+              return false;
+            if (
+              strongHandOnlyInput.checked &&
+              !pitcherHandMatchup(row).isStrong
+            )
+              return false;
+            if (availableOnlyInput.checked && row.is_available === false)
+              return false;
+            if (searchQuery && !hotHitterSearchText(row).includes(searchQuery))
               return false;
             return true;
           }),
@@ -1538,12 +1700,12 @@
       function renderCard(row) {
         const form = row.form || {};
         const handMatchup = pitcherHandMatchup(row);
+        const availability = availabilityMeta(row);
         const reasons = [
           ...(form.reasons || []).map(
             (reason) =>
               `<div class="reason-chip ${escapeHtml(form.tone || "good")}">${escapeHtml(reason)}</div>`,
           ),
-          `<div class="reason-chip ${escapeHtml(handMatchup.tone)}">${escapeHtml(handMatchup.chip)}</div>`,
         ].join("");
         const evidence = (form.evidence || []).join(" | ");
         const statusTone = row.is_confirmed_lineup ? "good" : "warn";
@@ -1574,7 +1736,9 @@
             </div>
             <div class="player-topline">
               <span class="chip ${qualifierTone}">${escapeHtml(qualifierLabel)}</span>
+              <span class="chip ${escapeHtml(handMatchup.tone)}">${escapeHtml(handMatchup.chip)}</span>
               <span class="status-chip ${statusTone}">${statusLabel}</span>
+              ${availabilityChip(row)}
             </div>
           </div>
 
@@ -1633,6 +1797,10 @@
               <span class="data-value">${escapeHtml(handMatchup.detail)}</span>
             </div>
             <div class="data-row">
+              <span class="data-label">Roster Status</span>
+              <span class="data-value">${escapeHtml(availability.detail)}</span>
+            </div>
+            <div class="data-row">
               <span class="data-label">Outcome</span>
               <span class="data-value">${escapeHtml(actualOutcomeCopy(row))}</span>
             </div>
@@ -1657,11 +1825,13 @@
           resultsSubtitle.textContent = totalHotCount
             ? `No hitters cleared the current probability filter. ${totalHotCount} still qualified on form.`
             : "No streak or hot hitters qualified";
-            cardsGrid.classList.remove("team-sections");
+          cardsGrid.classList.remove("team-sections");
           return;
         }
         const probabilityFloor = Number(minProbabilityInput.value || 0);
-        const confirmedFallback = Boolean((state.summary || {}).confirmed_fallback_active);
+        const confirmedFallback = Boolean(
+          (state.summary || {}).confirmed_fallback_active,
+        );
         resultsSubtitle.textContent =
           totalHotCount > rows.length
             ? `${rows.length} of ${totalHotCount} streak and hot hitters cleared the ${Math.round(probabilityFloor * 100)}% model floor for ${targetDateInput.value}.${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`
@@ -1737,8 +1907,11 @@
       resultLimitInput.addEventListener("change", refreshPage);
       confirmedOnlyInput.addEventListener("change", refreshPage);
       includeInferredInput.addEventListener("change", refreshPage);
+      searchQueryInput.addEventListener("input", renderRows);
       streakOnlyInput.addEventListener("change", renderRows);
       hideStartedOnlyInput.addEventListener("change", renderRows);
+      strongHandOnlyInput.addEventListener("change", renderRows);
+      availableOnlyInput.addEventListener("change", renderRows);
       targetDateInput.addEventListener("change", refreshPage);
       cardsGrid.addEventListener("click", (event) => {
         const filterButton = event.target.closest("[data-history-filter]");

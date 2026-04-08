@@ -302,6 +302,26 @@ def main() -> int:
                 "away_starter_csw_blended": away_starter["csw"],
                 "home_starter_rest_days": home_starter["days_rest"],
                 "away_starter_rest_days": away_starter["days_rest"],
+                "home_starter_fb_velo_blended": home_starter["avg_fb_velo"],
+                "away_starter_fb_velo_blended": away_starter["avg_fb_velo"],
+                "home_starter_whiff_pct_blended": home_starter["whiff_pct"],
+                "away_starter_whiff_pct_blended": away_starter["whiff_pct"],
+                "home_starter_hard_hit_pct_blended": home_starter["hard_hit_pct"],
+                "away_starter_hard_hit_pct_blended": away_starter["hard_hit_pct"],
+                "home_starter_avg_ip_blended": home_starter["avg_ip"],
+                "away_starter_avg_ip_blended": away_starter["avg_ip"],
+                "home_starter_k_per_9_blended": home_starter["k_per_9"],
+                "away_starter_k_per_9_blended": away_starter["k_per_9"],
+                "starter_fb_velo_diff": (
+                    (home_starter["avg_fb_velo"] - away_starter["avg_fb_velo"])
+                    if home_starter["avg_fb_velo"] is not None and away_starter["avg_fb_velo"] is not None
+                    else None
+                ),
+                "starter_k_per_9_diff": (
+                    (home_starter["k_per_9"] - away_starter["k_per_9"])
+                    if home_starter["k_per_9"] is not None and away_starter["k_per_9"] is not None
+                    else None
+                ),
                 "starter_xwoba_diff": (
                     (home_starter["xwoba"] - away_starter["xwoba"])
                     if home_starter["xwoba"] is not None and away_starter["xwoba"] is not None

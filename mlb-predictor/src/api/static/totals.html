@@ -888,6 +888,7 @@
               <label for="sortMode">Sort By</label>
               <select id="sortMode">
                 <option value="edge" selected>Edge</option>
+                <option value="latebullpen">Late bullpen risk</option>
                 <option value="start">Start time</option>
                 <option value="total">Projected total</option>
                 <option value="lean">Lean probability</option>
@@ -1116,6 +1117,19 @@
             totals?.[`${side}_bullpen_hits_allowed_last3`],
           ),
           eraLast3: numberOr(totals?.[`${side}_bullpen_era_last3`]),
+          lateInningsLast3: numberOr(
+            totals?.[`${side}_bullpen_late_innings_last3`],
+          ),
+          lateRunsAllowedLast3: numberOr(
+            totals?.[`${side}_bullpen_late_runs_allowed_last3`],
+          ),
+          lateEarnedRunsLast3: numberOr(
+            totals?.[`${side}_bullpen_late_earned_runs_last3`],
+          ),
+          lateHitsAllowedLast3: numberOr(
+            totals?.[`${side}_bullpen_late_hits_allowed_last3`],
+          ),
+          lateEraLast3: numberOr(totals?.[`${side}_bullpen_late_era_last3`]),
         };
       }
 
@@ -1198,6 +1212,97 @@
           label: "Light recent load",
           tone: "good",
           copy: "This bullpen has had a lighter recent workload and should be more rested.",
+        };
+      }
+
+      function bullpenLateQuality(snapshot) {
+        const lateEra = snapshot?.lateEraLast3;
+        const lateRuns = snapshot?.lateRunsAllowedLast3;
+        const lateHits = snapshot?.lateHitsAllowedLast3;
+        const lateInnings = snapshot?.lateInningsLast3;
+        if (
+          lateEra == null &&
+          lateRuns == null &&
+          lateHits == null &&
+          lateInnings == null
+        ) {
+          return {
+            label: "Late-game read unknown",
+            tone: "",
+            copy: "No inning-aware late-game bullpen sample is loaded yet.",
+          };
+        }
+        if (
+          (lateEra != null && lateEra >= 6.0) ||
+          (lateRuns != null && lateRuns >= 4) ||
+          (lateHits != null && lateHits >= 6)
+        ) {
+          return {
+            label: "Late-game prevention slipping",
+            tone: "bad",
+            copy: "Innings 7+ have produced real late damage recently, which matters more than aggregate bullpen logs alone.",
+          };
+        }
+        if (
+          (lateEra != null && lateEra >= 3.5) ||
+          (lateRuns != null && lateRuns >= 2) ||
+          (lateHits != null && lateHits >= 4)
+        ) {
+          return {
+            label: "Late-game prevention mixed",
+            tone: "warn",
+            copy: "The late innings are playable, but the recent innings 7+ sample has leaked some traffic or scoring.",
+          };
+        }
+        return {
+          label: "Late-game prevention solid",
+          tone: "good",
+          copy: "Recent innings 7+ have stayed relatively clean, which strengthens the late-game bullpen outlook.",
+        };
+      }
+
+      function lateBullpenRiskScore(snapshot) {
+        const innings = numberOr(snapshot?.lateInningsLast3, 0);
+        const era = numberOr(snapshot?.lateEraLast3);
+        const runs = numberOr(snapshot?.lateRunsAllowedLast3, 0);
+        const earnedRuns = numberOr(snapshot?.lateEarnedRunsLast3, 0);
+        const hits = numberOr(snapshot?.lateHitsAllowedLast3, 0);
+        if (
+          innings <= 0 &&
+          era == null &&
+          runs <= 0 &&
+          earnedRuns <= 0 &&
+          hits <= 0
+        ) {
+          return -1;
+        }
+        return (
+          (era ?? 0) * 4 +
+          Math.max(runs, earnedRuns) * 3 +
+          hits * 1.5 +
+          Math.min(innings, 6)
+        );
+      }
+
+      function gameLateBullpenRisk(game) {
+        const totals = game?.totals || {};
+        const awaySnapshot = bullpenSnapshot(game.away_team, totals, "away");
+        const homeSnapshot = bullpenSnapshot(game.home_team, totals, "home");
+        const awayScore = lateBullpenRiskScore(awaySnapshot);
+        const homeScore = lateBullpenRiskScore(homeSnapshot);
+        const riskiestSnapshot = awayScore >= homeScore ? awaySnapshot : homeSnapshot;
+        const quality = bullpenLateQuality(riskiestSnapshot);
+        if (Math.max(awayScore, homeScore) < 0) {
+          return {
+            score: -1,
+            label: "Late bullpen pending",
+            summary: "No innings 7+ bullpen sample loaded yet.",
+          };
+        }
+        return {
+          score: Math.max(awayScore, homeScore),
+          label: `${riskiestSnapshot.team} · ${quality.label}`,
+          summary: `${riskiestSnapshot.team} innings 7+: ${formatBaseballIp(riskiestSnapshot.lateInningsLast3)} IP · ${formatNumber(riskiestSnapshot.lateRunsAllowedLast3, 0)} runs · ${formatNumber(riskiestSnapshot.lateEraLast3, 2)} ERA`,
         };
       }
 
@@ -1316,6 +1421,7 @@
       function renderBullpenCard(snapshot) {
         const load = bullpenLoad(snapshot);
         const quality = bullpenQuality(snapshot);
+        const lateQuality = bullpenLateQuality(snapshot);
         return `
         <article class="bullpen-card">
           <div class="starter-head">
@@ -1330,9 +1436,11 @@
             <div class="data-row"><span class="data-label">Worked Yesterday</span><span class="data-value">${snapshot.b2b ? "Yes" : "No"}</span></div>
             <div class="data-row"><span class="data-label">Runs / Hits</span><span class="data-value">${formatNumber(snapshot.runsAllowedLast3, 0)} runs | ${formatNumber(snapshot.hitsAllowedLast3, 0)} hits allowed</span></div>
             <div class="data-row"><span class="data-label">Bullpen ERA</span><span class="data-value">${formatNumber(snapshot.eraLast3, 2)} over the last 3 relief game logs</span></div>
-            <div class="data-row"><span class="data-label">Tracking</span><span class="data-value">This uses each team&apos;s last 3 bullpen game logs. We currently track recent workload and run prevention, not a true inning-by-inning late-game split.</span></div>
+            <div class="data-row"><span class="data-label">Late innings (7+)</span><span class="data-value">${formatBaseballIp(snapshot.lateInningsLast3)} IP | ${formatNumber(snapshot.lateRunsAllowedLast3, 0)} runs | ${formatNumber(snapshot.lateHitsAllowedLast3, 0)} hits | ${formatNumber(snapshot.lateEraLast3, 2)} ERA</span></div>
+            <div class="data-row"><span class="data-label">Tracking</span><span class="data-value">This uses each team&apos;s last 3 bullpen game logs plus actual relief work in innings 7+ from MLB play-by-play.</span></div>
             <div class="data-row"><span class="data-label">What It Means</span><span class="data-value">${escapeHtml(load.copy)}</span></div>
             <div class="data-row"><span class="data-label">Run Prevention</span><span class="data-value">${escapeHtml(quality.label)} · ${escapeHtml(quality.copy)}</span></div>
+            <div class="data-row"><span class="data-label">Late-Game Quality</span><span class="data-value">${escapeHtml(lateQuality.label)} · ${escapeHtml(lateQuality.copy)}</span></div>
           </div>
         </article>
       `;
@@ -1410,6 +1518,7 @@
         const homeStarterLine = starters.home
           ? `${escapeHtml(starters.home.pitcher_name || game.home_team)}${starters.home.throws ? ` · ${escapeHtml(starters.home.throws)}HP` : ""}${starters.home.days_rest == null ? "" : ` · ${formatInteger(starters.home.days_rest)}d rest`}`
           : "Starter pending";
+        const lateBullpenRisk = gameLateBullpenRisk(game);
         return `
         <article class="game-card">
           <a class="game-card-link" href="${matchupHref}">
@@ -1432,6 +1541,7 @@
                 <div class="data-row"><span class="data-label">Expected Runs</span><span class="data-value">${escapeHtml(game.away_team)} ${formatNumber(totals.away_expected_runs, 1)} / ${escapeHtml(game.home_team)} ${formatNumber(totals.home_expected_runs, 1)}</span></div>
                 <div class="data-row"><span class="data-label">Weather / Park</span><span class="data-value">${formatNumber(weather.temperature_f, 0)}F · Wind ${formatNumber(weather.wind_speed_mph, 0)} mph · Park ${formatNumber(totals.venue_run_factor, 2)}</span></div>
                 <div class="data-row"><span class="data-label">Bullpen Load</span><span class="data-value">${escapeHtml(game.away_team)} ${escapeHtml(awayLoad.label)} / ${escapeHtml(game.home_team)} ${escapeHtml(homeLoad.label)}</span></div>
+                <div class="data-row"><span class="data-label">Late Bullpen Risk</span><span class="data-value">${escapeHtml(lateBullpenRisk.summary)}</span></div>
                 <div class="data-row"><span class="data-label">Outcome</span><span class="data-value">${escapeHtml(outcomeCopy(game))}</span></div>
               </div>
 
@@ -1518,6 +1628,15 @@
             (left, right) =>
               numberOr(leanProbability(right.totals), -1) -
               numberOr(leanProbability(left.totals), -1),
+          );
+        }
+        if (mode === "latebullpen") {
+          return sorted.sort(
+            (left, right) =>
+              gameLateBullpenRisk(right).score -
+                gameLateBullpenRisk(left).score ||
+              Math.abs(numberOr((right.totals || {}).edge, -999)) -
+                Math.abs(numberOr((left.totals || {}).edge, -999)),
           );
         }
         return sorted.sort(

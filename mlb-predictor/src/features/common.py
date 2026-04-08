@@ -157,11 +157,35 @@ def build_pitcher_priors(pitcher_starts: pd.DataFrame, prior_season: int) -> pd.
     prior = pitcher_starts[pitcher_starts["game_date"].dt.year == prior_season].copy()
     if prior.empty:
         return pd.DataFrame()
-    return prior.groupby("pitcher_id", as_index=True).agg(
-        prior_xwoba=("xwoba_against", "mean"),
-        prior_csw=("csw_pct", "mean"),
-        prior_avg_fb_velo=("avg_fb_velo", "mean"),
-    )
+    # Derive per-start K/9 and IP for prior-season aggregation
+    if "ip" in prior.columns and "strikeouts" in prior.columns:
+        prior["_outs"] = prior["ip"].apply(baseball_ip_to_outs)
+        prior["_ip_decimal"] = prior["_outs"] / 3.0
+        prior["_k_per_9"] = prior.apply(
+            lambda r: (r["strikeouts"] / r["_ip_decimal"] * 9.0) if r["_ip_decimal"] > 0 else None, axis=1,
+        )
+    else:
+        prior["_ip_decimal"] = None
+        prior["_k_per_9"] = None
+    # Build aggregation spec — only include columns that exist
+    agg_spec: dict = {
+        "prior_xwoba": ("xwoba_against", "mean"),
+        "prior_csw": ("csw_pct", "mean"),
+        "prior_avg_fb_velo": ("avg_fb_velo", "mean"),
+    }
+    _optional = {
+        "prior_whiff_pct": ("whiff_pct", "mean"),
+        "prior_hard_hit_pct": ("hard_hit_pct", "mean"),
+        "prior_barrel_pct": ("barrel_pct", "mean"),
+    }
+    for key, (col, func) in _optional.items():
+        if col in prior.columns:
+            agg_spec[key] = (col, func)
+    # Derived columns always present (added above)
+    agg_spec["prior_avg_ip"] = ("_ip_decimal", "mean")
+    agg_spec["prior_k_per_9"] = ("_k_per_9", "mean")
+    agg = prior.groupby("pitcher_id", as_index=True).agg(**agg_spec)
+    return agg
 
 
 def pitcher_snapshot(
@@ -173,8 +197,13 @@ def pitcher_snapshot(
     prior_blend_mode: str = "standard",
     prior_weight_multiplier: float = 1.0,
 ) -> dict[str, float | None]:
+    _NULL_SNAPSHOT = {
+        "xwoba": None, "csw": None, "avg_fb_velo": None, "days_rest": None,
+        "whiff_pct": None, "hard_hit_pct": None, "barrel_pct": None,
+        "avg_ip": None, "k_per_9": None,
+    }
     if pitcher_id is None:
-        return {"xwoba": None, "csw": None, "avg_fb_velo": None, "days_rest": None}
+        return dict(_NULL_SNAPSHOT)
     pitcher_starts = _coerce_game_date_column(pitcher_starts)
     history = pitcher_starts[
         (pitcher_starts["pitcher_id"] == pitcher_id) & (pitcher_starts["game_date"].dt.date < game_date)
@@ -185,26 +214,46 @@ def pitcher_snapshot(
     last_game_date = history["game_date"].max() if not history.empty else None
     last_game_date = last_game_date.date() if pd.notna(last_game_date) else None
     sample_size = len(sample)
+
+    def _blend(col: str, prior_key: str) -> float | None:
+        return blend_with_prior(
+            _safe_mean(sample[col]) if col in sample.columns else None,
+            prior.get(prior_key) if isinstance(prior, pd.Series) else None,
+            sample_size,
+            full_weight_starts,
+            mode=prior_blend_mode,
+            prior_weight_multiplier=prior_weight_multiplier,
+        )
+
+    # Derive per-start K/9 and decimal IP for the sample window
+    current_avg_ip = None
+    current_k_per_9 = None
+    if "ip" in sample.columns and "strikeouts" in sample.columns and not sample.empty:
+        outs = sample["ip"].apply(baseball_ip_to_outs)
+        ip_decimal = outs / 3.0
+        valid = ip_decimal[ip_decimal > 0]
+        if not valid.empty:
+            current_avg_ip = float(ip_decimal.mean())
+            current_k_per_9 = float((sample.loc[valid.index, "strikeouts"] / valid * 9.0).mean())
+
     return {
-        "xwoba": blend_with_prior(
-            _safe_mean(sample["xwoba_against"]),
-            prior.get("prior_xwoba") if isinstance(prior, pd.Series) else None,
+        "xwoba": _blend("xwoba_against", "prior_xwoba"),
+        "csw": _blend("csw_pct", "prior_csw"),
+        "avg_fb_velo": _blend("avg_fb_velo", "prior_avg_fb_velo"),
+        "whiff_pct": _blend("whiff_pct", "prior_whiff_pct"),
+        "hard_hit_pct": _blend("hard_hit_pct", "prior_hard_hit_pct"),
+        "barrel_pct": _blend("barrel_pct", "prior_barrel_pct"),
+        "avg_ip": blend_with_prior(
+            current_avg_ip,
+            prior.get("prior_avg_ip") if isinstance(prior, pd.Series) else None,
             sample_size,
             full_weight_starts,
             mode=prior_blend_mode,
             prior_weight_multiplier=prior_weight_multiplier,
         ),
-        "csw": blend_with_prior(
-            _safe_mean(sample["csw_pct"]),
-            prior.get("prior_csw") if isinstance(prior, pd.Series) else None,
-            sample_size,
-            full_weight_starts,
-            mode=prior_blend_mode,
-            prior_weight_multiplier=prior_weight_multiplier,
-        ),
-        "avg_fb_velo": blend_with_prior(
-            _safe_mean(sample["avg_fb_velo"]),
-            prior.get("prior_avg_fb_velo") if isinstance(prior, pd.Series) else None,
+        "k_per_9": blend_with_prior(
+            current_k_per_9,
+            prior.get("prior_k_per_9") if isinstance(prior, pd.Series) else None,
             sample_size,
             full_weight_starts,
             mode=prior_blend_mode,
@@ -401,6 +450,15 @@ def bullpen_snapshot(team: str, game_date: date, bullpens: pd.DataFrame) -> dict
     runs_allowed = int(runs_allowed_series.fillna(0).sum()) if not runs_allowed_series.empty else earned_runs
     innings_decimal = outs / 3 if outs else 0
     era_last3 = None if innings_decimal <= 0 else float((earned_runs * 9) / innings_decimal)
+    late_outs = int(last3["late_innings_pitched"].apply(baseball_ip_to_outs).sum()) if not last3.empty and "late_innings_pitched" in last3.columns else 0
+    late_runs_series = last3["late_runs_allowed"] if not last3.empty and "late_runs_allowed" in last3.columns else pd.Series(dtype=float)
+    late_earned_runs_series = last3["late_earned_runs"] if not last3.empty and "late_earned_runs" in last3.columns else pd.Series(dtype=float)
+    late_hits_series = last3["late_hits_allowed"] if not last3.empty and "late_hits_allowed" in last3.columns else pd.Series(dtype=float)
+    late_earned_runs = int(late_earned_runs_series.fillna(0).sum()) if not late_earned_runs_series.empty else 0
+    late_runs_allowed = int(late_runs_series.fillna(0).sum()) if not late_runs_series.empty else late_earned_runs
+    late_hits_allowed = int(late_hits_series.fillna(0).sum()) if not late_hits_series.empty else 0
+    late_innings_decimal = late_outs / 3 if late_outs else 0
+    late_era_last3 = None if late_innings_decimal <= 0 else float((late_earned_runs * 9) / late_innings_decimal)
     return {
         "pitches_last3": int(last3["pitches_thrown"].fillna(0).sum()) if not last3.empty else 0,
         "innings_last3": outs_to_baseball_ip(outs),
@@ -409,6 +467,11 @@ def bullpen_snapshot(team: str, game_date: date, bullpens: pd.DataFrame) -> dict
         "earned_runs_last3": earned_runs,
         "hits_allowed_last3": hits_allowed,
         "era_last3": era_last3,
+        "late_innings_last3": outs_to_baseball_ip(late_outs),
+        "late_runs_allowed_last3": late_runs_allowed,
+        "late_earned_runs_last3": late_earned_runs,
+        "late_hits_allowed_last3": late_hits_allowed,
+        "late_era_last3": late_era_last3,
         "completeness_3": len(last3) / 3.0,
     }
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+from typing import Any
 
 from src.ingestors.common import record_ingest_event, statsapi_get
 from src.utils.cli import add_date_range_args, resolve_date_range
@@ -11,11 +12,18 @@ from src.utils.logging import get_logger
 
 log = get_logger(__name__)
 
+LATE_INNING_HIT_EVENTS = {"single", "double", "triple", "home_run"}
+
 
 def _parse_baseball_innings(value: object) -> float | None:
     if value in (None, ""):
         return None
     return float(str(value))
+
+
+def _baseball_ip_from_outs(outs: int) -> float:
+    whole, remainder = divmod(int(outs), 3)
+    return float(f"{whole}.{remainder}")
 
 
 def _first_five_team_runs(linescore: dict[str, object] | None) -> tuple[int | None, int | None]:
@@ -83,6 +91,94 @@ def _pitching_row(game_id: int, game_date, team: str, opponent: str, side_code: 
         "home_runs_allowed": stats.get("homeRuns"),
         "pitches_thrown": stats.get("pitchesThrown"),
         "strikes_thrown": stats.get("strikes"),
+    }
+
+
+def _late_bullpen_stats_by_pitcher(
+    feed: dict[str, Any],
+    home_team: str,
+    away_team: str,
+    starter_ids_by_team: dict[str, int | None],
+) -> dict[int, dict[str, int | float]]:
+    all_plays = (((feed.get("liveData") or {}).get("plays") or {}).get("allPlays")) or []
+    pitcher_stats: dict[int, dict[str, int]] = {}
+    previous_home_score = 0
+    previous_away_score = 0
+
+    for play in all_plays:
+        result = play.get("result") or {}
+        home_score = int(result.get("homeScore") or previous_home_score or 0)
+        away_score = int(result.get("awayScore") or previous_away_score or 0)
+
+        about = play.get("about") or {}
+        inning = about.get("inning")
+        half_inning = str(about.get("halfInning") or "").strip().lower()
+        pitcher_id = ((play.get("matchup") or {}).get("pitcher") or {}).get("id")
+
+        defensive_team = None
+        if half_inning == "top":
+            defensive_team = home_team
+        elif half_inning == "bottom":
+            defensive_team = away_team
+
+        if (
+            defensive_team is not None
+            and pitcher_id is not None
+            and inning is not None
+            and int(inning) >= 7
+            and int(pitcher_id) != starter_ids_by_team.get(defensive_team)
+        ):
+            runners = play.get("runners") or []
+            outs_recorded = sum(
+                1
+                for runner in runners
+                if bool((runner.get("movement") or {}).get("isOut"))
+            )
+            if outs_recorded == 0 and bool(result.get("isOut")):
+                outs_recorded = 1
+
+            runs_allowed = sum(
+                1
+                for runner in runners
+                if bool((runner.get("details") or {}).get("isScoringEvent"))
+            )
+            earned_runs = sum(
+                1
+                for runner in runners
+                if bool((runner.get("details") or {}).get("isScoringEvent"))
+                and bool((runner.get("details") or {}).get("earned"))
+            )
+            if runs_allowed == 0:
+                runs_allowed = max(home_score - previous_home_score, 0) + max(away_score - previous_away_score, 0)
+
+            event_type = str(result.get("eventType") or "").strip().lower()
+            hits_allowed = 1 if event_type in LATE_INNING_HIT_EVENTS else 0
+
+            bucket = pitcher_stats.setdefault(
+                int(pitcher_id),
+                {
+                    "late_outs_recorded": 0,
+                    "late_runs_allowed": 0,
+                    "late_earned_runs": 0,
+                    "late_hits_allowed": 0,
+                },
+            )
+            bucket["late_outs_recorded"] += int(outs_recorded)
+            bucket["late_runs_allowed"] += int(runs_allowed)
+            bucket["late_earned_runs"] += int(earned_runs)
+            bucket["late_hits_allowed"] += int(hits_allowed)
+
+        previous_home_score = home_score
+        previous_away_score = away_score
+
+    return {
+        pitcher_id: {
+            "late_innings_pitched": _baseball_ip_from_outs(int(stats["late_outs_recorded"])),
+            "late_runs_allowed": int(stats["late_runs_allowed"]),
+            "late_earned_runs": int(stats["late_earned_runs"]),
+            "late_hits_allowed": int(stats["late_hits_allowed"]),
+        }
+        for pitcher_id, stats in pitcher_stats.items()
     }
 
 
@@ -163,6 +259,24 @@ def main() -> int:
         away_batting = (away_box.get("teamStats") or {}).get("batting") or {}
         home_fielding = (home_box.get("teamStats") or {}).get("fielding") or {}
         away_fielding = (away_box.get("teamStats") or {}).get("fielding") or {}
+        starter_ids_by_team: dict[str, int | None] = {}
+        for side, team_abbr in (("home", game.home_team), ("away", game.away_team)):
+            players = ((teams_box.get(side) or {}).get("players") or {}).values()
+            starter_id = next(
+                (
+                    int((player.get("person") or {}).get("id"))
+                    for player in players
+                    if int((((player.get("stats") or {}).get("pitching") or {}).get("gamesStarted", 0) or 0)) > 0
+                ),
+                None,
+            )
+            starter_ids_by_team[team_abbr] = starter_id
+        late_bullpen_stats = _late_bullpen_stats_by_pitcher(
+            feed,
+            game.home_team,
+            game.away_team,
+            starter_ids_by_team,
+        )
 
         home_score = home_box.get("teamStats", {}).get("batting", {}).get("runs")
         away_score = away_box.get("teamStats", {}).get("batting", {}).get("runs")
@@ -218,6 +332,15 @@ def main() -> int:
                 pitching_row = _pitching_row(int(game.game_id), game.game_date, team_abbr, opponent, side_code, player)
                 if not pitching_row:
                     continue
+                late_stats = late_bullpen_stats.get(int(pitching_row["player_id"]), {})
+                pitching_row.update(
+                    {
+                        "late_innings_pitched": late_stats.get("late_innings_pitched", 0.0),
+                        "late_runs_allowed": late_stats.get("late_runs_allowed", 0),
+                        "late_earned_runs": late_stats.get("late_earned_runs", 0),
+                        "late_hits_allowed": late_stats.get("late_hits_allowed", 0),
+                    }
+                )
                 pitcher_rows.append(pitching_row)
                 if pitching_row["is_starter"]:
                     starter_rows.append(

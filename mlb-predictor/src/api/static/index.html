@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MLB Predictor</title>
+    <link rel="icon" href="favicon.png" type="image/png" />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <style>
       :root {
@@ -575,6 +576,21 @@
         margin: 0;
       }
 
+      .action-guide {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 14px;
+        align-items: baseline;
+      }
+      .action-guide dt {
+        font-weight: 600;
+        color: var(--fg);
+        white-space: nowrap;
+      }
+      .action-guide dd {
+        margin: 0;
+      }
+
       .update-job-status {
         padding: 11px 14px;
         border-radius: 16px;
@@ -915,6 +931,13 @@
       .compact-hit-player-list {
         display: grid;
         gap: 8px;
+      }
+
+      .compact-hit-player-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 4px;
       }
 
       .compact-hit-player {
@@ -1765,17 +1788,24 @@
                 </button>
                 <button
                   class="secondary"
-                  data-update-action="refresh_results"
-                  type="button"
-                >
-                  Refresh Daily Results
-                </button>
-                <button
-                  class="secondary"
                   data-update-action="rebuild_predictions"
                   type="button"
                 >
                   Rebuild Predictions
+                </button>
+                <button
+                  class="secondary"
+                  data-update-action="retrain_models"
+                  type="button"
+                >
+                  Retrain Models
+                </button>
+                <button
+                  class="secondary"
+                  data-update-action="refresh_results"
+                  type="button"
+                >
+                  Refresh Daily Results
                 </button>
                 <button
                   class="secondary"
@@ -1785,29 +1815,66 @@
                   Grade Predictions
                 </button>
               </div>
-              <p class="hint control-note">
-                Refresh Everything runs the full selected-date pipeline in one
-                shot: slate prep, input imports, aggregate refresh, feature
-                builds, predictions, and published product surfaces. Prepare
-                Slate refreshes schedule and starters, seeds editable CSV
-                templates, imports the current template state, and republishes
-                the selected-date board. Update Lineups & Markets rereads the
-                lineup and market CSVs, then rebuilds the selected-date board so
-                edits show up immediately. Refresh Daily Results pulls
-                boxscores, batting logs, and observed weather for the selected
-                date, then refreshes review surfaces without grading live or
-                pregame games. Grade Predictions reruns selected-date grading
-                and scorecards using only games that are already final.
-              </p>
-              <p class="hint control-note">
-                Daily workflow: on desktop launch the app will try the standard
-                refresh automatically when today's predictions are missing. For
-                most days, just run Refresh Everything. If you want tighter
-                control, use Prepare Slate first, edit the CSVs if needed, then
-                run Update Lineups & Markets to republish the board. After
-                finals post for the selected date, run Grade Predictions to
-                refresh review and scorecards.
-              </p>
+              <dl class="hint control-note action-guide">
+                <dt>Refresh Everything</dt>
+                <dd>
+                  Full pipeline — schedule, lineups, markets, aggregates,
+                  features, predictions, and published board.
+                </dd>
+                <dt>Prepare Slate</dt>
+                <dd>
+                  Loads schedule &amp; starters, seeds the CSV templates,
+                  imports current template state, and republishes the board.
+                </dd>
+                <dt>Update Lineups &amp; Markets</dt>
+                <dd>
+                  Re-reads the lineup and market CSVs, then rebuilds the board
+                  so manual edits show up immediately.
+                </dd>
+                <dt>Rebuild Predictions</dt>
+                <dd>
+                  Re-runs feature builds and prediction scoring for the
+                  selected date without re-fetching external data.
+                </dd>
+                <dt>Retrain Models</dt>
+                <dd>
+                  Re-trains all four prediction models (totals, first-5,
+                  hits, strikeouts) on current data, then re-scores
+                  predictions for the selected date.
+                </dd>
+                <dt>Refresh Daily Results</dt>
+                <dd>
+                  Pulls box scores, batting logs, and weather for the selected
+                  date. Does not re-grade live or pregame games.
+                </dd>
+                <dt>Grade Predictions</dt>
+                <dd>
+                  Grades picks and refreshes scorecards using only games that
+                  are already final.
+                </dd>
+              </dl>
+              <table class="hint control-note" style="margin-top: 6px; border-collapse: collapse; width: 100%; font-size: inherit;">
+                <thead>
+                  <tr>
+                    <th style="text-align: left; padding: 2px 8px 2px 0; border-bottom: 1px solid var(--border, #ccc);">Phase</th>
+                    <th style="text-align: left; padding: 2px 0; border-bottom: 1px solid var(--border, #ccc);">Buttons</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding: 2px 8px 2px 0; white-space: nowrap;"><strong>Pre-game</strong></td>
+                    <td style="padding: 2px 0;">Refresh Everything → Prepare Slate → Update Lineups &amp; Markets</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 2px 8px 2px 0; white-space: nowrap;"><strong>Adjustments</strong></td>
+                    <td style="padding: 2px 0;">Rebuild Predictions → Retrain Models</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 2px 8px 2px 0; white-space: nowrap;"><strong>Post-game</strong></td>
+                    <td style="padding: 2px 0;">Refresh Daily Results → Grade Predictions</td>
+                  </tr>
+                </tbody>
+              </table>
               <div class="update-job-status" id="updateJobStatus">
                 No update job running.
               </div>
@@ -2301,33 +2368,62 @@
           pending:
             "Refreshing selected-date grading and scorecards from games that are already final",
         },
+        retrain_models: {
+          label: "Retrain Models",
+          pending:
+            "Re-training all four prediction models, then re-scoring predictions",
+        },
       };
 
       const updateStepLabels = {
-        "src.ingestors.games": "Load games for the selected date",
-        "src.ingestors.starters": "Load probable starters",
+        "src.ingestors.games": "Schedule — load today's games",
+        "src.ingestors.starters": "Starters — load probable pitchers",
         "src.ingestors.prepare_slate_inputs":
-          "Create editable lineup and market templates",
-        "src.ingestors.lineups": "Import lineup inputs",
-        "src.ingestors.market_totals": "Import market inputs",
-        "src.ingestors.boxscores": "Load final game scores",
-        "src.ingestors.player_batting": "Load hitter box score stats",
-        "src.ingestors.weather": "Load observed weather for completed games",
-        "src.transforms.offense_daily": "Refresh team offense form",
-        "src.transforms.bullpens_daily": "Refresh bullpen form",
-        "src.transforms.freeze_markets": "Freeze the latest market snapshot",
-        "src.features.totals_builder": "Build full-game totals features",
+          "Templates — seed lineup & market CSVs",
+        "src.ingestors.lineups": "Lineups — import confirmed batting orders",
+        "src.ingestors.market_totals": "Markets — import odds & player props",
+        "src.ingestors.boxscores": "Box scores — pull final game results",
+        "src.ingestors.player_batting":
+          "Batting logs — pull hitter game stats",
+        "src.ingestors.weather":
+          "Weather — load observed game-time conditions",
+        "src.transforms.offense_daily":
+          "Offense trends — refresh team rolling averages",
+        "src.transforms.bullpens_daily":
+          "Bullpen trends — refresh reliever workloads",
+        "src.transforms.freeze_markets":
+          "Market snapshot — freeze pregame lines",
+        "src.ingestors.validator":
+          "Validator — check game readiness",
+        "src.ingestors.player_status":
+          "Player status — check injuries & roster moves",
+        "src.features.totals_builder":
+          "Features — build full-game totals",
         "src.features.first5_totals_builder":
-          "Build first-five totals features",
-        "src.features.hits_builder": "Build hitter features",
-        "src.features.strikeouts_builder": "Build strikeout features",
-        "src.models.predict_totals": "Generate full-game totals predictions",
+          "Features — build first-5-innings totals",
+        "src.features.hits_builder": "Features — build hitter profiles",
+        "src.features.strikeouts_builder":
+          "Features — build pitcher strikeout profiles",
+        "src.models.predict_totals":
+          "Predict — score full-game over/under",
         "src.models.predict_first5_totals":
-          "Generate first-five totals predictions",
-        "src.models.predict_hits": "Generate hitter predictions",
-        "src.models.predict_strikeouts": "Generate strikeout predictions",
+          "Predict — score first-5-innings over/under",
+        "src.models.predict_hits":
+          "Predict — score hitter hit probabilities",
+        "src.models.predict_strikeouts":
+          "Predict — score pitcher strikeout props",
         "src.transforms.product_surfaces":
-          "Refresh board, results, and scorecards",
+          "Publish — refresh board, results & scorecards",
+        "src.transforms.grade_predictions":
+          "Grading — evaluate prediction accuracy",
+        "src.models.train_totals":
+          "Train — full-game totals model",
+        "src.models.train_first5_totals":
+          "Train — first-5-innings totals model",
+        "src.models.train_hits":
+          "Train — hitter props model",
+        "src.models.train_strikeouts":
+          "Train — pitcher strikeout model",
       };
 
       function humanizeUpdateStep(stepName) {
@@ -2504,6 +2600,15 @@
         }
       }
 
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
       function describeError(error) {
         if (!error) return "Unknown error";
         if (error instanceof Error) {
@@ -2672,6 +2777,39 @@
           return `<span class="chip warn">Weak vs ${throwHand}HP</span>`;
         }
         return `<span class="chip">Neutral vs ${throwHand}HP</span>`;
+      }
+
+      function playerAvailabilityMeta(player) {
+        const description = String(player.roster_status_description || "").trim();
+        const note = String(player.roster_status_note || "").trim();
+        if (player.is_available === false) {
+          const label = description || (player.is_injured ? "Injured" : "Unavailable");
+          return {
+            tone: "warn",
+            label,
+            detail: note ? `${label} · ${note}` : label,
+          };
+        }
+        if (description) {
+          return {
+            tone: description.toLowerCase() === "active" ? "good" : "warn",
+            label: description,
+            detail: note ? `${description} · ${note}` : description,
+          };
+        }
+        return {
+          tone: "warn",
+          label: "Status pending",
+          detail: "Roster status pending",
+        };
+      }
+
+      function playerAvailabilityTag(player) {
+        if (player.is_available !== false) {
+          return "";
+        }
+        const meta = playerAvailabilityMeta(player);
+        return `<span class="chip ${meta.tone}">${escapeHtml(meta.label)}</span>`;
       }
 
       function formatDateTime(value) {
@@ -3605,6 +3743,93 @@
           : "No totals rationale yet";
       }
 
+      function lateBullpenSnapshot(team, totals, side) {
+        return {
+          team,
+          lateInningsLast3: numberOr(
+            totals?.[`${side}_bullpen_late_innings_last3`],
+          ),
+          lateRunsAllowedLast3: numberOr(
+            totals?.[`${side}_bullpen_late_runs_allowed_last3`],
+          ),
+          lateEarnedRunsLast3: numberOr(
+            totals?.[`${side}_bullpen_late_earned_runs_last3`],
+          ),
+          lateHitsAllowedLast3: numberOr(
+            totals?.[`${side}_bullpen_late_hits_allowed_last3`],
+          ),
+          lateEraLast3: numberOr(totals?.[`${side}_bullpen_late_era_last3`]),
+        };
+      }
+
+      function lateBullpenRiskScore(snapshot) {
+        const innings = numberOr(snapshot?.lateInningsLast3, 0);
+        const era = numberOr(snapshot?.lateEraLast3);
+        const runs = numberOr(snapshot?.lateRunsAllowedLast3, 0);
+        const earnedRuns = numberOr(snapshot?.lateEarnedRunsLast3, 0);
+        const hits = numberOr(snapshot?.lateHitsAllowedLast3, 0);
+        if (
+          innings <= 0 &&
+          era == null &&
+          runs <= 0 &&
+          earnedRuns <= 0 &&
+          hits <= 0
+        ) {
+          return -1;
+        }
+        return (
+          (era ?? 0) * 4 +
+          Math.max(runs, earnedRuns) * 3 +
+          hits * 1.5 +
+          Math.min(innings, 6)
+        );
+      }
+
+      function lateBullpenRiskMeta(snapshot) {
+        const innings = numberOr(snapshot?.lateInningsLast3, 0);
+        const runs = numberOr(snapshot?.lateRunsAllowedLast3, 0);
+        const hits = numberOr(snapshot?.lateHitsAllowedLast3, 0);
+        const era = numberOr(snapshot?.lateEraLast3);
+        const team = String(snapshot?.team || "Bullpen");
+        if (lateBullpenRiskScore(snapshot) < 0) {
+          return {
+            tone: "",
+            short: "Late Pen pending",
+            detail: "No innings 7+ bullpen sample is loaded yet.",
+          };
+        }
+        if ((era != null && era >= 6) || runs >= 4 || hits >= 6) {
+          return {
+            tone: "bad",
+            short: `Late Pen ${team} high`,
+            detail: `${team} has allowed ${formatNumber(runs, 0)} runs in ${formatNumber(innings, 1)} innings across innings 7+ over the last 3 bullpen days (${formatNumber(era, 2)} ERA).`,
+          };
+        }
+        if ((era != null && era >= 3.5) || runs >= 2 || hits >= 4) {
+          return {
+            tone: "warn",
+            short: `Late Pen ${team} watch`,
+            detail: `${team} has allowed ${formatNumber(runs, 0)} runs in ${formatNumber(innings, 1)} innings across innings 7+ over the last 3 bullpen days (${formatNumber(era, 2)} ERA).`,
+          };
+        }
+        return {
+          tone: "good",
+          short: `Late Pen ${team} stable`,
+          detail: `${team} has kept the last 3 bullpen days relatively clean in innings 7+ with ${formatNumber(innings, 1)} late innings and a ${formatNumber(era, 2)} late ERA.`,
+        };
+      }
+
+      function renderLateBullpenBadge(game) {
+        const totals = game.totals || {};
+        const awaySnapshot = lateBullpenSnapshot(game.away_team, totals, "away");
+        const homeSnapshot = lateBullpenSnapshot(game.home_team, totals, "home");
+        const awayScore = lateBullpenRiskScore(awaySnapshot);
+        const homeScore = lateBullpenRiskScore(homeSnapshot);
+        const riskiestSnapshot = awayScore >= homeScore ? awaySnapshot : homeSnapshot;
+        const meta = lateBullpenRiskMeta(riskiestSnapshot);
+        return `<span class="chip ${meta.tone}" title="${escapeHtml(meta.detail)}">${escapeHtml(meta.short)}</span>`;
+      }
+
       function compactHitSummary(players) {
         if (!players.length) {
           return "No hitters match the current filter.";
@@ -3699,6 +3924,10 @@
           1,
         );
         const lineupStatus = playerLineupStateMeta(player).label;
+        const availability = playerAvailabilityMeta(player);
+        if (player.is_available === false) {
+          return `${availability.label} · ${lineupStatus} lineup · ${projectedPlateAppearances} PA`;
+        }
         return `${lineupStatus} lineup · ${projectedPlateAppearances} PA`;
       }
 
@@ -3743,6 +3972,7 @@
         const icon = playerOutcomeIcon(player);
         const outcomeLabel = playerOutcomeLabel(player);
         const platoonTag = playerPlatoonTag(player);
+        const availabilityTag = playerAvailabilityTag(player);
         const secondaryLine =
           isFinal || player.actual_hits != null
             ? playerOutcomeLine(player)
@@ -3763,7 +3993,8 @@
             <span class="compact-hit-grade ${tone}"><span class="compact-hit-icon">${icon}</span>${outcomeLabel}</span>
           </div>
           <div class="compact-hit-player-line">${secondaryLine}</div>
-          <div class="compact-hit-player-copy">${platoonTag ? `${platoonTag} ` : ""}${playerPlatoonCopy(player)} · ${playerModelPredictionCopy(player)}</div>
+          ${platoonTag || availabilityTag ? `<div class="compact-hit-player-chips">${platoonTag}${availabilityTag}</div>` : ""}
+          <div class="compact-hit-player-copy">${playerPlatoonCopy(player)} · ${playerModelPredictionCopy(player)}</div>
         </div>
       `;
       }
@@ -4356,6 +4587,8 @@
       function renderLineupCard(player) {
         const form = classifyPlayerForm(player);
         const platoonTag = playerPlatoonTag(player);
+        const availability = playerAvailabilityMeta(player);
+        const availabilityTag = playerAvailabilityTag(player);
         const lineupState = playerLineupStateMeta(player);
         const actualStatus = playerOutcomeStatus(player);
         const actualHits =
@@ -4388,8 +4621,9 @@
             </div>
             <div class="control-row">
               <span class="form-chip ${form.tone}">${form.label}</span>
-              <span class="chip ${lineupState.tone}">${lineupState.label} row</span>
               ${platoonTag}
+              ${availabilityTag}
+              <span class="chip ${lineupState.tone}">${lineupState.label} row</span>
               ${actualHits}
             </div>
           </div>
@@ -4415,6 +4649,10 @@
           <div class="data-row">
             <span class="data-label">Matchup Split</span>
             <span class="data-value">${playerPlatoonCopy(player)}</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Roster Status</span>
+            <span class="data-value">${escapeHtml(availability.detail)}</span>
           </div>
           <div class="data-row">
             <span class="data-label">Model Call</span>
@@ -4615,7 +4853,7 @@
           <a class="game-toggle" href="${matchupHref}">
             <div class="game-header">
               <div>
-                <div class="eyebrow">${renderDataQualityBadge(game)}${renderMarketLockBadge(game)}${formatDateTime(game.game_start_ts)} · ${venue.name || "Venue TBD"}</div>
+                <div class="eyebrow">${renderDataQualityBadge(game)}${renderMarketLockBadge(game)}${renderLateBullpenBadge(game)}${formatDateTime(game.game_start_ts)} · ${venue.name || "Venue TBD"}</div>
                 <h2 class="game-title">${game.away_team} at ${game.home_team}</h2>
                 <div class="game-subtitle">${venue.city || ""}${venue.city && venue.state ? ", " : ""}${venue.state || ""}${venue.roof_type ? ` · ${venue.roof_type}` : ""}</div>
               </div>
@@ -4940,13 +5178,23 @@
       }
 
       function formatStepLog(step) {
-        const stdout = step.stdout
-          ? `stdout:\n${step.stdout}`
-          : "stdout: (empty)";
-        const stderr = step.stderr
-          ? `stderr:\n${step.stderr}`
-          : "stderr: (empty)";
-        return `${humanizeUpdateStep(step.module)} (${step.module}) -> ${step.returncode}\n${stdout}\n${stderr}`;
+        const icon = step.returncode === 0 ? "\u2705" : "\u274c";
+        const label = humanizeUpdateStep(step.module);
+        const parts = [`${icon}  ${label}`];
+        if (step.stdout) {
+          parts.push(step.stdout.trim());
+        }
+        if (step.stderr) {
+          const meaningful = step.stderr
+            .split("\n")
+            .filter((l) => l.includes("INFO") || l.includes("WARNING") || l.includes("ERROR"))
+            .map((l) => l.replace(/^.*?\| (INFO|WARNING|ERROR) \| \S+ \| /, ""))
+            .join("\n");
+          if (meaningful) {
+            parts.push(meaningful);
+          }
+        }
+        return parts.join("\n");
       }
 
       function updateJobTone(status) {
@@ -4995,18 +5243,22 @@
         if (!job) {
           return "Waiting for action.";
         }
+        const total = job.total_steps || 0;
+        const done = job.completed_steps || 0;
         const lines = [
-          `${job.label} ${updateJobOutcomeLabel(job.status)} for ${job.target_date}.`,
-          `Progress ${job.completed_steps || 0}/${job.total_steps || 0} steps.`,
+          `${job.label} ${updateJobOutcomeLabel(job.status)} for ${job.target_date}  \u2014  ${done}/${total} steps`,
         ];
         if (job.current_step) {
-          lines.push(`Current step: ${humanizeUpdateStep(job.current_step)}`);
+          lines.push(`\u25b6  ${humanizeUpdateStep(job.current_step)}`);
         }
         if (job.error) {
-          lines.push(`Error: ${job.error}`);
+          lines.push(`\u26a0  ${job.error}`);
         }
         if ((job.steps || []).length) {
-          lines.push(...job.steps.map(formatStepLog));
+          lines.push(
+            "\u2500".repeat(48),
+            ...job.steps.map(formatStepLog),
+          );
         }
         return lines.join("\n\n");
       }

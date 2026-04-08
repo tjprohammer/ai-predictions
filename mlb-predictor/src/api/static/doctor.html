@@ -29,8 +29,16 @@
         min-height: 100vh;
         color: var(--ink);
         background:
-          radial-gradient(circle at top left, rgba(11, 106, 88, 0.15), transparent 32%),
-          radial-gradient(circle at 85% 14%, rgba(183, 121, 31, 0.12), transparent 20%),
+          radial-gradient(
+            circle at top left,
+            rgba(11, 106, 88, 0.15),
+            transparent 32%
+          ),
+          radial-gradient(
+            circle at 85% 14%,
+            rgba(183, 121, 31, 0.12),
+            transparent 20%
+          ),
           linear-gradient(180deg, #fcf9f4 0%, var(--bg) 100%);
         font-family: "Bahnschrift", "Aptos", "Segoe UI Variable", sans-serif;
       }
@@ -77,7 +85,11 @@
         width: 38px;
         height: 38px;
         border-radius: 50%;
-        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+        background: linear-gradient(
+          135deg,
+          var(--accent) 0%,
+          var(--accent-deep) 100%
+        );
         color: white;
         font-size: 0.78rem;
         letter-spacing: 0.16em;
@@ -214,15 +226,17 @@
         </a>
         <div class="nav-links">
           <a class="nav-link" href="/">Game Board</a>
-          <a class="nav-link active" href="/doctor" aria-current="page">Doctor</a>
+          <a class="nav-link active" href="/doctor" aria-current="page"
+            >Doctor</a
+          >
         </div>
       </nav>
 
       <section class="hero">
         <h1>Runtime Doctor</h1>
         <p>
-          Aggregated runtime checks for the local database, model artifacts, readiness,
-          source health, and recent pipeline activity.
+          Aggregated runtime checks for the local database, model artifacts,
+          readiness, source health, and recent pipeline activity.
         </p>
       </section>
 
@@ -254,29 +268,28 @@
         document.getElementById("summaryGrid").innerHTML = [
           card(
             "Overall",
-            `<div class="label">Status</div><div class="metric ${statusClass(overall.status)}">${String(overall.status || "unknown").toUpperCase()}</div><div class="muted">${overall.critical_failures || 0} critical, ${overall.warning_failures || 0} warning</div>`
+            `<div class="label">Status</div><div class="metric ${statusClass(overall.status)}">${String(overall.status || "unknown").toUpperCase()}</div><div class="muted">${overall.critical_failures || 0} critical, ${overall.warning_failures || 0} warning</div>`,
           ),
           card(
             "Target Date",
-            `<div class="label">Slate</div><div class="metric">${payload.target_date || "-"}</div><div class="muted">DB: ${(payload.runtime || {}).db_dialect || "unknown"}</div>`
+            `<div class="label">Slate</div><div class="metric">${payload.target_date || "-"}</div><div class="muted">DB: ${(payload.runtime || {}).db_dialect || "unknown"}</div>`,
           ),
           card(
             "Readiness",
-            `<div class="label">Games</div><div class="metric">${readiness.total || 0}</div><div class="muted">Green ${readiness.green || 0} | Yellow ${readiness.yellow || 0} | Red ${readiness.red || 0}</div>`
+            `<div class="label">Games</div><div class="metric">${readiness.total || 0}</div><div class="muted">Green ${readiness.green || 0} | Yellow ${readiness.yellow || 0} | Red ${readiness.red || 0}</div>`,
           ),
           card(
             "Source Health",
-            `<div class="label">Recent Failures</div><div class="metric">${sourceHealth.sources_with_failures || 0}</div><div class="muted">Across ${sourceHealth.total_sources || 0} tracked sources</div>`
+            `<div class="label">Recent Failures</div><div class="metric">${sourceHealth.sources_with_failures || 0}</div><div class="muted">Across ${sourceHealth.total_sources || 0} tracked sources</div>`,
           ),
         ].join("");
 
         document.getElementById("checksGrid").innerHTML = (payload.checks || [])
-          .map(
-            (check) =>
-              card(
-                check.label,
-                `<div class="label">${check.severity}</div><div class="metric ${check.ok ? "status-ok" : "status-error"}">${check.ok ? "PASS" : "FAIL"}</div><div class="muted">${check.detail}</div>`
-              )
+          .map((check) =>
+            card(
+              check.label,
+              `<div class="label">${check.severity}</div><div class="metric ${check.ok ? "status-ok" : "status-error"}">${check.ok ? "PASS" : "FAIL"}</div><div class="muted">${check.detail}</div>`,
+            ),
           )
           .join("");
 
@@ -285,21 +298,27 @@
             "Recent Pipeline Runs",
             pipelineRuns.length
               ? `<ul>${pipelineRuns
-                  .map((run) => `<li>${run.label || run.action || run.job_id}: ${run.status || "unknown"}</li>`)
+                  .map(
+                    (run) =>
+                      `<li>${run.label || run.action || run.job_id}: ${run.status || "unknown"}</li>`,
+                  )
                   .join("")}</ul>`
-              : '<div class="muted">No recent pipeline runs recorded.</div>'
+              : '<div class="muted">No recent pipeline runs recorded.</div>',
           ),
           card(
             "Recent Update Jobs",
             recentJobs.length
               ? `<ul>${recentJobs
-                  .map((job) => `<li>${job.label || job.action || job.job_id}: ${job.status || "unknown"}</li>`)
+                  .map(
+                    (job) =>
+                      `<li>${job.label || job.action || job.job_id}: ${job.status || "unknown"}</li>`,
+                  )
                   .join("")}</ul>`
-              : '<div class="muted">No recent update jobs recorded.</div>'
+              : '<div class="muted">No recent update jobs recorded.</div>',
           ),
           card(
             "Runtime Paths",
-            `<ul><li>DB: ${(payload.runtime || {}).database_url || "-"}</li><li>Data: ${(payload.runtime || {}).data_dir || "-"}</li><li>Models: ${(payload.runtime || {}).model_dir || "-"}</li></ul>`
+            `<ul><li>DB: ${(payload.runtime || {}).database_url || "-"}</li><li>Data: ${(payload.runtime || {}).data_dir || "-"}</li><li>Models: ${(payload.runtime || {}).model_dir || "-"}</li></ul>`,
           ),
         ].join("");
       }
@@ -307,7 +326,7 @@
       loadDoctor().catch((error) => {
         document.getElementById("detailsGrid").innerHTML = card(
           "Doctor Load Failed",
-          `<div class="muted">${error}</div>`
+          `<div class="muted">${error}</div>`,
         );
       });
     </script>

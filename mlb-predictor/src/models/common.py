@@ -257,6 +257,13 @@ def fit_market_calibrator(
     calibrator = _CalibrationRidge(alpha=1.0)
     calibrator.fit(X_cal, y_cal)
 
+    model_weight = float(calibrator.coef_[0])
+    market_weight = float(calibrator.coef_[1])
+    if not np.isfinite(model_weight) or not np.isfinite(market_weight):
+        return None
+    if model_weight <= 0 or market_weight < 0:
+        return None
+
     calibrated = calibrator.predict(X_cal)
     residual_std = float(np.std(y_cal - calibrated))
 
@@ -265,8 +272,8 @@ def fit_market_calibrator(
         "calibration_columns": ["raw_prediction", "market_total"],
         "calibration_rows": n_usable,
         "calibration_residual_std": residual_std if residual_std > 0 else 1.0,
-        "model_weight": float(calibrator.coef_[0]),
-        "market_weight": float(calibrator.coef_[1]),
+        "model_weight": model_weight,
+        "market_weight": market_weight,
         "intercept": float(calibrator.intercept_),
     }
 
@@ -286,6 +293,8 @@ def calibrate_with_market(
     mask = np.zeros(len(raw_predictions), dtype=bool)
 
     if calibrator_info is None:
+        return calibrated, mask
+    if float(calibrator_info.get("model_weight", 1.0)) <= 0:
         return calibrated, mask
 
     has_market = market_values.notna().values

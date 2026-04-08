@@ -45,6 +45,11 @@ ADJUSTMENT_COLUMNS = [
     "home_starter_xwoba_blended", "away_starter_xwoba_blended",
     "home_starter_csw_blended", "away_starter_csw_blended",
     "home_starter_rest_days", "away_starter_rest_days",
+    "home_starter_fb_velo_blended", "away_starter_fb_velo_blended",
+    "home_starter_whiff_pct_blended", "away_starter_whiff_pct_blended",
+    "home_starter_hard_hit_pct_blended", "away_starter_hard_hit_pct_blended",
+    "home_starter_avg_ip_blended", "away_starter_avg_ip_blended",
+    "home_starter_k_per_9_blended", "away_starter_k_per_9_blended",
     # Today's lineups
     "home_lineup_top5_xwoba", "away_lineup_top5_xwoba",
     "home_lineup_k_pct", "away_lineup_k_pct",

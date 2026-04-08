@@ -36,6 +36,11 @@ def test_build_windows_release_builds_seed_before_packaging(monkeypatch):
         },
     )
 
+    # Force a non-matching DATABASE_URL so the seed step is NOT skipped.
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg2://user:pass@host/db")
+    from src.utils.settings import get_settings
+    get_settings.cache_clear()
+
     result = build_windows_release.main()
 
     assert result == 0
@@ -60,6 +65,11 @@ def test_build_windows_release_stops_when_seed_build_fails(monkeypatch):
 
     monkeypatch.setattr(build_windows_release.subprocess, "run", fake_run)
     monkeypatch.setattr(build_windows_release.sys, "argv", ["build_windows_release.py"])
+
+    # Force a non-matching DATABASE_URL so the seed step is NOT skipped.
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg2://user:pass@host/db")
+    from src.utils.settings import get_settings
+    get_settings.cache_clear()
 
     result = build_windows_release.main()
 

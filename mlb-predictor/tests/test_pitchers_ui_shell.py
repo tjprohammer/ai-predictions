@@ -5,6 +5,10 @@ def test_pitchers_html_has_recent_strikeout_chart():
     html = Path("src/api/static/pitchers.html").read_text(encoding="utf-8")
 
     assert '<input id="hideStartedOnly" type="checkbox" />' in html
+    assert 'id="leadersGrid"' in html
+    assert 'api/leaders/season?' in html
+    assert 'Season Leaders' in html
+    assert 'Season Ks' in html
     assert "function recentStrikeoutChart(row)" in html
     assert "function pitcherHistoryFilterOptions()" in html
     assert "async function hydratePitcherHistory(rows)" in html

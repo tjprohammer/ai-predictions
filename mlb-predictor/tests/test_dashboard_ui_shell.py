@@ -58,14 +58,32 @@ def test_dashboard_html_links_to_matchup_page():
     assert 'game?game_id=' in html
 
 
+def test_dashboard_html_exposes_player_availability_and_platoon_helpers():
+    html = Path("src/api/static/index.html").read_text(encoding="utf-8")
+
+    assert 'function playerAvailabilityTag(player)' in html
+    assert 'compact-hit-player-chips' in html
+    assert 'Roster Status' in html
+    assert 'function renderLateBullpenBadge(game)' in html
+    assert 'Late Pen ' in html
+
+
 def test_matchup_detail_page_exists():
     html = Path("src/api/static/game.html").read_text(encoding="utf-8")
 
     assert 'MLB Predictor Matchup Detail' in html
     assert 'api/games/' in html
     assert 'Bullpen snapshot' in html
+    assert 'last 3 bullpen days' in html
     assert 'Lineup source' in html
     assert 'Projected template lineup' in html
     assert 'Snapshot order' in html
+    assert 'Actual Batting Order' in html
+    assert 'Full 1-9 order with hot, cold, or steady tags.' in html
+    assert 'Season ERA / L3 / L5' in html
+    assert 'function batterHandMatchup(player)' in html
+    assert "Strong vs today's" in html
+    assert 'Late innings 7+:' in html
+    assert 'Late Bullpen' in html
     assert 'Green = hit · red = no hit' in html
     assert 'Last ${history.length} Games' in html

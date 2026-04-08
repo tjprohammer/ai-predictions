@@ -3,11 +3,13 @@
 Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release.
 
 ## Status
+
 - Overall status: open
 - Source: live release testing after publishing `v0.2.0-beta1`
 - Priority focus: desktop workflow reliability, grading correctness, board usability
 
 ## Status Workflow
+
 - `open`: reproduced or reported, no implementation yet
 - `in progress`: actively being worked
 - `fixed in code`: code and focused regression tests are in place, but app-level verification is still pending
@@ -17,6 +19,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
 ## Open Issues
 
 ### 1. Loading bar is not visible
+
 - Status: fixed in code
 - Priority: high
 - GitHub: #2
@@ -36,6 +39,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - failed jobs clearly show failure state
 
 ### 2. Grade Predictions is not working on mixed-status slates
+
 - Status: closed
 - Priority: high
 - GitHub: #3
@@ -55,6 +59,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - should already-graded final games be skipped or refreshed?
 
 ### 3. Rebuild Predictions does not seem accurate
+
 - Status: verified in app
 - Priority: high
 - GitHub: #4
@@ -96,6 +101,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - any remaining user trust concerns are more likely to be model-quality questions than a broken rebuild workflow
 
 ### 4. Hitter sorting and recent hit history need improvement
+
 - Status: verified in app
 - Priority: medium-high
 - GitHub: #5
@@ -121,6 +127,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - the running hot-hitters page serves the team-sort default and history-tile markup successfully
 
 ### 5. Game board detail should open as a separate page
+
 - Status: verified in app
 - Priority: medium-high
 - GitHub: #6
@@ -141,6 +148,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - live verification confirmed the board route and detail page after a fresh restart and `Prepare Slate`
 
 ### 6. Prepare Slate and Import Inputs are confusing and not working
+
 - Status: closed
 - Priority: high
 - GitHub: #7
@@ -167,6 +175,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - both actions rebuilt and republished selected-date predictions successfully in the app session
 
 ### 7. Market sources may need to be more reliable
+
 - Status: open
 - Priority: medium
 - GitHub: #8
@@ -187,6 +196,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - decide whether free-tier mode should disable player-prop pulls, reduce refresh frequency, or treat The Odds API as a manual operator-only action instead of a default shared refresh path
 
 ### 9. Add inning-aware late-game bullpen quality metrics
+
 - Status: open
 - Priority: medium
 - GitHub: #10
@@ -202,6 +212,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - totals and matchup detail UI
 
 ### 10. Matchup page hitter stats and lineup accuracy are not trustworthy
+
 - Status: open
 - Priority: high
 - GitHub: #11
@@ -240,6 +251,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - lineup ingestion and source precedence in `src/ingestors/lineups.py` and slate inputs
 
 ### 11. Current-slate weather data is missing or stale on the board
+
 - Status: fixed in code
 - Priority: high
 - GitHub: #12
@@ -266,6 +278,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - doctor/readiness payloads used by the desktop release verification flow
 
 ### 12. Windows SmartScreen warns that the installer is unrecognized
+
 - Status: open
 - Priority: high
 - GitHub: pending
@@ -286,6 +299,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - Windows release packaging and signing secrets/process
 
 ### 8. Refresh Daily Results is not working on mixed-status slates
+
 - Status: closed
 - Priority: high
 - GitHub: #9
@@ -306,6 +320,7 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
   - grading and results refresh need a clear shared game-status model
 
 ## Suggested Next Order
+
 1. Visually confirm the loading/progress state in the live desktop UI, then close issue #2 if it is clearly visible.
 2. Make the loading/progress state visually stronger if the current live desktop confirmation is still weak.
 3. Do a final release-readiness pass across the remaining open issues and desktop workflow before cutting the next build.
@@ -315,5 +330,6 @@ Purpose: track the issues found while testing the `v0.2.0-beta1` desktop release
 7. Add inning-aware late-game bullpen quality metrics.
 
 ## Notes
+
 - This file is intentionally user-facing and release-focused, not a low-level engineering dump.
 - Keep this updated as issues are reproduced, fixed, or split into smaller tasks.

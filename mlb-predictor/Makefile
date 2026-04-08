@@ -62,6 +62,7 @@ ingest-today: ## Run all ingestors for today
 	"$(PYTHON_BIN)" -m src.ingestors.player_batting
 	"$(PYTHON_BIN)" -m src.ingestors.pitcher_statcast
 	"$(PYTHON_BIN)" -m src.ingestors.lineups
+	"$(PYTHON_BIN)" -m src.ingestors.player_status
 	"$(PYTHON_BIN)" -m src.ingestors.weather
 	"$(PYTHON_BIN)" -m src.ingestors.market_totals --require-player-prop-coverage pitcher_strikeouts
 
