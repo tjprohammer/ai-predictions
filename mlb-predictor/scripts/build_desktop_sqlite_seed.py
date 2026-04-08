@@ -52,6 +52,7 @@ PREFERRED_TABLE_ORDER = (
     "model_scorecards_daily",
     "game_features_first5_totals",
     "predictions_first5_totals",
+    "matchup_splits",
 )
 
 

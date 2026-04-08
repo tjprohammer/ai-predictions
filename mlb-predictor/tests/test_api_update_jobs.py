@@ -59,6 +59,7 @@ def test_update_job_prepare_slate_runs_expected_modules(monkeypatch):
         ("src.ingestors.player_status", ["--target-date", "2026-04-02"]),
         ("src.ingestors.market_totals", ["--target-date", "2026-04-02"]),
         ("src.ingestors.weather", ["--target-date", "2026-04-02"]),
+        ("src.ingestors.matchup_splits", ["--target-date", "2026-04-02"]),
         ("src.transforms.freeze_markets", ["--target-date", "2026-04-02"]),
         ("src.ingestors.validator", ["--target-date", "2026-04-02"]),
         ("src.features.totals_builder", ["--target-date", "2026-04-02"]),
@@ -94,8 +95,13 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
         "src.ingestors.player_status",
         "src.ingestors.market_totals",
         "src.ingestors.weather",
+        "src.ingestors.matchup_splits",
         "src.transforms.freeze_markets",
         "src.ingestors.validator",
+        "src.ingestors.games",
+        "src.ingestors.boxscores",
+        "src.ingestors.player_batting",
+        "src.ingestors.weather",
         "src.transforms.offense_daily",
         "src.transforms.bullpens_daily",
         "src.features.totals_builder",
@@ -125,8 +131,13 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
                 "src.ingestors.player_status",
                 "src.ingestors.market_totals",
                 "src.ingestors.weather",
+                "src.ingestors.matchup_splits",
                 "src.transforms.freeze_markets",
                 "src.ingestors.validator",
+                "src.ingestors.games",
+                "src.ingestors.boxscores",
+                "src.ingestors.player_batting",
+                "src.ingestors.weather",
                 "src.transforms.offense_daily",
                 "src.transforms.bullpens_daily",
                 "src.features.totals_builder",
@@ -152,6 +163,7 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
                 "src.ingestors.player_status",
                 "src.ingestors.market_totals",
                 "src.ingestors.weather",
+                "src.ingestors.matchup_splits",
                 "src.transforms.freeze_markets",
                 "src.ingestors.validator",
                 "src.features.totals_builder",
@@ -191,6 +203,7 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
             "2026-04-02",
             "Refresh Daily Results",
             [
+                "src.ingestors.games",
                 "src.ingestors.boxscores",
                 "src.ingestors.player_batting",
                 "src.ingestors.weather",
@@ -221,6 +234,7 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
             "2026-04-03",
             "Grade Predictions",
             [
+                "src.ingestors.games",
                 "src.ingestors.boxscores",
                 "src.ingestors.player_batting",
                 "src.ingestors.weather",
@@ -266,13 +280,14 @@ def test_update_job_grade_predictions_targets_yesterday(monkeypatch):
 
     assert response.status_code == 200
     assert payload["label"] == "Grade Predictions"
-    assert calls == [
-        ("src.ingestors.boxscores", ["--target-date", "2026-04-03"]),
-        ("src.ingestors.player_batting", ["--target-date", "2026-04-03"]),
-        ("src.ingestors.weather", ["--target-date", "2026-04-03", "--mode", "observed"]),
-        ("src.transforms.offense_daily", ["--target-date", "2026-04-03"]),
-        ("src.transforms.bullpens_daily", ["--target-date", "2026-04-03"]),
-        ("src.transforms.product_surfaces", ["--target-date", "2026-04-03"]),
+    assert [module for module, _ in calls] == [
+        "src.ingestors.games",
+        "src.ingestors.boxscores",
+        "src.ingestors.player_batting",
+        "src.ingestors.weather",
+        "src.transforms.offense_daily",
+        "src.transforms.bullpens_daily",
+        "src.transforms.product_surfaces",
     ]
 
 
@@ -359,7 +374,7 @@ def test_start_update_job_returns_queued_job(monkeypatch):
     assert response.status_code == 202
     assert payload["ok"] is True
     assert payload["job"]["status"] == "queued"
-    assert payload["job"]["total_steps"] == 18
+    assert payload["job"]["total_steps"] == 19
     assert launched == [payload["job"]["job_id"]]
 
 
@@ -396,7 +411,7 @@ def test_background_update_job_marks_success(monkeypatch):
 
     assert stored_job is not None
     assert stored_job["status"] == "succeeded"
-    assert stored_job["completed_steps"] == stored_job["total_steps"] == 18
+    assert stored_job["completed_steps"] == stored_job["total_steps"] == 19
     assert stored_job["status_snapshot"]["ok"] is True
     assert [module for module, _ in calls] == [
         "src.ingestors.games",
@@ -406,6 +421,7 @@ def test_background_update_job_marks_success(monkeypatch):
         "src.ingestors.player_status",
         "src.ingestors.market_totals",
         "src.ingestors.weather",
+        "src.ingestors.matchup_splits",
         "src.transforms.freeze_markets",
         "src.ingestors.validator",
         "src.features.totals_builder",

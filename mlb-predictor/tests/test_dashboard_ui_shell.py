@@ -87,3 +87,43 @@ def test_matchup_detail_page_exists():
     assert 'Late Bullpen' in html
     assert 'Green = hit · red = no hit' in html
     assert 'Last ${history.length} Games' in html
+
+
+def test_matchup_detail_page_has_matchup_splits_section():
+    html = Path("src/api/static/game.html").read_text(encoding="utf-8")
+
+    # Section container and heading
+    assert 'id="matchupSection"' in html
+    assert 'id="matchupContent"' in html
+    assert "Matchup Splits" in html
+    assert "Batter vs. Pitcher &amp; Team History" in html
+
+    # JS rendering functions
+    assert "function loadMatchupSplits(gameId)" in html
+    assert "function renderBvpTable(rows)" in html
+    assert "function renderPvtTable(rows)" in html
+    assert "function renderPlatoonTable(rows)" in html
+    assert "function renderH2hCards(h2h)" in html
+
+    # BvP table columns
+    assert "vs Pitcher" in html
+    assert "formatBattingAverage(r.ops)" in html
+
+    # PvT table columns
+    assert "Pitcher vs. Opposing Team (Career)" in html
+    assert "formatNumber(r.whip, 3)" in html
+    assert "formatNumber(r.k_per_9, 2)" in html
+    assert "formatNumber(r.innings_pitched, 1)" in html
+
+    # Platoon table rendering
+    assert "vs LHP" in html
+    assert "vs RHP" in html
+
+    # H2H cards
+    assert "Avg Total Runs" in html
+    assert "Over %" in html
+    assert "Games Played" in html
+
+    # Fetch call wired into page load
+    assert "loadMatchupSplits(gameId)" in html
+    assert "api/games/" in html

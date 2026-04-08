@@ -799,6 +799,84 @@
         color: var(--muted);
       }
 
+      /* ── Matchup splits section ─────────────────────────────── */
+      .matchup-section { margin-top: 12px; }
+      .matchup-subsection { margin-bottom: 18px; }
+      .matchup-subsection:last-child { margin-bottom: 0; }
+      .matchup-table-wrap {
+        overflow-x: auto;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .matchup-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.82rem;
+        white-space: nowrap;
+      }
+      .matchup-table th {
+        background: rgba(20, 33, 25, 0.04);
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        padding: 8px 12px;
+        text-align: right;
+        border-bottom: 1px solid var(--line);
+      }
+      .matchup-table th:first-child { text-align: left; }
+      .matchup-table td {
+        padding: 7px 12px;
+        text-align: right;
+        border-bottom: 1px solid rgba(20, 33, 25, 0.06);
+      }
+      .matchup-table td:first-child {
+        text-align: left;
+        font-weight: 600;
+      }
+      .matchup-table tr:last-child td { border-bottom: none; }
+      .matchup-table tr:hover td { background: rgba(11, 106, 88, 0.04); }
+      .matchup-empty {
+        color: var(--muted);
+        font-size: 0.82rem;
+        padding: 12px 0;
+      }
+      .matchup-h2h-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
+      }
+      .h2h-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 14px 16px;
+        text-align: center;
+      }
+      .h2h-card .h2h-value {
+        font-size: 1.6rem;
+        font-weight: 800;
+        color: var(--accent);
+        letter-spacing: -0.02em;
+      }
+      .h2h-card .h2h-label {
+        font-size: 0.68rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-top: 4px;
+      }
+      .matchup-sub-tag {
+        font-size: 0.72rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+
       @media (max-width: 1100px) {
         .hero-grid,
         .summary-grid,
@@ -908,6 +986,16 @@
         <div class="heat-grid" id="hitterHeatGrid"></div>
       </section>
       <section class="lineup-grid" id="lineupGrid"></section>
+
+      <section class="matchup-section panel" id="matchupSection" style="display: none">
+        <div class="lineup-head">
+          <div>
+            <div class="section-tag">Matchup Splits</div>
+            <h2>Batter vs. Pitcher &amp; Team History</h2>
+          </div>
+        </div>
+        <div id="matchupContent"></div>
+      </section>
 
       <section class="panel" id="notesPanel">
         <div class="lineup-head">
@@ -1945,6 +2033,140 @@
           .join("");
       }
 
+      // ── Matchup Splits ───────────────────────────────────────
+      async function loadMatchupSplits(gameId) {
+        const section = document.getElementById("matchupSection");
+        try {
+          const response = await fetch(appUrl(`api/games/${encodeURIComponent(gameId)}/matchups`));
+          if (!response.ok) return;
+          const data = await response.json();
+          const bvp = data.batter_vs_pitcher || [];
+          const pvt = data.pitcher_vs_team || [];
+          const platoon = data.platoon_splits || [];
+          const h2h = data.head_to_head || {};
+          if (!bvp.length && !pvt.length && !platoon.length && !h2h.games_played) return;
+          section.style.display = "";
+          document.getElementById("matchupContent").innerHTML = [
+            renderBvpTable(bvp),
+            renderPvtTable(pvt),
+            renderPlatoonTable(platoon),
+            renderH2hCards(h2h),
+          ].join("");
+        } catch (err) {
+          console.warn("Matchup splits load failed:", err);
+        }
+      }
+
+      function renderBvpTable(rows) {
+        if (!rows.length) return "";
+        return `
+          <div class="matchup-subsection">
+            <div class="matchup-sub-tag">Batter vs. Pitcher (Career)</div>
+            <div class="matchup-table-wrap">
+              <table class="matchup-table">
+                <thead><tr>
+                  <th>Batter</th><th>vs Pitcher</th><th>G</th><th>PA</th><th>H</th><th>HR</th><th>BB</th><th>K</th><th>AVG</th><th>OBP</th><th>SLG</th><th>OPS</th>
+                </tr></thead>
+                <tbody>${rows.map(r => `<tr>
+                  <td>${escapeHtml(r.batter_name || "-")}</td>
+                  <td>${escapeHtml(r.pitcher_name || "-")}</td>
+                  <td>${formatInteger(r.games)}</td>
+                  <td>${formatInteger(r.plate_appearances)}</td>
+                  <td>${formatInteger(r.hits)}</td>
+                  <td>${formatInteger(r.home_runs)}</td>
+                  <td>${formatInteger(r.walks)}</td>
+                  <td>${formatInteger(r.strikeouts)}</td>
+                  <td>${formatBattingAverage(r.batting_avg)}</td>
+                  <td>${formatBattingAverage(r.obp)}</td>
+                  <td>${formatBattingAverage(r.slg)}</td>
+                  <td>${formatBattingAverage(r.ops)}</td>
+                </tr>`).join("")}</tbody>
+              </table>
+            </div>
+          </div>`;
+      }
+
+      function renderPvtTable(rows) {
+        if (!rows.length) return "";
+        return `
+          <div class="matchup-subsection">
+            <div class="matchup-sub-tag">Pitcher vs. Opposing Team (Career)</div>
+            <div class="matchup-table-wrap">
+              <table class="matchup-table">
+                <thead><tr>
+                  <th>Pitcher</th><th>G</th><th>IP</th><th>ERA</th><th>WHIP</th><th>K</th><th>K/9</th><th>H</th><th>BB</th><th>ER</th>
+                </tr></thead>
+                <tbody>${rows.map(r => `<tr>
+                  <td>${escapeHtml(r.pitcher_name || "-")}</td>
+                  <td>${formatInteger(r.games)}</td>
+                  <td>${formatNumber(r.innings_pitched, 1)}</td>
+                  <td>${formatNumber(r.era, 2)}</td>
+                  <td>${formatNumber(r.whip, 3)}</td>
+                  <td>${formatInteger(r.strikeouts)}</td>
+                  <td>${formatNumber(r.k_per_9, 2)}</td>
+                  <td>${formatInteger(r.hits)}</td>
+                  <td>${formatInteger(r.walks)}</td>
+                  <td>${formatInteger(r.earned_runs)}</td>
+                </tr>`).join("")}</tbody>
+              </table>
+            </div>
+          </div>`;
+      }
+
+      function renderPlatoonTable(rows) {
+        if (!rows.length) return "";
+        return `
+          <div class="matchup-subsection">
+            <div class="matchup-sub-tag">Platoon Splits (${rows[0]?.season || "Season"})</div>
+            <div class="matchup-table-wrap">
+              <table class="matchup-table">
+                <thead><tr>
+                  <th>Batter</th><th>Split</th><th>G</th><th>PA</th><th>H</th><th>HR</th><th>BB</th><th>K</th><th>AVG</th><th>OBP</th><th>SLG</th><th>OPS</th>
+                </tr></thead>
+                <tbody>${rows.map(r => {
+                  const splitLabel = r.split_type === "platoon_lhp" ? "vs LHP" : r.split_type === "platoon_rhp" ? "vs RHP" : r.split_type;
+                  return `<tr>
+                    <td>${escapeHtml(r.batter_name || "-")}</td>
+                    <td>${escapeHtml(splitLabel)}</td>
+                    <td>${formatInteger(r.games)}</td>
+                    <td>${formatInteger(r.plate_appearances)}</td>
+                    <td>${formatInteger(r.hits)}</td>
+                    <td>${formatInteger(r.home_runs)}</td>
+                    <td>${formatInteger(r.walks)}</td>
+                    <td>${formatInteger(r.strikeouts)}</td>
+                    <td>${formatBattingAverage(r.batting_avg)}</td>
+                    <td>${formatBattingAverage(r.obp)}</td>
+                    <td>${formatBattingAverage(r.slg)}</td>
+                    <td>${formatBattingAverage(r.ops)}</td>
+                  </tr>`;
+                }).join("")}</tbody>
+              </table>
+            </div>
+          </div>`;
+      }
+
+      function renderH2hCards(h2h) {
+        if (!h2h || !h2h.games_played) return "";
+        return `
+          <div class="matchup-subsection">
+            <div class="matchup-sub-tag">${escapeHtml(h2h.away_team || "Away")} vs ${escapeHtml(h2h.home_team || "Home")} · Last 365 Days</div>
+            <div class="matchup-h2h-cards">
+              <div class="h2h-card">
+                <div class="h2h-value">${formatInteger(h2h.games_played)}</div>
+                <div class="h2h-label">Games Played</div>
+              </div>
+              <div class="h2h-card">
+                <div class="h2h-value">${formatNumber(h2h.avg_total_runs, 1)}</div>
+                <div class="h2h-label">Avg Total Runs</div>
+              </div>
+              <div class="h2h-card">
+                <div class="h2h-value">${h2h.over_pct != null ? formatPercent(h2h.over_pct, 0) : "-"}</div>
+                <div class="h2h-label">Over %</div>
+              </div>
+            </div>
+          </div>`;
+      }
+
       function renderSummary(detail) {
         pageState.detail = detail;
         const totals = detail.totals || {};
@@ -2034,6 +2256,7 @@
           throw new Error("No game detail was returned for this matchup.");
         }
         renderSummary(payload.game);
+        loadMatchupSplits(gameId);
       }
 
       async function refreshForDate() {

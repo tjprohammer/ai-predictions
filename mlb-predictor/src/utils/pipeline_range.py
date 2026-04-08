@@ -49,6 +49,7 @@ def main() -> int:
             ("src.ingestors.lineups", False),
             ("src.ingestors.weather", True),
             ("src.ingestors.market_totals", True),
+            ("src.ingestors.matchup_splits", True),
         ]
         if not args.skip_starters:
             ingest_steps.extend(

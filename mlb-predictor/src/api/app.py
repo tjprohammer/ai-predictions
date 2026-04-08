@@ -5910,18 +5910,32 @@ def _pipeline_sequence(target_date: str, refresh_aggregates: bool, rebuild_featu
 
 
 def _results_refresh_sequence(target_date: str) -> list[tuple[str, list[str]]]:
+    backfill_start, backfill_end = _results_backfill_range(target_date)
     return [
-        ("src.ingestors.boxscores", ["--target-date", target_date]),
-        ("src.ingestors.player_batting", ["--target-date", target_date]),
-        ("src.ingestors.weather", ["--target-date", target_date, "--mode", "observed"]),
-        ("src.transforms.offense_daily", ["--target-date", target_date]),
-        ("src.transforms.bullpens_daily", ["--target-date", target_date]),
+        ("src.ingestors.games", ["--start-date", backfill_start, "--end-date", backfill_end]),
+        ("src.ingestors.boxscores", ["--start-date", backfill_start, "--end-date", backfill_end]),
+        ("src.ingestors.player_batting", ["--start-date", backfill_start, "--end-date", backfill_end]),
+        ("src.ingestors.weather", ["--start-date", backfill_start, "--end-date", backfill_end, "--mode", "observed"]),
+        ("src.transforms.offense_daily", ["--start-date", backfill_start, "--end-date", backfill_end]),
+        ("src.transforms.bullpens_daily", ["--start-date", backfill_start, "--end-date", backfill_end]),
         ("src.transforms.product_surfaces", ["--target-date", target_date]),
     ]
 
 
+RESULTS_BACKFILL_DAYS = 5
+
+
+def _results_backfill_range(target_date: str) -> tuple[str, str]:
+    """Return (start_date, end_date) covering recent days needing results backfill."""
+    from datetime import date as _date, timedelta
+    end = _date.fromisoformat(target_date)
+    start = end - timedelta(days=RESULTS_BACKFILL_DAYS)
+    return start.isoformat(), end.isoformat()
+
+
 def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[str, list[str]]]:
     if action == "refresh_everything":
+        backfill_start, backfill_end = _results_backfill_range(target_date)
         return [
             ("src.ingestors.games", ["--target-date", target_date]),
             ("src.ingestors.starters", ["--target-date", target_date]),
@@ -5930,10 +5944,16 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.ingestors.player_status", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
             ("src.ingestors.weather", ["--target-date", target_date]),
+            ("src.ingestors.matchup_splits", ["--target-date", target_date]),
             ("src.transforms.freeze_markets", ["--target-date", target_date]),
             ("src.ingestors.validator", ["--target-date", target_date]),
-            ("src.transforms.offense_daily", []),
-            ("src.transforms.bullpens_daily", []),
+            # ── results backfill: catch up boxscores & batting for recent days ──
+            ("src.ingestors.games", ["--start-date", backfill_start, "--end-date", backfill_end]),
+            ("src.ingestors.boxscores", ["--start-date", backfill_start, "--end-date", backfill_end]),
+            ("src.ingestors.player_batting", ["--start-date", backfill_start, "--end-date", backfill_end]),
+            ("src.ingestors.weather", ["--start-date", backfill_start, "--end-date", backfill_end, "--mode", "observed"]),
+            ("src.transforms.offense_daily", ["--start-date", backfill_start, "--end-date", backfill_end]),
+            ("src.transforms.bullpens_daily", ["--start-date", backfill_start, "--end-date", backfill_end]),
             ("src.features.totals_builder", ["--target-date", target_date]),
             ("src.features.first5_totals_builder", ["--target-date", target_date]),
             ("src.features.hits_builder", ["--target-date", target_date]),
@@ -5953,6 +5973,7 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.ingestors.player_status", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
             ("src.ingestors.weather", ["--target-date", target_date]),
+            ("src.ingestors.matchup_splits", ["--target-date", target_date]),
             ("src.transforms.freeze_markets", ["--target-date", target_date]),
             ("src.ingestors.validator", ["--target-date", target_date]),
             *_publish_target_date_sequence(
@@ -6217,6 +6238,125 @@ def game_detail(
     if payload is None:
         return _json_response({"target_date": target_date.isoformat(), "game": None}, status_code=404)
     return _json_response({"target_date": target_date.isoformat(), "game": payload})
+
+
+@app.get("/api/games/{game_id}/matchups")
+def game_matchups(game_id: int) -> JSONResponse:
+    """Return batter-vs-pitcher and pitcher-vs-team matchup splits for a game."""
+    if not _table_exists("matchup_splits"):
+        return _json_response({"matchups": []})
+
+    # Get lineup batters and the opposing starter for this game
+    bvp_frame = _safe_frame(
+        """
+        SELECT ms.player_id     AS batter_id,
+               dp.full_name     AS batter_name,
+               ms.opponent_id   AS pitcher_id,
+               dp2.full_name    AS pitcher_name,
+               ms.games, ms.plate_appearances, ms.at_bats,
+               ms.hits, ms.home_runs, ms.walks, ms.strikeouts,
+               ms.rbi, ms.runs, ms.doubles, ms.triples,
+               ms.batting_avg, ms.obp, ms.slg, ms.ops
+        FROM matchup_splits ms
+        JOIN lineups l ON l.player_id = ms.player_id
+                       AND l.game_id = :game_id
+        LEFT JOIN dim_players dp  ON dp.player_id = ms.player_id
+        LEFT JOIN dim_players dp2 ON dp2.player_id = ms.opponent_id
+        WHERE ms.split_type = 'bvp'
+        ORDER BY l.lineup_slot
+        """,
+        {"game_id": game_id},
+    )
+
+    pvt_frame = _safe_frame(
+        """
+        SELECT ms.player_id   AS pitcher_id,
+               dp.full_name   AS pitcher_name,
+               ms.games, ms.era, ms.strikeouts,
+               ms.innings_pitched, ms.earned_runs,
+               ms.walks, ms.hits,
+               ms.whip, ms.k_per_9
+        FROM matchup_splits ms
+        JOIN pitcher_starts ps ON ps.pitcher_id = ms.player_id
+                                AND ps.game_id = :game_id
+        LEFT JOIN dim_players dp ON dp.player_id = ms.player_id
+        WHERE ms.split_type = 'pitcher_vs_team'
+        """,
+        {"game_id": game_id},
+    )
+
+    # Platoon splits: each lineup batter's season stats vs LHP / RHP
+    platoon_frame = _safe_frame(
+        """
+        SELECT ms.player_id   AS batter_id,
+               dp.full_name   AS batter_name,
+               ms.split_type,
+               ms.season,
+               ms.games, ms.plate_appearances, ms.at_bats,
+               ms.hits, ms.home_runs, ms.walks, ms.strikeouts,
+               ms.rbi, ms.doubles, ms.triples,
+               ms.batting_avg, ms.obp, ms.slg, ms.ops
+        FROM matchup_splits ms
+        JOIN lineups l ON l.player_id = ms.player_id
+                       AND l.game_id = :game_id
+        LEFT JOIN dim_players dp ON dp.player_id = ms.player_id
+        WHERE ms.split_type IN ('platoon_lhp', 'platoon_rhp')
+          AND ms.plate_appearances > 0
+        ORDER BY l.lineup_slot, ms.split_type
+        """,
+        {"game_id": game_id},
+    )
+
+    # ── Team head-to-head (Phase 4) ─────────────────────────────────────
+    # Computed from our own games + game_markets tables.
+    h2h_frame = _safe_frame(
+        """
+        WITH this_game AS (
+            SELECT home_team, away_team, game_date
+            FROM games WHERE game_id = :game_id
+        ),
+        prior AS (
+            SELECT g.game_id, g.game_date,
+                   g.home_team, g.away_team,
+                   g.home_runs, g.away_runs,
+                   (g.home_runs + g.away_runs) AS total_runs,
+                   gm.market_total
+            FROM games g
+            JOIN this_game tg
+              ON ((g.home_team = tg.home_team AND g.away_team = tg.away_team)
+               OR (g.home_team = tg.away_team AND g.away_team = tg.home_team))
+            LEFT JOIN game_markets gm
+              ON gm.game_id = g.game_id AND gm.market_type = 'total'
+            WHERE g.status = 'final'
+              AND g.game_date < tg.game_date
+              AND g.game_date >= date(tg.game_date, '-365 days')
+        )
+        SELECT
+            COUNT(*)                                     AS games_played,
+            SUM(CASE WHEN total_runs IS NOT NULL
+                     THEN total_runs ELSE 0 END) * 1.0
+                / NULLIF(COUNT(*), 0)                    AS avg_total_runs,
+            SUM(CASE WHEN market_total IS NOT NULL
+                          AND total_runs > market_total
+                     THEN 1 ELSE 0 END) * 1.0
+                / NULLIF(SUM(CASE WHEN market_total IS NOT NULL
+                                  THEN 1 ELSE 0 END), 0) AS over_pct,
+            (SELECT home_team FROM this_game)             AS home_team,
+            (SELECT away_team FROM this_game)             AS away_team
+        FROM prior
+        """,
+        {"game_id": game_id},
+    )
+    h2h_record = _frame_records(h2h_frame)
+    h2h = h2h_record[0] if h2h_record else {}
+
+    return _json_response({
+        "game_id": game_id,
+        "batter_vs_pitcher": _frame_records(bvp_frame),
+        "pitcher_vs_team": _frame_records(pvt_frame),
+        "platoon_splits": _frame_records(platoon_frame),
+        "head_to_head": h2h,
+    })
 
 
 @app.post("/api/pipeline/run")
