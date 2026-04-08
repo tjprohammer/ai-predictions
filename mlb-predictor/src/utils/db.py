@@ -158,6 +158,11 @@ def upsert_rows(
         row_list = [{key: _serialize_sqlite_value(value) for key, value in row.items()} for row in row_list]
 
     def _execute_batch(connection, batch_rows: list[dict[str, Any]]) -> None:
+        # Normalise: every row must have the same set of keys for the
+        # multi-row VALUES clause to compile.
+        all_keys = {k for row in batch_rows for k in row}
+        batch_rows = [{k: row.get(k) for k in all_keys} for row in batch_rows]
+
         if dialect_name == "postgresql":
             insert_stmt = pg_insert(table).values(batch_rows)
         elif dialect_name == "sqlite":

@@ -82,7 +82,7 @@ def test_opponent_id_different_teams():
 
 def test_parse_bvp_short_pattern():
     html = (
-        '<h1 class="something">Aaron Judge is 0-for-2 in 3 plate appearances '
+        '<h1 class="something">Aaron Judge is 0-2 in 3 plate appearances '
         "against Gerrit Cole in his career.</h1>"
     )
     result = _parse_bvp(html)
@@ -95,18 +95,17 @@ def test_parse_bvp_short_pattern():
 
 def test_parse_bvp_full_pattern():
     html = (
-        "Shohei Ohtani has a batting average of .232 with 73 hits, "
-        "15 home runs, 37 RBIs and 43 runs scored in 86 games "
-        "versus the Astros in his career."
+        "Mike Trout is 5-45 with 2 homers and 2 RBIs "
+        "in 56 plate appearances against Justin Verlander in his career."
     )
     result = _parse_bvp(html)
     assert result is not None
-    assert result["batting_avg"] == 0.232
-    assert result["hits"] == 73
-    assert result["home_runs"] == 15
-    assert result["rbi"] == 37
-    assert result["runs"] == 43
-    assert result["games"] == 86
+    assert result["hits"] == 5
+    assert result["at_bats"] == 45
+    assert result["home_runs"] == 2
+    assert result["rbi"] == 2
+    assert result["plate_appearances"] == 56
+    assert result["batting_avg"] == 0.1111
 
 
 def test_parse_bvp_returns_none_for_no_data():
@@ -116,7 +115,7 @@ def test_parse_bvp_returns_none_for_no_data():
 
 
 def test_parse_bvp_singular_hit():
-    html = "Mike Trout is 1-for-3 in 4 plate appearances against Justin Verlander."
+    html = "Mike Trout is 1-3 in 4 plate appearances against Justin Verlander."
     result = _parse_bvp(html)
     assert result is not None
     assert result["hits"] == 1
@@ -125,33 +124,33 @@ def test_parse_bvp_singular_hit():
 
 def test_parse_bvp_full_pattern_singular():
     html = (
-        "Player X has a batting average of .500 with 1 hit, "
-        "1 home run, 1 RBI and 1 run scored in 1 game versus the Dodgers."
+        "Player X is 1-2 with 1 homer and 1 RBI "
+        "in 3 plate appearances versus the Dodgers."
     )
     result = _parse_bvp(html)
     assert result is not None
     assert result["batting_avg"] == 0.5
     assert result["hits"] == 1
     assert result["home_runs"] == 1
-    assert result["games"] == 1
+    assert result["plate_appearances"] == 3
 
 
 # ── pitcher-vs-team parsing ──────────────────────────────────────────────────
 
 def test_parse_pitcher_vs_team_record_pattern():
     html = (
-        "Gerrit Cole has a 12-5 record with a 3.45 ERA and "
-        "180 strikeouts in 22 games against the Astros."
+        "Gerrit Cole is 1-2 with an ERA of 2.57 and "
+        "28 strikeouts in 4 appearances versus the Astros in his career."
     )
     result = _parse_pitcher_vs_team(html)
     assert result is not None
-    assert result["era"] == 3.45
-    assert result["strikeouts"] == 180
-    assert result["games"] == 22
+    assert result["era"] == 2.57
+    assert result["strikeouts"] == 28
+    assert result["games"] == 4
 
 
 def test_parse_pitcher_vs_team_alt_pattern():
-    html = "Sandy Alcantara has a 2.89 ERA with 45 strikeouts in 8 starts against the Braves."
+    html = "Sandy Alcantara with an ERA of 2.89 and 45 strikeouts in 8 starts against the Braves."
     result = _parse_pitcher_vs_team(html)
     assert result is not None
     assert result["era"] == 2.89
@@ -208,15 +207,38 @@ def test_parse_platoon_sentence_right():
 
 def test_parse_platoon_sentence_singular():
     html = (
-        "Player X had a batting average of .500 with 1 home run "
-        "and 1 RBI in 4 plate appearances against left-handed "
+        "Player X had a batting average of .200 with 1 home run "
+        "and 1 RBI in 10 plate appearances against left-handed "
         "pitcher in 2026."
     )
     result = _parse_platoon(html)
     assert result is not None
-    assert result["batting_avg"] == 0.5
+    assert result["batting_avg"] == 0.2
     assert result["home_runs"] == 1
-    assert result["plate_appearances"] == 4
+    assert result["plate_appearances"] == 10
+
+
+def test_parse_platoon_short_sentence():
+    html = "Rookie X hit .250 against left-handed pitchers in 2026."
+    result = _parse_platoon(html)
+    assert result is not None
+    assert result["batting_avg"] == 0.25
+
+
+def test_parse_platoon_hab_current_season():
+    """Current-season platoon uses 'is H-AB with HR HR and RBI RBIs in PA PA' format."""
+    html = (
+        "Aaron Judge is 3-6 with 2 home runs and 3 RBIs "
+        "in 6 plate appearances against left-handed pitchers this season."
+    )
+    result = _parse_platoon(html)
+    assert result is not None
+    assert result["hits"] == 3
+    assert result["at_bats"] == 6
+    assert result["home_runs"] == 2
+    assert result["rbi"] == 3
+    assert result["plate_appearances"] == 6
+    assert result["batting_avg"] == 0.5
 
 
 # ── platoon parsing (stat table) ─────────────────────────────────────────────
@@ -339,3 +361,32 @@ def test_enrich_pvt_preserves_existing_games():
     row = {"games": 99, "era": 2.57, "strikeouts": 28}
     result = _enrich_pvt_from_totals_row(_COLE_VS_ASTROS_TOTAL_ROW, row)
     assert result["games"] == 99  # not overwritten to 4
+
+
+# ── _fetch_page 422 handling ─────────────────────────────────────────────────
+
+def test_fetch_page_returns_empty_on_422(monkeypatch):
+    """422 from StatMuse means 'no data', not a server error."""
+    import requests
+    from src.ingestors.matchup_splits import _fetch_page
+
+    class FakeResp:
+        status_code = 422
+        text = ""
+    monkeypatch.setattr(requests, "get", lambda *a, **kw: FakeResp())
+    result = _fetch_page("https://www.statmuse.com/mlb/ask/foo")
+    assert result == ""
+
+
+def test_fetch_page_returns_none_on_5xx(monkeypatch):
+    """5xx errors should still be treated as real failures (return None)."""
+    import requests
+    from src.ingestors.matchup_splits import _fetch_page
+
+    class FakeResp:
+        status_code = 500
+        def raise_for_status(self):
+            raise requests.HTTPError("500 Server Error")
+    monkeypatch.setattr(requests, "get", lambda *a, **kw: FakeResp())
+    result = _fetch_page("https://www.statmuse.com/mlb/ask/foo")
+    assert result is None

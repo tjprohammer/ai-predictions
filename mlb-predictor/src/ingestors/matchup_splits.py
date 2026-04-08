@@ -32,7 +32,7 @@ log = get_logger(__name__)
 STATMUSE_BASE = "https://www.statmuse.com/mlb/ask"
 REQUEST_DELAY = 1.0  # seconds between requests
 REQUEST_TIMEOUT = 15  # seconds
-MAX_CONSECUTIVE_FAILURES = 5
+MAX_CONSECUTIVE_FAILURES = 15
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 CACHE_SEASON = 0  # career rows use season=0
 
@@ -97,7 +97,12 @@ def _platoon_url(player_name: str, hand: str, year: int) -> str:
 # ── HTTP fetching ────────────────────────────────────────────────────────────
 
 def _fetch_page(url: str) -> str | None:
-    """GET a StatMuse page and return the HTML body, or ``None`` on failure."""
+    """GET a StatMuse page and return the HTML body, or ``None`` on failure.
+
+    Returns the HTML string on success, empty string ``""`` when StatMuse
+    returns 404/422 (no matching data — *not* a server failure), or ``None``
+    on actual transport/server errors (429, 5xx, timeout).
+    """
     try:
         resp = requests.get(
             url,
@@ -107,6 +112,10 @@ def _fetch_page(url: str) -> str | None:
         if resp.status_code == 429:
             log.warning("Rate limited by StatMuse, backing off")
             return None
+        # 404/422 = StatMuse doesn't recognise the query — not a failure.
+        if resp.status_code in (404, 422):
+            log.debug("StatMuse no-data (%d) for %s", resp.status_code, url)
+            return ""
         resp.raise_for_status()
         return resp.text
     except requests.RequestException as exc:
@@ -116,46 +125,60 @@ def _fetch_page(url: str) -> str | None:
 
 # ── response parsing ─────────────────────────────────────────────────────────
 
-# Pattern 1: small-sample BvP — "Player is H-for-AB in PA plate appearances"
+# Pattern 1: small-sample BvP — "Player is H-AB in PA plate appearances"
 _BVP_SHORT_RE = re.compile(
-    r"is\s+(\d+)-for-(\d+)\s+in\s+(\d+)\s+plate\s+appearance",
+    r"is\s+(\d+)-(\d+)\s+in\s+(\d+)\s+plate\s+appearance",
     re.IGNORECASE,
 )
 
-# Pattern 2: larger-sample — "has a batting average of .XXX with H hits,
-#   HR home runs, RBI RBIs and R runs scored in G games"
+# Pattern 2: larger-sample — "is H-AB with HR homers and RBI RBIs in PA
+#   plate appearances against ... in his career."
 _BVP_FULL_RE = re.compile(
-    r"batting\s+average\s+of\s+([.\d]+)\s+with\s+"
-    r"(\d+)\s+hits?,\s+"
-    r"(\d+)\s+home\s+runs?,\s+"
-    r"(\d+)\s+RBIs?\s+and\s+"
-    r"(\d+)\s+runs?\s+scored\s+in\s+"
-    r"(\d+)\s+games?",
+    r"is\s+(\d+)-(\d+)\s+with\s+"
+    r"(\d+)\s+homers?\s+and\s+"
+    r"(\d+)\s+RBIs?\s+in\s+"
+    r"(\d+)\s+plate\s+appearances?",
     re.IGNORECASE,
 )
 
 # Pattern 3: pitcher vs team — "has a W-L record with a X.XX ERA …
 #   and YY strikeouts in G games/starts"
+# Primary: "is W-L with an ERA of X.XX and K strikeouts in G appearances"
 _PITCHER_VS_TEAM_RE = re.compile(
-    r"(\d+)-(\d+)\s+record\s+with\s+a\s+([.\d]+)\s+ERA.*?"
-    r"(\d+)\s+strikeouts?\s+in\s+(\d+)\s+(?:games?|starts?)",
+    r"is\s+(\d+)-(\d+)\s+with\s+an?\s+ERA\s+of\s+([.\d]+)\s+and\s+"
+    r"(\d+)\s+strikeouts?\s+in\s+(\d+)\s+(?:games?|appearances?|starts?)",
     re.IGNORECASE,
 )
 
-# Pattern 3b: alternate pitcher summary — "X.XX ERA with YY strikeouts in G starts"
+# Pattern 3b: alternate pitcher summary — "X.XX ERA ... K strikeouts in G"
 _PITCHER_VS_TEAM_ALT_RE = re.compile(
-    r"([.\d]+)\s+ERA.*?(\d+)\s+strikeouts?\s+in\s+(\d+)\s+(?:games?|starts?)",
+    r"ERA\s+of\s+([.\d]+).*?(\d+)\s+strikeouts?\s+in\s+(\d+)\s+(?:games?|appearances?|starts?)",
     re.IGNORECASE,
 )
 
 # Pattern 4: platoon split sentence — "batting average of .XXX with HR home
 #   runs and RBI RBIs in PA plate appearances against {hand}-handed pitchers"
+# Also supports short form: "hit .XXX against {hand}-handed pitchers"
 _PLATOON_SENTENCE_RE = re.compile(
     r"batting\s+average\s+of\s+([.\d]+)\s+with\s+"
     r"(\d+)\s+home\s+runs?\s+and\s+"
     r"(\d+)\s+RBIs?\s+in\s+"
     r"(\d+)\s+plate\s+appearances?\s+against\s+"
     r"(?:left|right)-handed\s+pitchers?",
+    re.IGNORECASE,
+)
+# Pattern 4b: current-season platoon — "is H-AB with HR home runs and RBI RBIs
+#   in PA plate appearances against {hand}-handed pitchers this season"
+_PLATOON_HAB_RE = re.compile(
+    r"is\s+(\d+)-(\d+)\s+with\s+"
+    r"(\d+)\s+home\s+runs?\s+and\s+"
+    r"(\d+)\s+RBIs?\s+in\s+"
+    r"(\d+)\s+plate\s+appearances?\s+against\s+"
+    r"(?:left|right)-handed\s+pitchers?",
+    re.IGNORECASE,
+)
+_PLATOON_SHORT_RE = re.compile(
+    r"hit\s+([.\d]+)\s+against\s+(?:left|right)-handed\s+pitchers?",
     re.IGNORECASE,
 )
 
@@ -228,23 +251,22 @@ _PVT_TOTALS_RE = re.compile(
 def _parse_bvp(html: str) -> dict | None:
     """Extract batter-vs-pitcher career stats from the StatMuse response."""
     # Try the full-stat sentence first (larger samples).
+    # Format: "is H-AB with HR homers and RBI RBIs in PA plate appearances"
     m = _BVP_FULL_RE.search(html)
     if m:
-        avg = float(m.group(1))
-        hits = int(m.group(2))
+        hits = int(m.group(1))
+        ab = int(m.group(2))
         hr = int(m.group(3))
         rbi = int(m.group(4))
-        runs = int(m.group(5))
-        games = int(m.group(6))
-        ab = round(hits / avg) if avg > 0 else None
+        pa = int(m.group(5))
+        avg = round(hits / ab, 4) if ab > 0 else 0.0
         return {
-            "games": games,
             "hits": hits,
+            "at_bats": ab,
             "home_runs": hr,
             "rbi": rbi,
-            "runs": runs,
-            "batting_avg": round(avg, 4),
-            "at_bats": ab,
+            "plate_appearances": pa,
+            "batting_avg": avg,
         }
 
     # Fallback: short sentence — "X-for-Y in Z plate appearances"
@@ -358,7 +380,7 @@ def _parse_platoon(html: str) -> dict | None:
             "ops": float(m.group(15)),
         }
 
-    # Fallback: summary sentence — "batting average of .XXX with HR HR and RBI RBIs …"
+    # Fallback: full sentence — "batting average of .XXX with HR HR and RBI RBIs in PA PA"
     m = _PLATOON_SENTENCE_RE.search(html)
     if m:
         avg = float(m.group(1))
@@ -370,6 +392,32 @@ def _parse_platoon(html: str) -> dict | None:
             "home_runs": hr,
             "rbi": rbi,
             "plate_appearances": pa,
+        }
+
+    # Current-season fallback: "is H-AB with HR home runs and RBI RBIs in PA PA"
+    m = _PLATOON_HAB_RE.search(html)
+    if m:
+        hits = int(m.group(1))
+        ab = int(m.group(2))
+        hr = int(m.group(3))
+        rbi = int(m.group(4))
+        pa = int(m.group(5))
+        avg = round(hits / ab, 4) if ab > 0 else 0.0
+        return {
+            "hits": hits,
+            "at_bats": ab,
+            "batting_avg": avg,
+            "home_runs": hr,
+            "rbi": rbi,
+            "plate_appearances": pa,
+        }
+
+    # Short fallback: "hit .XXX against {hand}-handed pitchers"
+    m = _PLATOON_SHORT_RE.search(html)
+    if m:
+        avg = float(m.group(1))
+        return {
+            "batting_avg": round(avg, 4),
         }
 
     return None
