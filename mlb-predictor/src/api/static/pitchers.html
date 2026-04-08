@@ -587,9 +587,9 @@
 
       .history-game {
         display: grid;
-        grid-template-rows: var(--history-value-row) var(
-            --history-bar-max
-          ) auto auto;
+        grid-template-rows:
+          var(--history-value-row) var(--history-bar-max)
+          auto auto;
         gap: var(--history-gap);
         justify-items: center;
         min-width: 0;
@@ -971,7 +971,12 @@
 
       applyAppLinks();
 
-      const state = { rows: [], leaders: null, historyFilters: {}, historyCache: {} };
+      const state = {
+        rows: [],
+        leaders: null,
+        historyFilters: {},
+        historyCache: {},
+      };
       const targetDateInput = document.getElementById("targetDate");
       const sortModeInput = document.getElementById("sortMode");
       const marketBackedOnlyInput = document.getElementById("marketBackedOnly");
@@ -1549,10 +1554,14 @@
                 <span class="metric-label">Projected Ks</span>
                 <span class="metric-value">${formatNumber(projection.projected_strikeouts, 2)}</span>
               </div>
-              ${projection.projected_strikeouts_fundamentals != null ? `<div class="metric-box">
+              ${
+                projection.projected_strikeouts_fundamentals != null
+                  ? `<div class="metric-box">
                 <span class="metric-label" title="Fundamentals-only prediction (no market input)">Fund. Ks</span>
                 <span class="metric-value">${formatNumber(projection.projected_strikeouts_fundamentals, 2)}</span>
-              </div>` : ''}
+              </div>`
+                  : ""
+              }
               <div class="metric-box">
                 <span class="metric-label">Market Line</span>
                 <span class="metric-value">${formatNumber(market.consensus_line, 1)}</span>
@@ -1646,7 +1655,9 @@
           target_date: targetDateInput.value,
           limit: "8",
         });
-        const response = await fetch(appUrl(`api/leaders/season?${params.toString()}`));
+        const response = await fetch(
+          appUrl(`api/leaders/season?${params.toString()}`),
+        );
         if (!response.ok) {
           throw new Error(`Season leaders request failed: ${response.status}`);
         }
@@ -1678,7 +1689,8 @@
           renderRows();
           if (leadersError) {
             leadersGrid.innerHTML = `<div class="empty-state">${escapeHtml(String(leadersError))}</div>`;
-            leadersSubtitle.textContent = "Season leaders unavailable on this backend";
+            leadersSubtitle.textContent =
+              "Season leaders unavailable on this backend";
             pageStatus.textContent = `Loaded ${targetDateInput.value} with season leaders unavailable`;
           } else {
             renderLeaderboards();

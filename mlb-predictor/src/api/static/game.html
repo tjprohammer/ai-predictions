@@ -434,9 +434,9 @@
       }
       .history-game {
         display: grid;
-        grid-template-rows: var(--history-value-row) var(
-            --history-bar-max
-          ) auto auto;
+        grid-template-rows:
+          var(--history-value-row) var(--history-bar-max)
+          auto auto;
         gap: var(--history-gap);
         justify-items: center;
         min-width: 0;
@@ -532,17 +532,29 @@
         font-size: 0.86rem;
         flex-shrink: 0;
       }
-      .signal-icon.over { background: rgba(22, 101, 52, 0.12); }
-      .signal-icon.under { background: rgba(37, 99, 235, 0.10); }
-      .signal-icon.neutral { background: rgba(20, 33, 25, 0.06); }
+      .signal-icon.over {
+        background: rgba(22, 101, 52, 0.12);
+      }
+      .signal-icon.under {
+        background: rgba(37, 99, 235, 0.1);
+      }
+      .signal-icon.neutral {
+        background: rgba(20, 33, 25, 0.06);
+      }
       .signal-label {
         font-size: 0.78rem;
         font-weight: 800;
         letter-spacing: 0.04em;
       }
-      .signal-label.over { color: var(--good); }
-      .signal-label.under { color: #1d4ed8; }
-      .signal-label.neutral { color: var(--muted); }
+      .signal-label.over {
+        color: var(--good);
+      }
+      .signal-label.under {
+        color: #1d4ed8;
+      }
+      .signal-label.neutral {
+        color: var(--muted);
+      }
       .signal-copy {
         color: var(--muted);
         font-size: 0.86rem;
@@ -559,9 +571,15 @@
         border-radius: 50%;
         background: var(--line);
       }
-      .signal-dot.filled.over { background: var(--good); }
-      .signal-dot.filled.under { background: #1d4ed8; }
-      .signal-dot.filled.neutral { background: var(--muted); }
+      .signal-dot.filled.over {
+        background: var(--good);
+      }
+      .signal-dot.filled.under {
+        background: #1d4ed8;
+      }
+      .signal-dot.filled.neutral {
+        background: var(--muted);
+      }
       .signals-headline {
         display: flex;
         align-items: center;
@@ -584,7 +602,7 @@
         color: var(--good);
       }
       .signals-lean.under {
-        background: rgba(37, 99, 235, 0.10);
+        background: rgba(37, 99, 235, 0.1);
         color: #1d4ed8;
       }
       .signals-lean.neutral {
@@ -607,7 +625,11 @@
         gap: 16px;
       }
       .pitcher-chart-card {
-        background: linear-gradient(180deg, rgba(24, 30, 37, 0.98), rgba(29, 35, 43, 0.94));
+        background: linear-gradient(
+          180deg,
+          rgba(24, 30, 37, 0.98),
+          rgba(29, 35, 43, 0.94)
+        );
         border: 1px solid rgba(53, 65, 81, 0.78);
         border-radius: var(--radius-lg);
         padding: 18px;
@@ -703,8 +725,12 @@
         height: 10px;
         border-radius: 3px;
       }
-      .chart-legend-swatch.ip { background: #10b981; }
-      .chart-legend-swatch.k { background: #6366f1; }
+      .chart-legend-swatch.ip {
+        background: #10b981;
+      }
+      .chart-legend-swatch.k {
+        background: #6366f1;
+      }
 
       .hitter-heat-section {
         margin-bottom: 18px;
@@ -837,7 +863,11 @@
       </section>
 
       <section class="summary-grid" id="summaryGrid"></section>
-      <section class="signals-section panel" id="signalsSection" style="display:none;">
+      <section
+        class="signals-section panel"
+        id="signalsSection"
+        style="display: none"
+      >
         <div class="lineup-head">
           <div>
             <div class="section-tag">Pick Signals</div>
@@ -849,7 +879,11 @@
         </div>
         <div class="signals-grid" id="signalsGrid"></div>
       </section>
-      <section class="first5-section panel" id="first5Section" style="display:none;">
+      <section
+        class="first5-section panel"
+        id="first5Section"
+        style="display: none"
+      >
         <div class="lineup-head">
           <div>
             <div class="section-tag">First 5 Innings</div>
@@ -858,11 +892,19 @@
         </div>
         <div class="first5-grid" id="first5Grid"></div>
       </section>
-      <section class="pitcher-chart-section" id="pitcherChartSection" style="display:none;">
+      <section
+        class="pitcher-chart-section"
+        id="pitcherChartSection"
+        style="display: none"
+      >
         <div class="pitcher-charts-grid" id="pitcherChartsGrid"></div>
       </section>
       <section class="starter-grid" id="starterGrid"></section>
-      <section class="hitter-heat-section" id="hitterHeatSection" style="display:none;">
+      <section
+        class="hitter-heat-section"
+        id="hitterHeatSection"
+        style="display: none"
+      >
         <div class="heat-grid" id="hitterHeatGrid"></div>
       </section>
       <section class="lineup-grid" id="lineupGrid"></section>
@@ -1242,7 +1284,7 @@
               <div class="data-row"><span class="data-label">Season ERA / L3 / L5</span><span class="data-value">${formatNumber(recent.season_era, 2)} / ${formatNumber(recent.era_last3, 2)} / ${formatNumber(recent.era_last5, 2)}</span></div>
               <div class="data-row"><span class="data-label">Last Start</span><span class="data-value">${escapeHtml(formatShortDate(recent.last_start_date))}</span></div>
               <div class="data-row"><span class="data-label">xwOBA / CSW</span><span class="data-value">${formatNumber(starter.xwoba_against, 3)} / ${formatPercent(starter.csw_pct)}</span></div>
-              <div class="data-row"><span class="data-label">Velo / Whiff</span><span class="data-value">${numberOr(starter.avg_fb_velo) == null ? '-' : formatNumber(starter.avg_fb_velo, 1) + ' mph'} / ${formatPercent(starter.whiff_pct)}</span></div>
+              <div class="data-row"><span class="data-label">Velo / Whiff</span><span class="data-value">${numberOr(starter.avg_fb_velo) == null ? "-" : formatNumber(starter.avg_fb_velo, 1) + " mph"} / ${formatPercent(starter.whiff_pct)}</span></div>
               <div class="data-row"><span class="data-label">K Projection</span><span class="data-value">${formatNumber(starter.k_projection?.projected_strikeouts, 2)}${numberOr(market.consensus_line) == null ? "" : ` vs ${formatNumber(market.consensus_line, 1)}`}</span></div>
             </div>
           </article>
@@ -1342,9 +1384,7 @@
             <div class="lineup-list">
               ${
                 lineup.length
-                  ? lineup
-                      .map((player) => lineupPlayerRow(player))
-                      .join("")
+                  ? lineup.map((player) => lineupPlayerRow(player)).join("")
                   : '<div class="empty-state">No lineup detail is loaded for this side yet.</div>'
               }
             </div>
@@ -1362,7 +1402,24 @@
       function windDirectionLabel(degrees) {
         const num = numberOr(degrees);
         if (num == null) return "";
-        const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+        const dirs = [
+          "N",
+          "NNE",
+          "NE",
+          "ENE",
+          "E",
+          "ESE",
+          "SE",
+          "SSE",
+          "S",
+          "SSW",
+          "SW",
+          "WSW",
+          "W",
+          "WNW",
+          "NW",
+          "NNW",
+        ];
         return dirs[Math.round(num / 22.5) % 16];
       }
 
@@ -1402,7 +1459,9 @@
       function renderPitcherChart(starter, teamName) {
         if (!starter) return "";
         const recent = starter.recent_form || {};
-        const starts = Array.isArray(recent.recent_starts) ? recent.recent_starts : [];
+        const starts = Array.isArray(recent.recent_starts)
+          ? recent.recent_starts
+          : [];
         if (!starts.length) {
           return `
             <div class="pitcher-chart-card">
@@ -1411,8 +1470,11 @@
             </div>
           `;
         }
-        const maxIp = Math.max(1, ...starts.map(s => numberOr(s.ip, 0) ?? 0));
-        const maxK = Math.max(1, ...starts.map(s => numberOr(s.strikeouts, 0) ?? 0));
+        const maxIp = Math.max(1, ...starts.map((s) => numberOr(s.ip, 0) ?? 0));
+        const maxK = Math.max(
+          1,
+          ...starts.map((s) => numberOr(s.strikeouts, 0) ?? 0),
+        );
         const reversed = [...starts].reverse();
         return `
           <div class="pitcher-chart-card">
@@ -1426,13 +1488,14 @@
                 <div class="start-stat label-col">K</div>
                 <div class="start-stat label-col">PC</div>
               </div>
-              ${reversed.map(s => {
-                const ip = numberOr(s.ip, 0) ?? 0;
-                const k = numberOr(s.strikeouts, 0) ?? 0;
-                const pc = numberOr(s.pitch_count);
-                const ipPct = (ip / maxIp) * 100;
-                const kPct = (k / maxK) * 100;
-                return `
+              ${reversed
+                .map((s) => {
+                  const ip = numberOr(s.ip, 0) ?? 0;
+                  const k = numberOr(s.strikeouts, 0) ?? 0;
+                  const pc = numberOr(s.pitch_count);
+                  const ipPct = (ip / maxIp) * 100;
+                  const kPct = (k / maxK) * 100;
+                  return `
                   <div class="start-row">
                     <div class="start-date">${escapeHtml(formatShortDate(s.game_date))}<br><span class="start-opponent">${escapeHtml(s.opponent || "")}</span></div>
                     <div class="start-bar-wrap">
@@ -1444,7 +1507,8 @@
                     <div class="start-stat">${pc == null ? "-" : pc}</div>
                   </div>
                 `;
-              }).join("")}
+                })
+                .join("")}
             </div>
             <div class="chart-legend">
               <div class="chart-legend-item"><span class="chart-legend-swatch ip"></span> Innings Pitched</div>
@@ -1458,8 +1522,9 @@
         const section = document.getElementById("pitcherChartSection");
         const awayStarter = detail.starters?.away;
         const homeStarter = detail.starters?.home;
-        const hasData = (awayStarter?.recent_form?.recent_starts?.length > 0) ||
-                        (homeStarter?.recent_form?.recent_starts?.length > 0);
+        const hasData =
+          awayStarter?.recent_form?.recent_starts?.length > 0 ||
+          homeStarter?.recent_form?.recent_starts?.length > 0;
         if (!hasData) {
           section.style.display = "none";
           return;
@@ -1474,13 +1539,20 @@
       function renderHitterHeatSection(detail) {
         const section = document.getElementById("hitterHeatSection");
         const sides = ["away", "home"];
-        const cards = sides.map(side => {
+        const cards = sides.map((side) => {
           const teamDetail = detail.teams?.[side] || {};
-          const lineup = Array.isArray(teamDetail.lineup) ? teamDetail.lineup : [];
-          const teamName = teamDetail.team || (side === "away" ? detail.away_team : detail.home_team);
-          const tagged = lineup.map(p => ({ ...p, _tone: playerFormTone(p) }));
-          const hot = tagged.filter(p => p._tone === "hot");
-          const cold = tagged.filter(p => p._tone === "cold");
+          const lineup = Array.isArray(teamDetail.lineup)
+            ? teamDetail.lineup
+            : [];
+          const teamName =
+            teamDetail.team ||
+            (side === "away" ? detail.away_team : detail.home_team);
+          const tagged = lineup.map((p) => ({
+            ...p,
+            _tone: playerFormTone(p),
+          }));
+          const hot = tagged.filter((p) => p._tone === "hot");
+          const cold = tagged.filter((p) => p._tone === "cold");
           if (!tagged.length) return "";
           return `
             <div class="heat-card">
@@ -1488,7 +1560,9 @@
               <h3 style="margin-top:6px;">Actual Batting Order</h3>
               <div class="data-copy">Full 1-9 order with hot, cold, or steady tags. ${hot.length} hot · ${cold.length} cold · ${tagged.length - hot.length - cold.length} steady</div>
               <div class="heat-list">
-                ${tagged.map(p => `
+                ${tagged
+                  .map(
+                    (p) => `
                   <div class="heat-row">
                     <div class="heat-slot">${escapeHtml(p.lineup_slot ?? "-")}</div>
                     <div>
@@ -1497,12 +1571,14 @@
                     </div>
                     <span class="heat-badge ${p._tone}">${p._tone}</span>
                   </div>
-                `).join("")}
+                `,
+                  )
+                  .join("")}
               </div>
             </div>
           `;
         });
-        if (!cards.some(c => c)) {
+        if (!cards.some((c) => c)) {
           section.style.display = "none";
           return;
         }
@@ -1530,18 +1606,27 @@
         // --- TOTALS LEAN ---
         if (predicted != null && market != null && edge != null) {
           const side = edge > 0 ? "over" : edge < 0 ? "under" : "neutral";
-          const strength = Math.abs(edge) >= 0.8 ? 3 : Math.abs(edge) >= 0.4 ? 2 : 1;
+          const strength =
+            Math.abs(edge) >= 0.8 ? 3 : Math.abs(edge) >= 0.4 ? 2 : 1;
           signals.push({
             direction: side,
             strength,
             category: "Totals Edge",
-            icon: side === "over" ? "\u2B06" : side === "under" ? "\u2B07" : "\u2194",
+            icon:
+              side === "over"
+                ? "\u2B06"
+                : side === "under"
+                  ? "\u2B07"
+                  : "\u2194",
             copy: `Model projects ${formatNumber(predicted, 2)} total runs vs market line of ${formatNumber(market, 1)}. Edge of ${formatNumber(Math.abs(edge), 2)} leans ${side.toUpperCase()}.`,
           });
         }
 
         // --- TEAM OFFENSE (both sides) ---
-        for (const [side, offense, team] of [["away", awayOffense, detail.away_team], ["home", homeOffense, detail.home_team]]) {
+        for (const [side, offense, team] of [
+          ["away", awayOffense, detail.away_team],
+          ["home", homeOffense, detail.home_team],
+        ]) {
           const rpg = numberOr(offense.runs_per_game);
           const xwoba = numberOr(offense.xwoba);
           if (rpg != null) {
@@ -1566,7 +1651,10 @@
         }
 
         // --- STARTER QUALITY ---
-        for (const [starter, opponent, facing] of [[awayStarter, detail.home_team, homeOffense], [homeStarter, detail.away_team, awayOffense]]) {
+        for (const [starter, opponent, facing] of [
+          [awayStarter, detail.home_team, homeOffense],
+          [homeStarter, detail.away_team, awayOffense],
+        ]) {
           const name = starter.pitcher_name;
           if (!name) continue;
           const recentForm = starter.recent_form || {};
@@ -1576,20 +1664,20 @@
           const csw = numberOr(starter.csw_pct);
 
           // Dominant starter = under signal
-          if (xwoba != null && xwoba <= 0.280) {
+          if (xwoba != null && xwoba <= 0.28) {
             signals.push({
               direction: "under",
-              strength: xwoba <= 0.250 ? 3 : 2,
+              strength: xwoba <= 0.25 ? 3 : 2,
               category: `${name} Dominance`,
               icon: "\u{1F3AF}",
               copy: `${name} has a ${formatNumber(xwoba, 3)} xwOBA against — elite production suppression.${avgIp != null ? ` Averaging ${formatNumber(avgIp, 1)} IP` : ""}${avgK != null ? ` and ${formatNumber(avgK, 1)} K per start` : ""}.`,
             });
           }
           // Hittable starter = over signal
-          if (xwoba != null && xwoba >= 0.340) {
+          if (xwoba != null && xwoba >= 0.34) {
             signals.push({
               direction: "over",
-              strength: xwoba >= 0.380 ? 3 : 2,
+              strength: xwoba >= 0.38 ? 3 : 2,
               category: `${name} Vulnerability`,
               icon: "\u26A0",
               copy: `${name} has a ${formatNumber(xwoba, 3)} xwOBA against — hitters are making hard contact.${csw != null && csw < 0.28 ? ` CSW just ${formatPercent(csw)} suggests lack of swing-and-miss.` : ""}`,
@@ -1612,15 +1700,24 @@
         }
 
         // --- BULLPEN FATIGUE ---
-        for (const [side, team] of [["away", detail.away_team], ["home", detail.home_team]]) {
+        for (const [side, team] of [
+          ["away", detail.away_team],
+          ["home", detail.home_team],
+        ]) {
           const era = numberOr(totals[`${side}_bullpen_era_last3`]);
           const b2b = totals[`${side}_bullpen_b2b`];
           const pitches = numberOr(totals[`${side}_bullpen_pitches_last3`]);
           const innings = numberOr(totals[`${side}_bullpen_innings_last3`]);
-          const earnedRuns = numberOr(totals[`${side}_bullpen_earned_runs_last3`]);
+          const earnedRuns = numberOr(
+            totals[`${side}_bullpen_earned_runs_last3`],
+          );
           const lateEra = numberOr(totals[`${side}_bullpen_late_era_last3`]);
-          const lateInnings = numberOr(totals[`${side}_bullpen_late_innings_last3`]);
-          const lateEarnedRuns = numberOr(totals[`${side}_bullpen_late_earned_runs_last3`]);
+          const lateInnings = numberOr(
+            totals[`${side}_bullpen_late_innings_last3`],
+          );
+          const lateEarnedRuns = numberOr(
+            totals[`${side}_bullpen_late_earned_runs_last3`],
+          );
           if (
             lateEra != null &&
             lateInnings != null &&
@@ -1708,9 +1805,16 @@
         }
 
         // --- HOT/COLD LINEUPS ---
-        for (const [side, lineup, team] of [["away", awayLineup, detail.away_team], ["home", homeLineup, detail.home_team]]) {
-          const hotCount = lineup.filter(p => playerFormTone(p) === "hot").length;
-          const coldCount = lineup.filter(p => playerFormTone(p) === "cold").length;
+        for (const [side, lineup, team] of [
+          ["away", awayLineup, detail.away_team],
+          ["home", homeLineup, detail.home_team],
+        ]) {
+          const hotCount = lineup.filter(
+            (p) => playerFormTone(p) === "hot",
+          ).length;
+          const coldCount = lineup.filter(
+            (p) => playerFormTone(p) === "cold",
+          ).length;
           if (hotCount >= 3) {
             signals.push({
               direction: "over",
@@ -1738,7 +1842,12 @@
           const f5edge = numberOr(first5.edge);
           const awayExp = numberOr(first5.away_expected_runs);
           const homeExp = numberOr(first5.home_expected_runs);
-          if (f5predicted != null && f5market != null && f5edge != null && Math.abs(f5edge) >= 0.3) {
+          if (
+            f5predicted != null &&
+            f5market != null &&
+            f5edge != null &&
+            Math.abs(f5edge) >= 0.3
+          ) {
             const f5side = f5edge > 0 ? "over" : "under";
             signals.push({
               direction: f5side,
@@ -1750,7 +1859,11 @@
           } else if (awayExp != null && homeExp != null) {
             const splitTotal = awayExp + homeExp;
             const total5 = f5predicted != null ? f5predicted : splitTotal;
-            if (total5 != null && Math.abs(splitTotal - total5) <= 0.35 && total5 >= 5.5) {
+            if (
+              total5 != null &&
+              Math.abs(splitTotal - total5) <= 0.35 &&
+              total5 >= 5.5
+            ) {
               signals.push({
                 direction: "over",
                 strength: 1,
@@ -1794,10 +1907,16 @@
         }
         section.style.display = "";
 
-        const overCount = signals.filter(s => s.direction === "over").length;
-        const underCount = signals.filter(s => s.direction === "under").length;
-        const overWeight = signals.filter(s => s.direction === "over").reduce((sum, s) => sum + s.strength, 0);
-        const underWeight = signals.filter(s => s.direction === "under").reduce((sum, s) => sum + s.strength, 0);
+        const overCount = signals.filter((s) => s.direction === "over").length;
+        const underCount = signals.filter(
+          (s) => s.direction === "under",
+        ).length;
+        const overWeight = signals
+          .filter((s) => s.direction === "over")
+          .reduce((sum, s) => sum + s.strength, 0);
+        const underWeight = signals
+          .filter((s) => s.direction === "under")
+          .reduce((sum, s) => sum + s.strength, 0);
         const leanEl = document.getElementById("signalsLean");
         if (overWeight > underWeight) {
           leanEl.className = "signals-lean over";
@@ -1810,16 +1929,20 @@
           leanEl.textContent = `${signals.length} mixed signals`;
         }
 
-        document.getElementById("signalsGrid").innerHTML = signals.map(s => `
+        document.getElementById("signalsGrid").innerHTML = signals
+          .map(
+            (s) => `
           <div class="signal-card">
             <div class="signal-head">
               <div class="signal-icon ${s.direction}">${s.icon}</div>
               <span class="signal-label ${s.direction}">${escapeHtml(s.category)}</span>
-              <span class="signal-strength">${[1,2,3].map(i => `<span class="signal-dot ${i <= s.strength ? "filled " + s.direction : ""}"></span>`).join("")}</span>
+              <span class="signal-strength">${[1, 2, 3].map((i) => `<span class="signal-dot ${i <= s.strength ? "filled " + s.direction : ""}"></span>`).join("")}</span>
             </div>
             <div class="signal-copy">${escapeHtml(s.copy)}</div>
           </div>
-        `).join("");
+        `,
+          )
+          .join("");
       }
 
       function renderSummary(detail) {

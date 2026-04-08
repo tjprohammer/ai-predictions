@@ -11,6 +11,7 @@ Tracking both allows day-over-day comparison to measure whether the fundamentals
 prediction or the market-calibrated prediction is more accurate.
 
 **Implementation:**
+
 - Totals: `predicted_total_fundamentals` = baseline + residual model output (before Ridge
   market calibrator or 50% market-anchor fallback)
 - Strikeouts: `predicted_strikeouts_fundamentals` = model output after isotonic correction
@@ -26,8 +27,8 @@ Fundamentals shown with "(F)" label.
 fundamentals-only vs calibrated vs market line against actual outcomes.
 
 | Date | Games | Totals Fund MAE | Totals Cal MAE | Mkt MAE | K Fund MAE | K Cal MAE | K Mkt MAE | Notes |
-|------|-------|-----------------|----------------|---------|------------|-----------|-----------|-------|
-| | | | | | | | | |
+| ---- | ----- | --------------- | -------------- | ------- | ---------- | --------- | --------- | ----- |
+|      |       |                 |                |         |            |           |           |       |
 
 ---
 
@@ -38,6 +39,7 @@ averages with only one team-level opponent feature. Adding pitcher-vs-team histo
 lineup-level K%, and venue K factor should spread predictions apart.
 
 **New features:**
+
 - `pitcher_vs_team_k_rate` — historical K/start for this pitcher vs the specific opponent
 - `opponent_lineup_k_pct_recent` — average K% of opponent lineup batters over last 7 games
 - `venue_k_factor` — venue K-per-game ratio vs league average (>1 = K-friendly park)
@@ -54,6 +56,7 @@ average with only 3 starts. Reducing compression may improve early-season accura
 cost of higher variance.
 
 **Current settings:**
+
 - `PRIOR_BLEND_MODE = standard` (default)
 - `PRIOR_WEIGHT_MULTIPLIER = 1.0` (default)
 - `TEAM_FULL_WEIGHT_GAMES = 30`

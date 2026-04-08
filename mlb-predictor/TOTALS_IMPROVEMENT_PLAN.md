@@ -236,6 +236,7 @@ Do this **after** slicing reveals where signal lives, not before.
 #### A. Starter quality mismatch — DONE
 
 Added three derived starter-mismatch features to first5:
+
 - `starter_xwoba_diff` — directional quality difference (home minus away)
 - `starter_csw_diff` — called-strike + whiff rate difference
 - `starter_quality_gap` — absolute magnitude of xwoba mismatch
@@ -271,15 +272,15 @@ Before (Phase 3): model won **1 of 9 slices** (only high_starter_asymmetry).
 
 After derived features: model wins **6 of 9 slices**:
 
-| Slice | N | Model | team_avg | train_mean | train_median |
-|---|---|---|---|---|---|
-| ALL | 400 | **2.713** | 2.740 | 2.713 | 2.812 |
-| board_state=partial | 173 | 2.672 | 2.700 | **2.664** | 2.763 |
-| board_state=minimal | 220 | **2.720** | 2.750 | 2.724 | 2.823 |
-| both_starters_known | 174 | 2.668 | 2.695 | **2.661** | 2.764 |
-| any_starter_missing | 226 | **2.748** | 2.776 | 2.754 | 2.850 |
-| venue_factor_known | 400 | **2.713** | 2.740 | 2.713 | 2.812 |
-| high_starter_asymmetry | 100 | **2.922** | 2.935 | 2.940 | 3.030 |
+| Slice                  | N   | Model     | team_avg | train_mean | train_median |
+| ---------------------- | --- | --------- | -------- | ---------- | ------------ |
+| ALL                    | 400 | **2.713** | 2.740    | 2.713      | 2.812        |
+| board_state=partial    | 173 | 2.672     | 2.700    | **2.664**  | 2.763        |
+| board_state=minimal    | 220 | **2.720** | 2.750    | 2.724      | 2.823        |
+| both_starters_known    | 174 | 2.668     | 2.695    | **2.661**  | 2.764        |
+| any_starter_missing    | 226 | **2.748** | 2.776    | 2.754      | 2.850        |
+| venue_factor_known     | 400 | **2.713** | 2.740    | 2.713      | 2.812        |
+| high_starter_asymmetry | 100 | **2.922** | 2.935    | 2.940      | 3.030        |
 
 Lane status changed from `below_baseline` to `above_baseline`. Best model switched from elasticnet to lasso.
 
@@ -332,14 +333,15 @@ Only surface totals plays when they have earned trust.
 
 Added `confidence_level` and `suppress_reason` to `predict_first5_totals.py`:
 
-| Level | Criteria |
-|---|---|
-| **high** | starter_certainty ≥ 0.75, quality_gap ≥ 0.015, board_state ≠ minimal |
-| **medium** | starter_certainty ≥ 0.5, quality_gap ≥ 0.008 |
-| **low** | everything else not suppressed |
-| **suppress** | no starter data OR no market line |
+| Level        | Criteria                                                             |
+| ------------ | -------------------------------------------------------------------- |
+| **high**     | starter_certainty ≥ 0.75, quality_gap ≥ 0.015, board_state ≠ minimal |
+| **medium**   | starter_certainty ≥ 0.5, quality_gap ≥ 0.008                         |
+| **low**      | everything else not suppressed                                       |
+| **suppress** | no starter data OR no market line                                    |
 
 New DB columns added via migration `015_first5_confidence.sql`:
+
 - `confidence_level TEXT` on `predictions_first5_totals`
 - `suppress_reason TEXT` on `predictions_first5_totals`
 

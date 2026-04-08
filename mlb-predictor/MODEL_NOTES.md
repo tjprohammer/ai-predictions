@@ -20,11 +20,11 @@ So yes — the app "remembers" who the good pitchers are, which hitters are hot,
 
 The system already loads the **single prior season** (2025) and blends it with current-season data:
 
-| Category | Prior Fields | Full-Weight Threshold |
-|---|---|---|
-| **Pitchers** | xwOBA against, CSW%, avg fastball velo | 10 starts |
-| **Hitters** | Hit rate, xBA, xwOBA, hard-hit%, K% | 120 PA |
-| **Teams** | Runs/game, K%, walk%, OBP, SLG | 30 games |
+| Category     | Prior Fields                           | Full-Weight Threshold |
+| ------------ | -------------------------------------- | --------------------- |
+| **Pitchers** | xwOBA against, CSW%, avg fastball velo | 10 starts             |
+| **Hitters**  | Hit rate, xBA, xwOBA, hard-hit%, K%    | 120 PA                |
+| **Teams**    | Runs/game, K%, walk%, OBP, SLG         | 30 games              |
 
 Blending formula: `weight × current + (1 - weight) × prior`, where weight ramps from 0→1 linearly up to the threshold. Early season = mostly prior; mid-season = mostly current.
 
@@ -38,13 +38,14 @@ Blending formula: `weight × current + (1 - weight) × prior`, where weight ramp
 
 These models compress an **entire starting pitcher into just 2 Statcast features + rest days**:
 
-| Feature | Description |
-|---|---|
-| `starter_xwoba_blended` | Prior-blended expected wOBA allowed |
-| `starter_csw_blended` | Prior-blended called-strike + whiff rate |
-| `starter_rest_days` | Days since last start |
+| Feature                 | Description                              |
+| ----------------------- | ---------------------------------------- |
+| `starter_xwoba_blended` | Prior-blended expected wOBA allowed      |
+| `starter_csw_blended`   | Prior-blended called-strike + whiff rate |
+| `starter_rest_days`     | Days since last start                    |
 
 First-5 adds derived gap features:
+
 - `starter_xwoba_diff` — xwOBA gap between opposing starters
 - `starter_csw_diff` — CSW gap between opposing starters
 - `starter_quality_gap` — composite quality gap
@@ -53,6 +54,7 @@ First-5 adds derived gap features:
 ### Strikeouts Lane (already tracks ace-level detail)
 
 The strikeouts model has **much richer** pitcher features:
+
 - Season totals: starts, innings, strikeouts, K/start, K/batter
 - Recent rolling: avg IP (3/5), avg K (3/5), K per batter (3/5), pitch count (3)
 - Statcast rolling: whiff% (5), CSW% (5), xwOBA (5)
@@ -69,18 +71,18 @@ Only sees the opposing starter through `opposing_starter_xwoba` and `opposing_st
 
 **The core problem:** The totals and first-5 models can't tell the difference between Gerrit Cole and a #5 starter beyond a small xwOBA/CSW gap. They can't see:
 
-| Missing Feature | Why It Matters | Data Available? |
-|---|---|---|
-| **K/9 or K%** | Aces strike out 10+ per 9 innings | Yes — in `pitcher_starts` |
-| **Average IP per start** | Aces go 6+ IP; #5 guys go 4-5 | Yes — in `pitcher_starts` |
-| **Whiff%** | Swing-and-miss rate = stuff quality | Yes — in `pitcher_starts` |
-| **Hard-hit% allowed** | Contact management | Yes — in `pitcher_starts` |
-| **Barrel% allowed** | Damage prevention | Yes — in `pitcher_starts` |
-| **Fastball velocity** | Already computed in `pitcher_snapshot()` | Yes — in `pitcher_starts` |
-| **ERA / FIP** | Classic ace identifier | ERA calculable, FIP not stored |
-| **Ground ball / fly ball rate** | Batted-ball profile | **Not ingested** |
-| **Pitch repertoire quality** | Pitch mix dominance | **Not ingested** |
-| **First-time-through-order splits** | Aces dominate 1st pass; marginals don't | **Not tracked** |
+| Missing Feature                     | Why It Matters                           | Data Available?                |
+| ----------------------------------- | ---------------------------------------- | ------------------------------ |
+| **K/9 or K%**                       | Aces strike out 10+ per 9 innings        | Yes — in `pitcher_starts`      |
+| **Average IP per start**            | Aces go 6+ IP; #5 guys go 4-5            | Yes — in `pitcher_starts`      |
+| **Whiff%**                          | Swing-and-miss rate = stuff quality      | Yes — in `pitcher_starts`      |
+| **Hard-hit% allowed**               | Contact management                       | Yes — in `pitcher_starts`      |
+| **Barrel% allowed**                 | Damage prevention                        | Yes — in `pitcher_starts`      |
+| **Fastball velocity**               | Already computed in `pitcher_snapshot()` | Yes — in `pitcher_starts`      |
+| **ERA / FIP**                       | Classic ace identifier                   | ERA calculable, FIP not stored |
+| **Ground ball / fly ball rate**     | Batted-ball profile                      | **Not ingested**               |
+| **Pitch repertoire quality**        | Pitch mix dominance                      | **Not ingested**               |
+| **First-time-through-order splits** | Aces dominate 1st pass; marginals don't  | **Not tracked**                |
 
 **Key insight:** 5 of the top 6 missing features **already exist in the database** — they're just not wired into the totals/first-5 feature contracts. This is low-hanging fruit.
 
@@ -104,6 +106,7 @@ These fields already exist in `pitcher_starts` and are computed by `pitcher_snap
 ### 2. Prior-Year Stars — Is It Worth It? (YES, but we already do most of it)
 
 We already blend prior-season xwOBA, CSW, and velo for pitchers. What we DON'T carry forward:
+
 - Prior-season K-rate, IP depth, whiff%, barrel%, hard-hit%
 - Career numbers (only 1 prior year)
 
@@ -116,6 +119,7 @@ We already blend prior-season xwOBA, CSW, and velo for pitchers. What we DON'T c
 First-5 totals are ~95% starter-driven (no bullpen). This is where ace identification matters most. The current model only sees xwOBA + CSW, which compresses the true ace advantage. A Cole vs. #5 starter first-5 should show dramatically different run expectations.
 
 **Priority order for first-5:**
+
 1. Add `starter_avg_ip_blended` — if a guy averages 6.5 IP, he's going 5 innings almost always
 2. Add `starter_k_per_9_blended` — K-rate directly suppresses early-inning scoring
 3. Add `starter_whiff_pct_blended` — refined swing-and-miss dominance
@@ -124,6 +128,7 @@ First-5 totals are ~95% starter-driven (no bullpen). This is where ace identific
 ### 4. Derived "Starter Quality Tier" Feature (MEDIUM PRIORITY)
 
 Create a composite categorical feature:
+
 - **Ace** (top 15%): sub-0.280 xwOBA, 28%+ CSW, 96+ mph, 9+ K/9
 - **Quality** (top 40%): sub-0.310 xwOBA, 26%+ CSW
 - **Mid-rotation** (middle)
@@ -137,12 +142,12 @@ This gives the model a discrete signal to key off of for matchup asymmetry.
 
 As of 2026-04-06 (from backtest benchmarks):
 
-| Lane | vs. Baselines | Status |
-|---|---|---|
-| **Strikeouts** | ~4.5% MAE improvement over baselines | **Only lane clearly beating baselines** |
-| **Totals** | Loses to median/team_average baselines | Needs work |
-| **First-5 Totals** | Loses to team_average (wins only high-asymmetry slice) | Needs ace features |
-| **Hits** | Loses to base_rate | Needs work |
+| Lane               | vs. Baselines                                          | Status                                  |
+| ------------------ | ------------------------------------------------------ | --------------------------------------- |
+| **Strikeouts**     | ~4.5% MAE improvement over baselines                   | **Only lane clearly beating baselines** |
+| **Totals**         | Loses to median/team_average baselines                 | Needs work                              |
+| **First-5 Totals** | Loses to team_average (wins only high-asymmetry slice) | Needs ace features                      |
+| **Hits**           | Loses to base_rate                                     | Needs work                              |
 
 The ace-feature additions are most likely to help **first-5 totals** since that lane already wins when starter asymmetry is high — giving it more features to detect asymmetry should widen that edge.
 
