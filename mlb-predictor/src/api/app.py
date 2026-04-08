@@ -5009,11 +5009,18 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
         for d in sorted(by_date):
             rows = by_date[d]
             cal_errors, fund_errors, mkt_errors = [], [], []
+            cal_preds, fund_preds, mkt_preds = [], [], []
             for r in rows:
                 actual = _to_float(r.get("actual"))
                 cal = _to_float(r.get("predicted_total_runs"))
                 fund = _to_float(r.get("predicted_total_fundamentals"))
                 mkt = _to_float(r.get("market_total"))
+                if cal is not None:
+                    cal_preds.append(cal)
+                if fund is not None:
+                    fund_preds.append(fund)
+                if mkt is not None:
+                    mkt_preds.append(mkt)
                 if actual is not None and cal is not None:
                     cal_errors.append(abs(actual - cal))
                 if actual is not None and fund is not None:
@@ -5026,6 +5033,9 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
                 "calibrated_mae": round(sum(cal_errors) / len(cal_errors), 3) if cal_errors else None,
                 "fundamentals_mae": round(sum(fund_errors) / len(fund_errors), 3) if fund_errors else None,
                 "market_mae": round(sum(mkt_errors) / len(mkt_errors), 3) if mkt_errors else None,
+                "calibrated_avg": round(sum(cal_preds) / len(cal_preds), 2) if cal_preds else None,
+                "fundamentals_avg": round(sum(fund_preds) / len(fund_preds), 2) if fund_preds else None,
+                "market_avg": round(sum(mkt_preds) / len(mkt_preds), 2) if mkt_preds else None,
             })
 
     if _table_exists("predictions_pitcher_strikeouts") and _table_exists("pitcher_starts"):
@@ -5060,11 +5070,18 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
         for d in sorted(by_date_k):
             rows = by_date_k[d]
             cal_errors, fund_errors, mkt_errors = [], [], []
+            cal_preds, fund_preds, mkt_preds = [], [], []
             for r in rows:
                 actual = _to_float(r.get("actual"))
                 cal = _to_float(r.get("predicted_strikeouts"))
                 fund = _to_float(r.get("predicted_strikeouts_fundamentals"))
                 mkt = _to_float(r.get("market_line"))
+                if cal is not None:
+                    cal_preds.append(cal)
+                if fund is not None:
+                    fund_preds.append(fund)
+                if mkt is not None:
+                    mkt_preds.append(mkt)
                 if actual is not None and cal is not None:
                     cal_errors.append(abs(actual - cal))
                 if actual is not None and fund is not None:
@@ -5077,6 +5094,9 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
                 "calibrated_mae": round(sum(cal_errors) / len(cal_errors), 3) if cal_errors else None,
                 "fundamentals_mae": round(sum(fund_errors) / len(fund_errors), 3) if fund_errors else None,
                 "market_mae": round(sum(mkt_errors) / len(mkt_errors), 3) if mkt_errors else None,
+                "calibrated_avg": round(sum(cal_preds) / len(cal_preds), 2) if cal_preds else None,
+                "fundamentals_avg": round(sum(fund_preds) / len(fund_preds), 2) if fund_preds else None,
+                "market_avg": round(sum(mkt_preds) / len(mkt_preds), 2) if mkt_preds else None,
             })
 
     def _agg(daily: list[dict], count_key: str) -> dict[str, Any]:
@@ -5084,12 +5104,18 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
         cal_vals = [d["calibrated_mae"] for d in daily if d.get("calibrated_mae") is not None]
         fund_vals = [d["fundamentals_mae"] for d in daily if d.get("fundamentals_mae") is not None]
         mkt_vals = [d["market_mae"] for d in daily if d.get("market_mae") is not None]
+        cal_avgs = [d["calibrated_avg"] for d in daily if d.get("calibrated_avg") is not None]
+        fund_avgs = [d["fundamentals_avg"] for d in daily if d.get("fundamentals_avg") is not None]
+        mkt_avgs = [d["market_avg"] for d in daily if d.get("market_avg") is not None]
         return {
             "days": len(daily),
             "total_count": total_count,
             "calibrated_mae": round(sum(cal_vals) / len(cal_vals), 3) if cal_vals else None,
             "fundamentals_mae": round(sum(fund_vals) / len(fund_vals), 3) if fund_vals else None,
             "market_mae": round(sum(mkt_vals) / len(mkt_vals), 3) if mkt_vals else None,
+            "calibrated_avg": round(sum(cal_avgs) / len(cal_avgs), 2) if cal_avgs else None,
+            "fundamentals_avg": round(sum(fund_avgs) / len(fund_avgs), 2) if fund_avgs else None,
+            "market_avg": round(sum(mkt_avgs) / len(mkt_avgs), 2) if mkt_avgs else None,
         }
 
     return {
