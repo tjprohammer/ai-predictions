@@ -13,7 +13,7 @@ def test_build_windows_release_builds_seed_before_packaging(monkeypatch):
         def __init__(self, returncode=0):
             self.returncode = returncode
 
-    def fake_run(command, cwd):
+    def fake_run(command, cwd, **kwargs):
         commands.append(command)
         return FakeCompletedProcess(0)
 
@@ -57,7 +57,7 @@ def test_build_windows_release_stops_when_seed_build_fails(monkeypatch):
         def __init__(self, returncode=0):
             self.returncode = returncode
 
-    def fake_run(command, cwd):
+    def fake_run(command, cwd, **kwargs):
         commands.append(command)
         if command[1] == "scripts/build_desktop_sqlite_seed.py":
             return FakeCompletedProcess(2)
@@ -84,7 +84,7 @@ def test_build_windows_release_passes_require_inno_to_installer(monkeypatch):
         def __init__(self, returncode=0):
             self.returncode = returncode
 
-    def fake_run(command, cwd):
+    def fake_run(command, cwd, **kwargs):
         commands.append(command)
         return FakeCompletedProcess(0)
 
@@ -123,7 +123,7 @@ def test_build_windows_release_passes_app_version_to_installer(monkeypatch):
         def __init__(self, returncode=0):
             self.returncode = returncode
 
-    def fake_run(command, cwd):
+    def fake_run(command, cwd, **kwargs):
         commands.append(command)
         return FakeCompletedProcess(0)
 
@@ -163,7 +163,7 @@ def test_build_windows_release_passes_release_dir_to_installer(monkeypatch, tmp_
         def __init__(self, returncode=0):
             self.returncode = returncode
 
-    def fake_run(command, cwd):
+    def fake_run(command, cwd, **kwargs):
         commands.append(command)
         return FakeCompletedProcess(0)
 
@@ -218,7 +218,7 @@ def test_build_windows_release_passes_sign_to_app_and_installer(monkeypatch):
         def __init__(self, returncode=0):
             self.returncode = returncode
 
-    def fake_run(command, cwd):
+    def fake_run(command, cwd, **kwargs):
         commands.append(command)
         return FakeCompletedProcess(0)
 

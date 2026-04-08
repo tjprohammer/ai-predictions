@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -36,7 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run_step(command: list[str]) -> int:
-    completed = subprocess.run(command, cwd=ROOT)
+    env = {**os.environ, "PYTHONPATH": str(ROOT)}
+    completed = subprocess.run(command, cwd=ROOT, env=env)
     return int(completed.returncode)
 
 
