@@ -4,25 +4,31 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MLB Predictor Experiments</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <style>
       :root {
-        --bg: #f4efe6;
-        --panel: rgba(255, 252, 247, 0.96);
-        --panel-strong: #fffaf2;
-        --ink: #1d1d1b;
-        --muted: #6d6558;
-        --line: rgba(61, 49, 34, 0.12);
-        --accent: #0c6b58;
-        --accent-soft: rgba(12, 107, 88, 0.12);
+        --bg: #f6f0e8;
+        --panel: rgba(255, 251, 246, 0.88);
+        --panel-strong: rgba(255, 251, 246, 0.96);
+        --ink: #142119;
+        --muted: #5f6e65;
+        --line: rgba(20, 33, 25, 0.12);
+        --accent: #0b6a58;
+        --accent-deep: #0a4a3f;
+        --accent-soft: rgba(11, 106, 88, 0.12);
+        --gold: #b7791f;
+        --gold-soft: rgba(183, 121, 31, 0.12);
         --warm: #a95c1b;
         --warm-soft: rgba(169, 92, 27, 0.14);
-        --good: #0d7a43;
+        --good: #166534;
         --good-soft: rgba(13, 122, 67, 0.12);
-        --warn: #b13d27;
+        --warn: #92400e;
         --warn-soft: rgba(177, 61, 39, 0.12);
-        --neutral-soft: rgba(61, 49, 34, 0.08);
-        --shadow: 0 18px 36px rgba(42, 32, 20, 0.08);
-        --radius-lg: 24px;
+        --bad: #991b1b;
+        --neutral-soft: rgba(20, 33, 25, 0.08);
+        --shadow: 0 22px 64px rgba(20, 33, 25, 0.09);
+        --radius-xl: 28px;
+        --radius-lg: 22px;
         --radius-md: 16px;
         --radius-sm: 12px;
       }
@@ -31,146 +37,306 @@
 
       body {
         margin: 0;
-        background:
-          radial-gradient(circle at top left, rgba(12, 107, 88, 0.12), transparent 28%),
-          radial-gradient(circle at top right, rgba(169, 92, 27, 0.14), transparent 32%),
-          linear-gradient(180deg, #fbf8f2 0%, var(--bg) 100%);
+        min-height: 100vh;
         color: var(--ink);
-        font-family: Georgia, "Times New Roman", serif;
+        background:
+          radial-gradient(circle at top left, rgba(11, 106, 88, 0.15), transparent 32%),
+          radial-gradient(circle at 85% 14%, rgba(183, 121, 31, 0.12), transparent 20%),
+          linear-gradient(180deg, #fcf9f4 0%, var(--bg) 100%);
+        font-family: "Bahnschrift", "Aptos", "Segoe UI Variable", sans-serif;
       }
 
-      .topbar,
-      .main-content,
-      .section-header { max-width: 1200px; margin: 0 auto; }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.24) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.2) 1px, transparent 1px);
+        background-size: 26px 26px;
+        opacity: 0.28;
+      }
 
-      .topbar,
-      .main-content { padding: 0 clamp(16px, 3vw, 48px); }
+      main {
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 28px 20px 44px;
+        position: relative;
+        z-index: 1;
+      }
 
+      /* ── Sticky pill topbar (matches site theme) ── */
       .topbar {
-        display: flex; align-items: center; gap: 18px;
-        padding-top: 18px; padding-bottom: 12px;
-        flex-wrap: wrap;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+        padding: 12px 14px;
+        border-radius: 999px;
+        background: rgba(255, 251, 246, 0.82);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        position: sticky;
+        top: 16px;
+        z-index: 4;
+      }
+
+      .brand-link,
+      .nav-link {
+        text-decoration: none;
+        transition: transform 140ms ease, background 140ms ease,
+          border-color 140ms ease, color 140ms ease;
       }
 
       .brand-link {
-        display: flex; align-items: center; gap: 10px;
-        text-decoration: none; color: var(--ink);
-        font-size: 1.05rem; font-weight: 800;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink);
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        white-space: nowrap;
       }
 
       .brand-mark {
-        display: inline-flex; align-items: center; justify-content: center;
-        width: 36px; height: 36px; border-radius: 10px;
-        background: var(--accent); color: #fff;
-        font-size: 0.85rem; font-weight: 900;
-        letter-spacing: -0.5px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+        color: white;
+        font-size: 0.78rem;
+        letter-spacing: 0.16em;
+        box-shadow: 0 10px 24px rgba(11, 106, 88, 0.22);
       }
 
       .nav-links {
-        display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        justify-content: flex-end;
       }
 
       .nav-link {
-        display: inline-flex; align-items: center; gap: 6px;
-        padding: 6px 14px; border-radius: var(--radius-sm);
-        text-decoration: none; color: var(--muted);
-        font-size: 0.92rem; font-weight: 600;
-        transition: background 0.15s, color 0.15s;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(20, 33, 25, 0.08);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
       }
 
-      .nav-link:hover { background: var(--neutral-soft); color: var(--ink); }
-      .nav-link.active { background: var(--accent-soft); color: var(--accent); }
-
       .nav-icon {
-        display: inline-flex; width: 18px; height: 18px;
+        width: 15px;
+        height: 15px;
+        flex: 0 0 auto;
       }
 
       .nav-icon svg {
-        width: 100%; height: 100%;
-        fill: currentColor; stroke: none;
+        width: 100%;
+        height: 100%;
+        display: block;
+        fill: currentColor;
       }
 
-      .section-header {
-        padding: 24px clamp(16px, 3vw, 48px) 8px;
+      .nav-link:hover {
+        transform: translateY(-1px);
+        border-color: rgba(11, 106, 88, 0.22);
+        color: var(--accent-deep);
+        background: rgba(11, 106, 88, 0.08);
       }
 
-      .section-header h1 {
-        font-size: 1.6rem; font-weight: 800; margin: 0 0 4px;
+      .nav-link.active {
+        background: var(--accent);
+        color: white;
+        border-color: transparent;
+        box-shadow: 0 12px 24px rgba(11, 106, 88, 0.2);
       }
 
-      .section-header p {
-        color: var(--muted); font-size: 0.95rem; margin: 0;
+      .nav-link.active:hover {
+        background: var(--accent-deep);
+        color: white;
+      }
+
+      /* ── Page header ── */
+      .page-header {
+        margin-bottom: 24px;
+      }
+
+      .page-header h1 {
+        font-size: 1.6rem;
+        font-weight: 800;
+        margin: 0 0 4px;
+      }
+
+      .page-header p {
+        color: var(--muted);
+        font-size: 0.95rem;
+        margin: 0 0 16px;
+      }
+
+      /* ── Explainer box ── */
+      .explainer {
+        background: var(--panel);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        padding: 20px 24px;
+        margin-bottom: 20px;
+        font-size: 0.88rem;
+        line-height: 1.55;
+        color: var(--muted);
+        box-shadow: var(--shadow);
+      }
+
+      .explainer strong { color: var(--ink); }
+
+      .explainer .model-key {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid var(--line);
+      }
+
+      .explainer .key-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .explainer .key-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
       }
 
       .controls {
-        display: flex; gap: 12px; align-items: center;
-        padding: 12px 0; flex-wrap: wrap;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 0;
+        flex-wrap: wrap;
       }
 
       .controls label {
-        font-size: 0.88rem; color: var(--muted); font-weight: 600;
+        font-size: 0.88rem;
+        color: var(--muted);
+        font-weight: 600;
       }
 
-      .controls select, .controls input {
-        padding: 6px 12px; border: 1px solid var(--line);
-        border-radius: var(--radius-sm); background: var(--panel);
-        font-family: inherit; font-size: 0.9rem; color: var(--ink);
+      .controls select,
+      .controls input {
+        padding: 6px 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        background: var(--panel);
+        font-family: inherit;
+        font-size: 0.9rem;
+        color: var(--ink);
       }
 
+      /* ── Summary cards ── */
       .summary-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-        gap: 20px; margin-bottom: 28px;
+        grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+        gap: 20px;
+        margin-bottom: 28px;
       }
 
       .summary-card {
-        background: var(--panel); border-radius: var(--radius-md);
-        padding: 24px; box-shadow: var(--shadow);
+        background: var(--panel);
+        backdrop-filter: blur(12px);
         border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        padding: 24px;
+        box-shadow: var(--shadow);
       }
 
       .summary-card h2 {
-        font-size: 1.15rem; font-weight: 800; margin: 0 0 16px;
+        font-size: 1.15rem;
+        font-weight: 800;
+        margin: 0 0 16px;
       }
 
       .metric-row {
-        display: flex; justify-content: space-between;
-        padding: 8px 0; border-bottom: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
       }
 
       .metric-row:last-child { border-bottom: none; }
 
       .metric-label { font-size: 0.9rem; color: var(--muted); }
+
       .metric-value { font-size: 0.95rem; font-weight: 700; }
       .metric-value.best { color: var(--good); }
       .metric-value.worst { color: var(--warn); }
 
+      .metric-hint {
+        font-size: 0.78rem;
+        color: var(--muted);
+        font-weight: 400;
+        margin-left: 4px;
+      }
+
+      /* ── Daily tables ── */
       .daily-table {
-        background: var(--panel); border-radius: var(--radius-md);
-        box-shadow: var(--shadow); border: 1px solid var(--line);
-        overflow-x: auto; margin-bottom: 28px;
+        background: var(--panel);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        box-shadow: var(--shadow);
+        overflow-x: auto;
+        margin-bottom: 28px;
       }
 
       .daily-table h2 {
-        font-size: 1.1rem; font-weight: 800;
-        padding: 20px 24px 12px; margin: 0;
+        font-size: 1.1rem;
+        font-weight: 800;
+        padding: 20px 24px 12px;
+        margin: 0;
       }
 
       table {
-        width: 100%; border-collapse: collapse;
+        width: 100%;
+        border-collapse: collapse;
         font-size: 0.9rem;
       }
 
       th {
-        text-align: left; padding: 10px 16px;
+        text-align: left;
+        padding: 10px 16px;
         border-bottom: 2px solid var(--line);
-        color: var(--muted); font-size: 0.82rem;
-        font-weight: 700; text-transform: uppercase;
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-transform: uppercase;
         letter-spacing: 0.5px;
       }
 
       td {
-        padding: 10px 16px; border-bottom: 1px solid var(--line);
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--line);
       }
 
       tr:last-child td { border-bottom: none; }
@@ -179,41 +345,117 @@
       td.worst { color: var(--warn); }
 
       .empty-state {
-        text-align: center; padding: 48px 24px;
-        color: var(--muted); font-size: 1rem;
+        text-align: center;
+        padding: 48px 24px;
+        color: var(--muted);
+        font-size: 1rem;
       }
 
+      /* ── Badges ── */
       .badge {
-        display: inline-block; padding: 2px 8px;
-        border-radius: 6px; font-size: 0.78rem;
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 0.78rem;
         font-weight: 700;
+        white-space: nowrap;
       }
 
-      .badge.winning { background: var(--good-soft); color: var(--good); }
-      .badge.losing { background: var(--warn-soft); color: var(--warn); }
+      .badge.winning { background: var(--accent-soft); color: var(--accent); }
+      .badge.losing { background: var(--warm-soft); color: var(--warm); }
       .badge.tied { background: var(--neutral-soft); color: var(--muted); }
+      .badge.market { background: var(--neutral-soft); color: var(--muted); }
 
-      .legend {
-        display: flex; gap: 20px; padding: 12px 0;
-        font-size: 0.85rem; color: var(--muted); flex-wrap: wrap;
+      /* ── Score pills ── */
+      .score-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 9px;
+        border-radius: 8px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
       }
 
-      .legend-item { display: flex; align-items: center; gap: 6px; }
-      .legend-dot {
-        width: 10px; height: 10px; border-radius: 50%;
+      .score-pill.fund { background: var(--accent-soft); color: var(--accent); }
+      .score-pill.cal { background: var(--warm-soft); color: var(--warm); }
+      .score-pill.mkt { background: var(--neutral-soft); color: var(--muted); }
+      .score-pill.actual { background: #e8e3da; color: var(--ink); font-weight: 800; }
+
+      .score-pill .pill-label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        opacity: 0.7;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
       }
 
-      .dot-fund { background: var(--accent); }
-      .dot-cal { background: var(--warm); }
-      .dot-mkt { background: var(--muted); }
+      .score-pill.winner-pill { box-shadow: inset 0 0 0 2px currentColor; }
 
-      /* Expandable detail rows */
+      /* ── Delta indicator ── */
+      .delta {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        margin-left: 6px;
+      }
+
+      .delta.better { background: var(--accent-soft); color: var(--accent); }
+      .delta.worse { background: var(--warn-soft); color: var(--warn); }
+      .delta.same { background: var(--neutral-soft); color: var(--muted); }
+
+      /* ── Scoreboard bar ── */
+      .scoreboard {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 0 4px;
+        margin-top: 4px;
+      }
+
+      .scoreboard-bar {
+        flex: 1;
+        height: 8px;
+        border-radius: 4px;
+        background: var(--neutral-soft);
+        overflow: hidden;
+        position: relative;
+      }
+
+      .scoreboard-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.4s ease;
+      }
+
+      .scoreboard-fill.fund-fill { background: var(--accent); }
+      .scoreboard-fill.cal-fill { background: var(--warm); }
+
+      .scoreboard-label {
+        font-size: 0.78rem;
+        font-weight: 700;
+        min-width: 28px;
+        text-align: center;
+      }
+
+      .scoreboard-label.fund-label { color: var(--accent); }
+      .scoreboard-label.cal-label { color: var(--warm); }
+
+      /* ── Expandable detail rows ── */
       tr.daily-row { cursor: pointer; transition: background 0.12s; }
       tr.daily-row:hover { background: var(--neutral-soft); }
+
       tr.daily-row td:first-child::before {
-        content: "\25B6"; font-size: 0.7rem; margin-right: 6px;
-        display: inline-block; transition: transform 0.15s;
+        content: "\25B6";
+        font-size: 0.7rem;
+        margin-right: 6px;
+        display: inline-block;
+        transition: transform 0.15s;
       }
+
       tr.daily-row.expanded td:first-child::before { transform: rotate(90deg); }
 
       tr.detail-row { display: none; }
@@ -225,75 +467,125 @@
       }
 
       .detail-wrap h4 {
-        font-size: 0.85rem; font-weight: 700; margin: 10px 0 4px;
-        color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px;
+        font-size: 0.85rem;
+        font-weight: 700;
+        margin: 10px 0 4px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
       }
 
       .detail-wrap h4:first-child { margin-top: 0; }
 
       .detail-table {
-        width: 100%; border-collapse: collapse; font-size: 0.85rem;
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
         margin-bottom: 6px;
       }
 
       .detail-table th {
-        padding: 6px 12px; font-size: 0.78rem; border-bottom: 1px solid var(--line);
+        padding: 6px 12px;
+        font-size: 0.78rem;
+        border-bottom: 1px solid var(--line);
       }
 
       .detail-table td {
-        padding: 6px 12px; border-bottom: 1px solid var(--line);
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: middle;
       }
 
       .detail-table tr:last-child td { border-bottom: none; }
+
+      .detail-table .pred-group {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .detail-summary {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        padding: 6px 0 10px;
+        font-size: 0.84rem;
+        flex-wrap: wrap;
+      }
+
+      .detail-summary .count-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 10px;
+        border-radius: 6px;
+        font-weight: 700;
+        font-size: 0.8rem;
+      }
+
+      .detail-summary .count-chip.fund-chip { background: var(--accent-soft); color: var(--accent); }
+      .detail-summary .count-chip.cal-chip { background: var(--warm-soft); color: var(--warm); }
+      .detail-summary .count-chip.tie-chip { background: var(--neutral-soft); color: var(--muted); }
     </style>
   </head>
   <body>
-    <nav class="topbar" aria-label="Primary">
-      <a class="brand-link" data-app-link="" href=".">
-        <span class="brand-mark">MP</span>
-        <span>MLB Predictor</span>
-      </a>
-      <div class="nav-links">
-        <a class="nav-link" data-app-link="" href="."
-          ><span class="nav-icon" aria-hidden="true"
-            ><svg viewBox="0 0 24 24"><path d="M3 5h8v6H3zm10 0h8v6h-8zM3 13h8v6H3zm10 0h8v6h-8z"/></svg></span
-          ><span>Game Board</span></a
-        >
-        <a class="nav-link" data-app-link="hot-hitters" href="hot-hitters"
-          ><span class="nav-icon" aria-hidden="true"
-            ><svg viewBox="0 0 24 24"><path d="M13.5 2.5c.3 2.7-1 4.6-2.6 6.2-1.1 1.1-1.7 2.3-1.7 3.7 0 1.9 1.3 3.4 3.2 3.4 2.3 0 3.8-2 3.8-4.5 0-.8-.1-1.6-.5-2.5 2.3 1.3 4.3 4 4.3 7.1 0 4.1-3.3 7.1-8 7.1-4.6 0-8-2.9-8-7.4 0-3.3 1.7-5.5 4.1-7.5 2.4-1.9 4.8-3.8 5.4-5.6z"/></svg></span
-          ><span>Hot Hitters</span></a
-        >
-        <a class="nav-link" data-app-link="totals" href="totals"
-          ><span class="nav-icon" aria-hidden="true"
-            ><svg viewBox="0 0 24 24"><path d="M4 6h16v3H4zm0 5h10v3H4zm0 5h7v3H4zm12.5-7.5L19 11l4-5"/></svg></span
-          ><span>Totals</span></a
-        >
-        <a class="nav-link" data-app-link="pitchers" href="pitchers"
-          ><span class="nav-icon" aria-hidden="true"
-            ><svg viewBox="0 0 24 24"><path d="M15.5 2 8 9.5l1.4 1.4 2.6-2.6 3.7 3.7c.4.4 1 .6 1.5.6H19v1.8l3 3V11.8c0-.6-.2-1.1-.6-1.5L17.7 6.6l2.6-2.6zM3 19.5A2.5 2.5 0 0 0 5.5 22 2.5 2.5 0 0 0 8 19.5 2.5 2.5 0 0 0 5.5 17 2.5 2.5 0 0 0 3 19.5z"/></svg></span
-          ><span>Pitcher Ks</span></a
-        >
-        <a class="nav-link" data-app-link="results" href="results"
-          ><span class="nav-icon" aria-hidden="true"
-            ><svg viewBox="0 0 24 24"><path d="M5 4h14v2H5zm0 5h14v2H5zm0 5h9v2H5zm11.5 1.5 1.6 1.6L22 13.2"/></svg></span
-          ><span>Daily Results</span></a
-        >
-        <a
-          class="nav-link active"
-          data-app-link="experiments"
-          href="experiments"
-          aria-current="page"
-          ><span class="nav-icon" aria-hidden="true"
-            ><svg viewBox="0 0 24 24"><path d="M7 2v2h1v5.17A3 3 0 0 0 5 12v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a3 3 0 0 0-3-3.17V4h1V2H7zm3 2h4v4.5l1.5 1.5H8.5L10 8.5V4z"/></svg></span
-          ><span>Experiments</span></a
-        >
-      </div>
-    </nav>
+    <main>
+      <nav class="topbar" aria-label="Primary">
+        <a class="brand-link" data-app-link="" href=".">
+          <span class="brand-mark">MP</span>
+          <span>MLB Predictor</span>
+        </a>
+        <div class="nav-links">
+          <a class="nav-link" data-app-link="" href="."
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24"><path d="M3 5h8v6H3zm10 0h8v6h-8zM3 13h8v6H3zm10 0h8v6h-8z"/></svg></span
+            ><span>Game Board</span></a
+          >
+          <a class="nav-link" data-app-link="hot-hitters" href="hot-hitters"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24"><path d="M13.5 2.5c.3 2.7-1 4.6-2.6 6.2-1.1 1.1-1.7 2.3-1.7 3.7 0 1.9 1.3 3.4 3.2 3.4 2.3 0 3.8-2 3.8-4.5 0-.8-.1-1.6-.5-2.5 2.3 1.3 4.3 4 4.3 7.1 0 4.1-3.3 7.1-8 7.1-4.6 0-8-2.9-8-7.4 0-3.3 1.7-5.5 4.1-7.5 2.4-1.9 4.8-3.8 5.4-5.6z"/></svg></span
+            ><span>Hot Hitters</span></a
+          >
+          <a class="nav-link" data-app-link="totals" href="totals"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24"><path d="M4 6h16v3H4zm0 5h10v3H4zm0 5h7v3H4zm12.5-7.5L19 11l4-5"/></svg></span
+            ><span>Totals</span></a
+          >
+          <a class="nav-link" data-app-link="pitchers" href="pitchers"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24"><path d="M15.5 2 8 9.5l1.4 1.4 2.6-2.6 3.7 3.7c.4.4 1 .6 1.5.6H19v1.8l3 3V11.8c0-.6-.2-1.1-.6-1.5L17.7 6.6l2.6-2.6zM3 19.5A2.5 2.5 0 0 0 5.5 22 2.5 2.5 0 0 0 8 19.5 2.5 2.5 0 0 0 5.5 17 2.5 2.5 0 0 0 3 19.5z"/></svg></span
+            ><span>Pitcher Ks</span></a
+          >
+          <a class="nav-link" data-app-link="results" href="results"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24"><path d="M5 4h14v2H5zm0 5h14v2H5zm0 5h9v2H5zm11.5 1.5 1.6 1.6L22 13.2"/></svg></span
+            ><span>Daily Results</span></a
+          >
+          <a class="nav-link active" data-app-link="experiments" href="experiments" aria-current="page"
+            ><span class="nav-icon" aria-hidden="true"
+              ><svg viewBox="0 0 24 24"><path d="M7 2v2h1v5.17A3 3 0 0 0 5 12v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a3 3 0 0 0-3-3.17V4h1V2H7zm3 2h4v4.5l1.5 1.5H8.5L10 8.5V4z"/></svg></span
+            ><span>Experiments</span></a
+          >
+        </div>
+      </nav>
 
-    <div class="section-header">
-      <h1>Model Experiments</h1>
-      <p>Compare fundamentals-only vs market-calibrated predictions against actual outcomes</p>
+      <div class="page-header">
+        <h1>Model Experiments</h1>
+        <p>How accurate are our predictions compared to what actually happened?</p>
+      </div>
+
+      <div class="explainer">
+        <strong>How to read this page:</strong> We're testing two prediction approaches head-to-head against the Vegas line.
+        The key number is <strong>Avg Miss</strong> &mdash; how far off a prediction was from the real outcome, on average.
+        <strong>Lower is better.</strong> An avg miss of 1.50 means our prediction was typically 1.5 runs away from the actual game total.
+        <div class="model-key">
+          <span class="key-item"><span class="key-dot" style="background:var(--accent)"></span> <strong>Stats-Only</strong> &mdash; our model using only baseball stats, no Vegas influence</span>
+          <span class="key-item"><span class="key-dot" style="background:var(--warm)"></span> <strong>Blended</strong> &mdash; our model adjusted toward the Vegas line</span>
+          <span class="key-item"><span class="key-dot" style="background:var(--muted)"></span> <strong>Vegas</strong> &mdash; the sportsbook line itself</span>
+        </div>
+      </div>
+
       <div class="controls">
         <label for="window-select">Window:</label>
         <select id="window-select">
@@ -305,16 +597,11 @@
         <label for="date-input">As of:</label>
         <input type="date" id="date-input" />
       </div>
-      <div class="legend">
-        <span class="legend-item"><span class="legend-dot dot-fund"></span> Fundamentals</span>
-        <span class="legend-item"><span class="legend-dot dot-cal"></span> Calibrated (market-blended)</span>
-        <span class="legend-item"><span class="legend-dot dot-mkt"></span> Market line</span>
-      </div>
-    </div>
 
-    <div class="main-content" id="app">
-      <div class="empty-state" id="loading">Loading experiment data...</div>
-    </div>
+      <div id="app">
+        <div class="empty-state" id="loading">Loading experiment data&hellip;</div>
+      </div>
+    </main>
 
     <script>
       const appEl = document.getElementById("app");
@@ -328,7 +615,7 @@
 
       dateInput.value = today();
 
-      function fmt(n, decimals = 3) {
+      function fmt(n, decimals = 2) {
         if (n == null) return "\u2014";
         return Number(n).toFixed(decimals);
       }
@@ -346,50 +633,103 @@
 
       function statusBadge(fund, cal) {
         if (fund == null || cal == null) return "";
-        if (fund < cal) return `<span class="badge winning">Fund wins</span>`;
-        if (fund > cal) return `<span class="badge losing">Cal wins</span>`;
+        if (fund < cal) return `<span class="badge winning">Stats-Only closer</span>`;
+        if (fund > cal) return `<span class="badge losing">Blended closer</span>`;
         return `<span class="badge tied">Tied</span>`;
       }
 
-      function renderSummary(label, agg) {
+      function scorePill(val, cls, label) {
+        if (val == null) return `<span class="score-pill ${cls}"><span class="pill-label">${label}</span>\u2014</span>`;
+        return `<span class="score-pill ${cls}"><span class="pill-label">${label}</span>${fmt(val)}</span>`;
+      }
+
+      function gameWinnerBadge(fundErr, calErr, mktErr) {
+        if (fundErr == null && calErr == null) return "";
+        const entries = [];
+        if (fundErr != null) entries.push({ name: "Stats", err: fundErr, cls: "winning" });
+        if (calErr != null) entries.push({ name: "Blend", err: calErr, cls: "losing" });
+        if (mktErr != null) entries.push({ name: "Vegas", err: mktErr, cls: "market" });
+        if (entries.length === 0) return "";
+        entries.sort((a, b) => a.err - b.err);
+        const best = entries[0];
+        const cls = best.name === "Stats" ? "winning" : best.name === "Blend" ? "losing" : "market";
+        return `<span class="badge ${cls}">\u2714 ${best.name} closest (off by ${fmt(best.err)})</span>`;
+      }
+
+      function deltaTag(fundMae, calMae) {
+        if (fundMae == null || calMae == null) return "";
+        const diff = Math.abs(fundMae - calMae);
+        if (diff < 0.005) return `<span class="delta same">\u2194 tied</span>`;
+        if (fundMae < calMae) return `<span class="delta better">\u2193 ${fmt(diff)} closer</span>`;
+        return `<span class="delta worse">\u2191 ${fmt(diff)} further off</span>`;
+      }
+
+      function winScoreboard(daily) {
+        let fundWins = 0, calWins = 0, ties = 0;
+        for (const d of daily) {
+          if (d.fundamentals_mae == null || d.calibrated_mae == null) continue;
+          if (d.fundamentals_mae < d.calibrated_mae) fundWins++;
+          else if (d.fundamentals_mae > d.calibrated_mae) calWins++;
+          else ties++;
+        }
+        const total = fundWins + calWins + ties;
+        if (total === 0) return "";
+        const fundPct = Math.round((fundWins / total) * 100);
+        return `
+          <div class="scoreboard">
+            <span class="scoreboard-label fund-label">${fundWins}</span>
+            <div class="scoreboard-bar">
+              <div class="scoreboard-fill fund-fill" style="width:${fundPct}%"></div>
+            </div>
+            <span class="scoreboard-label cal-label">${calWins}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--muted);padding:0 36px">
+            <span>Stats-Only days won</span>
+            ${ties ? `<span>${ties} tied</span>` : ""}
+            <span>Blended days won</span>
+          </div>
+        `;
+      }
+
+      function renderSummary(label, agg, daily) {
         const vals = [agg.fundamentals_mae, agg.calibrated_mae, agg.market_mae];
+        const unit = label.includes("Strikeout") ? "Ks" : "runs";
         return `
           <div class="summary-card">
             <h2>${label}</h2>
             <div class="metric-row">
-              <span class="metric-label">Days with data</span>
-              <span class="metric-value">${agg.days}</span>
+              <span class="metric-label">Sample Size</span>
+              <span class="metric-value">${agg.days} days &middot; ${agg.total_count} predictions</span>
             </div>
             <div class="metric-row">
-              <span class="metric-label">Total predictions</span>
-              <span class="metric-value">${agg.total_count}</span>
+              <span class="metric-label">${scorePill(agg.fundamentals_mae, "fund", "Stats-Only")}</span>
+              <span class="metric-value ${bestClass(vals, agg.fundamentals_mae)}">off by ${fmt(agg.fundamentals_mae)} ${unit}<span class="metric-hint">avg</span> ${deltaTag(agg.fundamentals_mae, agg.calibrated_mae)}</span>
             </div>
             <div class="metric-row">
-              <span class="metric-label">Fundamentals MAE</span>
-              <span class="metric-value ${bestClass(vals, agg.fundamentals_mae)}">${fmt(agg.fundamentals_mae)}</span>
+              <span class="metric-label">${scorePill(agg.calibrated_mae, "cal", "Blended")}</span>
+              <span class="metric-value ${bestClass(vals, agg.calibrated_mae)}">off by ${fmt(agg.calibrated_mae)} ${unit}<span class="metric-hint">avg</span> ${deltaTag(agg.calibrated_mae, agg.fundamentals_mae)}</span>
             </div>
             <div class="metric-row">
-              <span class="metric-label">Calibrated MAE</span>
-              <span class="metric-value ${bestClass(vals, agg.calibrated_mae)}">${fmt(agg.calibrated_mae)}</span>
+              <span class="metric-label">${scorePill(agg.market_mae, "mkt", "Vegas")}</span>
+              <span class="metric-value ${bestClass(vals, agg.market_mae)}">off by ${fmt(agg.market_mae)} ${unit}<span class="metric-hint">avg</span></span>
             </div>
             <div class="metric-row">
-              <span class="metric-label">Market Line MAE</span>
-              <span class="metric-value ${bestClass(vals, agg.market_mae)}">${fmt(agg.market_mae)}</span>
-            </div>
-            <div class="metric-row">
-              <span class="metric-label">Verdict</span>
+              <span class="metric-label">Who's more accurate?</span>
               <span class="metric-value">${statusBadge(agg.fundamentals_mae, agg.calibrated_mae)}</span>
             </div>
+            ${winScoreboard(daily)}
           </div>
         `;
       }
 
       function renderDailyTable(label, daily, countKey) {
         if (!daily || daily.length === 0) {
-          return `<div class="daily-table"><h2>${label} \u2014 Daily Breakdown</h2><div class="empty-state">No completed games with dual predictions yet</div></div>`;
+          return `<div class="daily-table"><h2>${label} &mdash; Daily Breakdown</h2><div class="empty-state">No completed games with dual predictions yet</div></div>`;
         }
         const lane = countKey === "games" ? "totals" : "strikeouts";
-        const headerRow = `<tr><th>Date</th><th>${countKey}</th><th>Fund. MAE</th><th>Cal. MAE</th><th>Market MAE</th><th>Winner</th></tr>`;
+        const unit = lane === "totals" ? "runs" : "Ks";
+        const countLabel = countKey === "games" ? "Games" : "Pitchers";
+        const headerRow = `<tr><th>Date</th><th>${countLabel}</th><th>Stats-Only<br><span style="font-weight:400;text-transform:none;letter-spacing:0">avg miss (${unit})</span></th><th>Blended<br><span style="font-weight:400;text-transform:none;letter-spacing:0">avg miss (${unit})</span></th><th>Vegas<br><span style="font-weight:400;text-transform:none;letter-spacing:0">avg miss (${unit})</span></th><th>More Accurate</th></tr>`;
         const bodyRows = daily.map((d) => {
           const vals = [d.fundamentals_mae, d.calibrated_mae, d.market_mae];
           const rid = `detail-${lane}-${d.date}`;
@@ -402,12 +742,12 @@
             <td>${statusBadge(d.fundamentals_mae, d.calibrated_mae)}</td>
           </tr>
           <tr class="detail-row" id="${rid}">
-            <td colspan="6"><div class="detail-wrap" id="${rid}-content">Loading...</div></td>
+            <td colspan="6"><div class="detail-wrap" id="${rid}-content">Loading&hellip;</div></td>
           </tr>`;
         }).join("");
         return `
           <div class="daily-table">
-            <h2>${label} \u2014 Daily Breakdown <span style="font-size:0.78rem;font-weight:400;color:var(--muted)">(click row to expand)</span></h2>
+            <h2>${label} &mdash; Daily Breakdown <span style="font-size:0.78rem;font-weight:400;color:var(--muted)">(click a row to see each game)</span></h2>
             <table>
               <thead>${headerRow}</thead>
               <tbody>${bodyRows}</tbody>
@@ -427,52 +767,47 @@
         return data;
       }
 
-      function renderDetailGames(games, columns) {
+      function renderDetailGames(games, nameKey) {
         if (!games || games.length === 0) return `<p style="color:var(--muted);font-size:0.85rem;">No data</p>`;
-        const ths = columns.map(c => `<th>${c.label}</th>`).join("");
+        const nameLabel = nameKey === "matchup" ? "Matchup" : "Pitcher";
+        const showTeam = nameKey !== "matchup";
+        const ths = `<th>${nameLabel}</th>${showTeam ? "<th>Team</th>" : ""}<th>Predicted</th><th>Actual</th><th>Most Accurate</th>`;
+        let fundWins = 0, calWins = 0, ties = 0;
         const rows = games.map(g => {
-          const cells = columns.map(c => {
-            const v = g[c.key];
-            if (c.isError) {
-              const cls = bestClass(
-                [g.fund_error, g.cal_error, g.mkt_error].filter(x => x != null), v
-              );
-              return `<td class="${cls}">${fmt(v, 2)}</td>`;
-            }
-            return `<td>${v != null ? (typeof v === "number" ? fmt(v, 2) : v) : "\u2014"}</td>`;
-          }).join("");
-          return `<tr>${cells}</tr>`;
+          const name = g[nameKey] || "\u2014";
+          const teamCell = showTeam ? `<td>${g.team || "\u2014"}</td>` : "";
+          const preds = `<div class="pred-group">
+            ${scorePill(g.fundamentals, "fund", "Stats")}
+            ${scorePill(g.calibrated, "cal", "Blend")}
+            ${scorePill(g.market, "mkt", "Vegas")}
+          </div>`;
+          const actualCell = g.actual != null
+            ? `<span class="score-pill actual">${g.actual}</span>`
+            : "\u2014";
+          const winner = gameWinnerBadge(g.fund_error, g.cal_error, g.mkt_error);
+          if (g.fund_error != null && g.cal_error != null) {
+            if (g.fund_error < g.cal_error) fundWins++;
+            else if (g.fund_error > g.cal_error) calWins++;
+            else ties++;
+          }
+          return `<tr><td>${name}</td>${teamCell}<td>${preds}</td><td>${actualCell}</td><td>${winner}</td></tr>`;
         }).join("");
-        return `<table class="detail-table"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table>`;
+        const summaryHtml = `<div class="detail-summary">
+          <span class="count-chip fund-chip">Stats-Only: ${fundWins} closer</span>
+          <span class="count-chip cal-chip">Blended: ${calWins} closer</span>
+          ${ties ? `<span class="count-chip tie-chip">${ties} tied</span>` : ""}
+        </div>`;
+        return `${summaryHtml}<table class="detail-table"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table>`;
       }
 
       function renderDetailPanel(data, lane, contentEl) {
         let html = "";
         if (lane === "totals") {
           html += `<h4>Game Totals</h4>`;
-          html += renderDetailGames(data.totals, [
-            { key: "matchup", label: "Matchup" },
-            { key: "fundamentals", label: "Fund." },
-            { key: "calibrated", label: "Cal." },
-            { key: "market", label: "Market" },
-            { key: "actual", label: "Actual" },
-            { key: "fund_error", label: "Fund. Err", isError: true },
-            { key: "cal_error", label: "Cal. Err", isError: true },
-            { key: "mkt_error", label: "Mkt. Err", isError: true },
-          ]);
+          html += renderDetailGames(data.totals, "matchup");
         } else {
           html += `<h4>Pitcher Strikeouts</h4>`;
-          html += renderDetailGames(data.strikeouts, [
-            { key: "pitcher", label: "Pitcher" },
-            { key: "team", label: "Team" },
-            { key: "fundamentals", label: "Fund." },
-            { key: "calibrated", label: "Cal." },
-            { key: "market", label: "Market" },
-            { key: "actual", label: "Actual" },
-            { key: "fund_error", label: "Fund. Err", isError: true },
-            { key: "cal_error", label: "Cal. Err", isError: true },
-            { key: "mkt_error", label: "Mkt. Err", isError: true },
-          ]);
+          html += renderDetailGames(data.strikeouts, "pitcher");
         }
         contentEl.innerHTML = html;
       }
@@ -487,7 +822,6 @@
             const contentEl = document.getElementById(rid + "-content");
             if (!detailRow) return;
 
-            // Toggle
             const isOpen = detailRow.classList.contains("visible");
             if (isOpen) {
               detailRow.classList.remove("visible");
@@ -512,7 +846,7 @@
       async function loadData() {
         const window_days = windowSelect.value;
         const target_date = dateInput.value || today();
-        appEl.innerHTML = `<div class="empty-state">Loading...</div>`;
+        appEl.innerHTML = `<div class="empty-state">Loading&hellip;</div>`;
         try {
           const resp = await fetch(`/api/experiments/summary?window_days=${window_days}&target_date=${target_date}`);
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -529,8 +863,8 @@
           }
 
           let html = `<div class="summary-grid">`;
-          if (hasTotals) html += renderSummary("Totals", totalsAgg);
-          if (hasK) html += renderSummary("Pitcher Strikeouts", kAgg);
+          if (hasTotals) html += renderSummary("Totals", totalsAgg, data.totals.daily);
+          if (hasK) html += renderSummary("Pitcher Strikeouts", kAgg, data.strikeouts.daily);
           html += `</div>`;
           if (hasTotals) html += renderDailyTable("Totals", data.totals.daily, "games");
           if (hasK) html += renderDailyTable("Pitcher Strikeouts", data.strikeouts.daily, "pitchers");
