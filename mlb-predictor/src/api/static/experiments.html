@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MLB Predictor Experiments</title>
+    <style>
+      :root {
+        --bg: #f4efe6;
+        --panel: rgba(255, 252, 247, 0.96);
+        --panel-strong: #fffaf2;
+        --ink: #1d1d1b;
+        --muted: #6d6558;
+        --line: rgba(61, 49, 34, 0.12);
+        --accent: #0c6b58;
+        --accent-soft: rgba(12, 107, 88, 0.12);
+        --warm: #a95c1b;
+        --warm-soft: rgba(169, 92, 27, 0.14);
+        --good: #0d7a43;
+        --good-soft: rgba(13, 122, 67, 0.12);
+        --warn: #b13d27;
+        --warn-soft: rgba(177, 61, 39, 0.12);
+        --neutral-soft: rgba(61, 49, 34, 0.08);
+        --shadow: 0 18px 36px rgba(42, 32, 20, 0.08);
+        --radius-lg: 24px;
+        --radius-md: 16px;
+        --radius-sm: 12px;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top left, rgba(12, 107, 88, 0.12), transparent 28%),
+          radial-gradient(circle at top right, rgba(169, 92, 27, 0.14), transparent 32%),
+          linear-gradient(180deg, #fbf8f2 0%, var(--bg) 100%);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+
+      .topbar,
+      .main-content,
+      .section-header { max-width: 1200px; margin: 0 auto; }
+
+      .topbar,
+      .main-content { padding: 0 clamp(16px, 3vw, 48px); }
+
+      .topbar {
+        display: flex; align-items: center; gap: 18px;
+        padding-top: 18px; padding-bottom: 12px;
+        flex-wrap: wrap;
+      }
+
+      .brand-link {
+        display: flex; align-items: center; gap: 10px;
+        text-decoration: none; color: var(--ink);
+        font-size: 1.05rem; font-weight: 800;
+      }
+
+      .brand-mark {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 36px; height: 36px; border-radius: 10px;
+        background: var(--accent); color: #fff;
+        font-size: 0.85rem; font-weight: 900;
+        letter-spacing: -0.5px;
+      }
+
+      .nav-links {
+        display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto;
+      }
+
+      .nav-link {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 14px; border-radius: var(--radius-sm);
+        text-decoration: none; color: var(--muted);
+        font-size: 0.92rem; font-weight: 600;
+        transition: background 0.15s, color 0.15s;
+      }
+
+      .nav-link:hover { background: var(--neutral-soft); color: var(--ink); }
+      .nav-link.active { background: var(--accent-soft); color: var(--accent); }
+
+      .nav-icon {
+        display: inline-flex; width: 18px; height: 18px;
+      }
+
+      .nav-icon svg {
+        width: 100%; height: 100%;
+        fill: currentColor; stroke: none;
+      }
+
+      .section-header {
+        padding: 24px clamp(16px, 3vw, 48px) 8px;
+      }
+
+      .section-header h1 {
+        font-size: 1.6rem; font-weight: 800; margin: 0 0 4px;
+      }
+
+      .section-header p {
+        color: var(--muted); font-size: 0.95rem; margin: 0;
+      }
+
+      .controls {
+        display: flex; gap: 12px; align-items: center;
+        padding: 12px 0; flex-wrap: wrap;
+      }
+
+      .controls label {
+        font-size: 0.88rem; color: var(--muted); font-weight: 600;
+      }
+
+      .controls select, .controls input {
+        padding: 6px 12px; border: 1px solid var(--line);
+        border-radius: var(--radius-sm); background: var(--panel);
+        font-family: inherit; font-size: 0.9rem; color: var(--ink);
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 20px; margin-bottom: 28px;
+      }
+
+      .summary-card {
+        background: var(--panel); border-radius: var(--radius-md);
+        padding: 24px; box-shadow: var(--shadow);
+        border: 1px solid var(--line);
+      }
+
+      .summary-card h2 {
+        font-size: 1.15rem; font-weight: 800; margin: 0 0 16px;
+      }
+
+      .metric-row {
+        display: flex; justify-content: space-between;
+        padding: 8px 0; border-bottom: 1px solid var(--line);
+      }
+
+      .metric-row:last-child { border-bottom: none; }
+
+      .metric-label { font-size: 0.9rem; color: var(--muted); }
+      .metric-value { font-size: 0.95rem; font-weight: 700; }
+      .metric-value.best { color: var(--good); }
+      .metric-value.worst { color: var(--warn); }
+
+      .daily-table {
+        background: var(--panel); border-radius: var(--radius-md);
+        box-shadow: var(--shadow); border: 1px solid var(--line);
+        overflow-x: auto; margin-bottom: 28px;
+      }
+
+      .daily-table h2 {
+        font-size: 1.1rem; font-weight: 800;
+        padding: 20px 24px 12px; margin: 0;
+      }
+
+      table {
+        width: 100%; border-collapse: collapse;
+        font-size: 0.9rem;
+      }
+
+      th {
+        text-align: left; padding: 10px 16px;
+        border-bottom: 2px solid var(--line);
+        color: var(--muted); font-size: 0.82rem;
+        font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      td {
+        padding: 10px 16px; border-bottom: 1px solid var(--line);
+      }
+
+      tr:last-child td { border-bottom: none; }
+
+      td.best { color: var(--good); font-weight: 700; }
+      td.worst { color: var(--warn); }
+
+      .empty-state {
+        text-align: center; padding: 48px 24px;
+        color: var(--muted); font-size: 1rem;
+      }
+
+      .badge {
+        display: inline-block; padding: 2px 8px;
+        border-radius: 6px; font-size: 0.78rem;
+        font-weight: 700;
+      }
+
+      .badge.winning { background: var(--good-soft); color: var(--good); }
+      .badge.losing { background: var(--warn-soft); color: var(--warn); }
+      .badge.tied { background: var(--neutral-soft); color: var(--muted); }
+
+      .legend {
+        display: flex; gap: 20px; padding: 12px 0;
+        font-size: 0.85rem; color: var(--muted); flex-wrap: wrap;
+      }
+
+      .legend-item { display: flex; align-items: center; gap: 6px; }
+      .legend-dot {
+        width: 10px; height: 10px; border-radius: 50%;
+      }
+
+      .dot-fund { background: var(--accent); }
+      .dot-cal { background: var(--warm); }
+      .dot-mkt { background: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <nav class="topbar" aria-label="Primary">
+      <a class="brand-link" data-app-link="" href=".">
+        <span class="brand-mark">MP</span>
+        <span>MLB Predictor</span>
+      </a>
+      <div class="nav-links">
+        <a class="nav-link" data-app-link="" href="."
+          ><span class="nav-icon" aria-hidden="true"
+            ><svg viewBox="0 0 24 24"><path d="M3 5h8v6H3zm10 0h8v6h-8zM3 13h8v6H3zm10 0h8v6h-8z"/></svg></span
+          ><span>Game Board</span></a
+        >
+        <a class="nav-link" data-app-link="hot-hitters" href="hot-hitters"
+          ><span class="nav-icon" aria-hidden="true"
+            ><svg viewBox="0 0 24 24"><path d="M13.5 2.5c.3 2.7-1 4.6-2.6 6.2-1.1 1.1-1.7 2.3-1.7 3.7 0 1.9 1.3 3.4 3.2 3.4 2.3 0 3.8-2 3.8-4.5 0-.8-.1-1.6-.5-2.5 2.3 1.3 4.3 4 4.3 7.1 0 4.1-3.3 7.1-8 7.1-4.6 0-8-2.9-8-7.4 0-3.3 1.7-5.5 4.1-7.5 2.4-1.9 4.8-3.8 5.4-5.6z"/></svg></span
+          ><span>Hot Hitters</span></a
+        >
+        <a class="nav-link" data-app-link="totals" href="totals"
+          ><span class="nav-icon" aria-hidden="true"
+            ><svg viewBox="0 0 24 24"><path d="M4 6h16v3H4zm0 5h10v3H4zm0 5h7v3H4zm12.5-7.5L19 11l4-5"/></svg></span
+          ><span>Totals</span></a
+        >
+        <a class="nav-link" data-app-link="pitchers" href="pitchers"
+          ><span class="nav-icon" aria-hidden="true"
+            ><svg viewBox="0 0 24 24"><path d="M15.5 2 8 9.5l1.4 1.4 2.6-2.6 3.7 3.7c.4.4 1 .6 1.5.6H19v1.8l3 3V11.8c0-.6-.2-1.1-.6-1.5L17.7 6.6l2.6-2.6zM3 19.5A2.5 2.5 0 0 0 5.5 22 2.5 2.5 0 0 0 8 19.5 2.5 2.5 0 0 0 5.5 17 2.5 2.5 0 0 0 3 19.5z"/></svg></span
+          ><span>Pitcher Ks</span></a
+        >
+        <a class="nav-link" data-app-link="results" href="results"
+          ><span class="nav-icon" aria-hidden="true"
+            ><svg viewBox="0 0 24 24"><path d="M5 4h14v2H5zm0 5h14v2H5zm0 5h9v2H5zm11.5 1.5 1.6 1.6L22 13.2"/></svg></span
+          ><span>Daily Results</span></a
+        >
+        <a
+          class="nav-link active"
+          data-app-link="experiments"
+          href="experiments"
+          aria-current="page"
+          ><span class="nav-icon" aria-hidden="true"
+            ><svg viewBox="0 0 24 24"><path d="M7 2v2h1v5.17A3 3 0 0 0 5 12v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a3 3 0 0 0-3-3.17V4h1V2H7zm3 2h4v4.5l1.5 1.5H8.5L10 8.5V4z"/></svg></span
+          ><span>Experiments</span></a
+        >
+      </div>
+    </nav>
+
+    <div class="section-header">
+      <h1>Model Experiments</h1>
+      <p>Compare fundamentals-only vs market-calibrated predictions against actual outcomes</p>
+      <div class="controls">
+        <label for="window-select">Window:</label>
+        <select id="window-select">
+          <option value="7">7 days</option>
+          <option value="14" selected>14 days</option>
+          <option value="30">30 days</option>
+          <option value="60">60 days</option>
+        </select>
+        <label for="date-input">As of:</label>
+        <input type="date" id="date-input" />
+      </div>
+      <div class="legend">
+        <span class="legend-item"><span class="legend-dot dot-fund"></span> Fundamentals</span>
+        <span class="legend-item"><span class="legend-dot dot-cal"></span> Calibrated (market-blended)</span>
+        <span class="legend-item"><span class="legend-dot dot-mkt"></span> Market line</span>
+      </div>
+    </div>
+
+    <div class="main-content" id="app">
+      <div class="empty-state" id="loading">Loading experiment data...</div>
+    </div>
+
+    <script>
+      const appEl = document.getElementById("app");
+      const windowSelect = document.getElementById("window-select");
+      const dateInput = document.getElementById("date-input");
+
+      function today() {
+        const d = new Date();
+        return d.toISOString().slice(0, 10);
+      }
+
+      dateInput.value = today();
+
+      function fmt(n, decimals = 3) {
+        if (n == null) return "\u2014";
+        return Number(n).toFixed(decimals);
+      }
+
+      function bestClass(vals, val) {
+        if (val == null) return "";
+        const nums = vals.filter((v) => v != null);
+        if (nums.length === 0) return "";
+        const min = Math.min(...nums);
+        const max = Math.max(...nums);
+        if (val === min && min < max) return "best";
+        if (val === max && max > min) return "worst";
+        return "";
+      }
+
+      function statusBadge(fund, cal) {
+        if (fund == null || cal == null) return "";
+        if (fund < cal) return `<span class="badge winning">Fund wins</span>`;
+        if (fund > cal) return `<span class="badge losing">Cal wins</span>`;
+        return `<span class="badge tied">Tied</span>`;
+      }
+
+      function renderSummary(label, agg) {
+        const vals = [agg.fundamentals_mae, agg.calibrated_mae, agg.market_mae];
+        return `
+          <div class="summary-card">
+            <h2>${label}</h2>
+            <div class="metric-row">
+              <span class="metric-label">Days with data</span>
+              <span class="metric-value">${agg.days}</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Total predictions</span>
+              <span class="metric-value">${agg.total_count}</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Fundamentals MAE</span>
+              <span class="metric-value ${bestClass(vals, agg.fundamentals_mae)}">${fmt(agg.fundamentals_mae)}</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Calibrated MAE</span>
+              <span class="metric-value ${bestClass(vals, agg.calibrated_mae)}">${fmt(agg.calibrated_mae)}</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Market Line MAE</span>
+              <span class="metric-value ${bestClass(vals, agg.market_mae)}">${fmt(agg.market_mae)}</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Verdict</span>
+              <span class="metric-value">${statusBadge(agg.fundamentals_mae, agg.calibrated_mae)}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderDailyTable(label, daily, countKey) {
+        if (!daily || daily.length === 0) {
+          return `<div class="daily-table"><h2>${label} \u2014 Daily Breakdown</h2><div class="empty-state">No completed games with dual predictions yet</div></div>`;
+        }
+        const headerRow = `<tr><th>Date</th><th>${countKey}</th><th>Fund. MAE</th><th>Cal. MAE</th><th>Market MAE</th><th>Winner</th></tr>`;
+        const bodyRows = daily.map((d) => {
+          const vals = [d.fundamentals_mae, d.calibrated_mae, d.market_mae];
+          return `<tr>
+            <td>${d.date}</td>
+            <td>${d[countKey] || 0}</td>
+            <td class="${bestClass(vals, d.fundamentals_mae)}">${fmt(d.fundamentals_mae)}</td>
+            <td class="${bestClass(vals, d.calibrated_mae)}">${fmt(d.calibrated_mae)}</td>
+            <td class="${bestClass(vals, d.market_mae)}">${fmt(d.market_mae)}</td>
+            <td>${statusBadge(d.fundamentals_mae, d.calibrated_mae)}</td>
+          </tr>`;
+        }).join("");
+        return `
+          <div class="daily-table">
+            <h2>${label} \u2014 Daily Breakdown</h2>
+            <table>
+              <thead>${headerRow}</thead>
+              <tbody>${bodyRows}</tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      async function loadData() {
+        const window_days = windowSelect.value;
+        const target_date = dateInput.value || today();
+        appEl.innerHTML = `<div class="empty-state">Loading...</div>`;
+        try {
+          const resp = await fetch(`/api/experiments/summary?window_days=${window_days}&target_date=${target_date}`);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+
+          const totalsAgg = data.totals?.aggregate || {};
+          const kAgg = data.strikeouts?.aggregate || {};
+          const hasTotals = totalsAgg.days > 0;
+          const hasK = kAgg.days > 0;
+
+          if (!hasTotals && !hasK) {
+            appEl.innerHTML = `<div class="empty-state">No completed games with dual predictions in the ${window_days}-day window ending ${target_date}.<br><br>Dual predictions will appear after running predictions with the experiment branch code on dates with final game outcomes.</div>`;
+            return;
+          }
+
+          let html = `<div class="summary-grid">`;
+          if (hasTotals) html += renderSummary("Totals", totalsAgg);
+          if (hasK) html += renderSummary("Pitcher Strikeouts", kAgg);
+          html += `</div>`;
+          if (hasTotals) html += renderDailyTable("Totals", data.totals.daily, "games");
+          if (hasK) html += renderDailyTable("Pitcher Strikeouts", data.strikeouts.daily, "pitchers");
+
+          appEl.innerHTML = html;
+        } catch (err) {
+          appEl.innerHTML = `<div class="empty-state">Error loading experiment data: ${err.message}</div>`;
+        }
+      }
+
+      windowSelect.addEventListener("change", loadData);
+      dateInput.addEventListener("change", loadData);
+      loadData();
+    </script>
+  </body>
+</html>
