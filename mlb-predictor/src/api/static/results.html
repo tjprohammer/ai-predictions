@@ -407,6 +407,12 @@
         color: var(--muted);
       }
 
+      .tiny-label {
+        font-size: 0.75rem;
+        color: var(--muted);
+        opacity: 0.8;
+      }
+
       .pill-row {
         gap: 8px;
       }
@@ -1041,7 +1047,7 @@
               <div class="cell-title">${escapeHtml(row.matchup)}</div>
               <div class="cell-subtitle">${escapeHtml(formatDateTime(row.game_start_ts))} · ${escapeHtml(row.status || "status pending")}</div>
             </div>
-            <div>${escapeHtml(formatNumber(row.predicted_total_runs, 2))}</div>
+            <div>${escapeHtml(formatNumber(row.predicted_total_runs, 2))}${row.predicted_total_fundamentals != null ? ` <span class="tiny-label" title="Fundamentals-only">(F ${escapeHtml(formatNumber(row.predicted_total_fundamentals, 2))})</span>` : ''}</div>
             <div>${escapeHtml(formatNumber(row.market_total, 1))} · ${escapeHtml((row.recommended_side || "no line").toUpperCase())}</div>
             <div>${escapeHtml(formatNumber(row.actual_total_runs, 0))} · ${escapeHtml((row.actual_side || "pending").toUpperCase())}</div>
             <div class="cell-main">
@@ -1086,7 +1092,7 @@
               <div class="cell-title">${escapeHtml(row.pitcher_name)}</div>
               <div class="cell-subtitle">${escapeHtml(row.team)} vs ${escapeHtml(row.opponent || "TBD")} · ${escapeHtml(formatDateTime(row.game_start_ts))}</div>
             </div>
-            <div>${escapeHtml(formatNumber(row.predicted_strikeouts, 2))}</div>
+            <div>${escapeHtml(formatNumber(row.predicted_strikeouts, 2))}${row.predicted_strikeouts_fundamentals != null ? ` <span class="tiny-label" title="Fundamentals-only">(F ${escapeHtml(formatNumber(row.predicted_strikeouts_fundamentals, 2))})</span>` : ''}</div>
             <div>${escapeHtml(formatNumber(row.market_line, 1))} · ${escapeHtml((row.recommended_side || "no line").toUpperCase())}</div>
             <div>${escapeHtml(formatNumber(row.actual_strikeouts, 0))} · ${escapeHtml((row.actual_side || "pending").toUpperCase())}</div>
             <div class="cell-main">

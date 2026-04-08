@@ -1541,6 +1541,10 @@
                 <span class="metric-label">Projected Ks</span>
                 <span class="metric-value">${formatNumber(projection.projected_strikeouts, 2)}</span>
               </div>
+              ${projection.projected_strikeouts_fundamentals != null ? `<div class="metric-box">
+                <span class="metric-label" title="Fundamentals-only prediction (no market input)">Fund. Ks</span>
+                <span class="metric-value">${formatNumber(projection.projected_strikeouts_fundamentals, 2)}</span>
+              </div>` : ''}
               <div class="metric-box">
                 <span class="metric-label">Market Line</span>
                 <span class="metric-value">${formatNumber(market.consensus_line, 1)}</span>

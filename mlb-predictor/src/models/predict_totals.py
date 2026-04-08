@@ -201,7 +201,7 @@ def main() -> int:
 
     prediction_ts = datetime.now(timezone.utc)
     rows = []
-    for idx, (row, raw_pred, cal_pred, was_calibrated) in enumerate(
+    for idx, (row, fundamentals_pred, cal_pred, was_calibrated) in enumerate(
         zip(
             scoring.itertuples(index=False),
             predictions,
@@ -210,6 +210,7 @@ def main() -> int:
         )
     ):
         predicted_total = float(cal_pred)
+        predicted_total_fundamentals = float(fundamentals_pred)
         effective_std = calibration_residual_std if was_calibrated else residual_std
         over_probability = None
         under_probability = None
@@ -233,6 +234,7 @@ def main() -> int:
                 "model_name": artifact["model_name"],
                 "model_version": artifact["model_version"],
                 "predicted_total_runs": predicted_total,
+                "predicted_total_fundamentals": predicted_total_fundamentals,
                 "over_probability": over_probability,
                 "under_probability": under_probability,
                 "market_total": row.market_total,
