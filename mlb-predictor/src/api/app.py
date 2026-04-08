@@ -334,7 +334,7 @@ def _desktop_rebuild_blocker(target_date: date) -> dict[str, Any] | None:
 
 
 def _action_blocker(action: UpdateAction, target_date: date) -> dict[str, Any] | None:
-    if action not in {"refresh_everything", "rebuild_predictions", "retrain_models"}:
+    if action not in {"rebuild_predictions", "retrain_models"}:
         return None
     return _desktop_rebuild_blocker(target_date)
 
@@ -5798,24 +5798,7 @@ def _run_update_job_background(job_id: str) -> None:
         if job is None:
             return
         target_date = str(job["target_date"])
-        action = job["action"]
         sequence = list(job["sequence"])
-
-    blocker = _action_blocker(action, date.fromisoformat(target_date))
-    if blocker is not None:
-        with UPDATE_JOB_LOCK:
-            job = UPDATE_JOBS.get(job_id)
-            if job is None:
-                return
-            job["status"] = "failed"
-            job["finished_at"] = _utc_now_iso()
-            job["current_step"] = None
-            job["error"] = blocker["message"]
-            job["status_snapshot"] = _safe_fetch_status(target_date)
-            _trim_finished_jobs_locked()
-            _persist_pipeline_run(job)
-        _persist_update_jobs()
-        return
 
     for index, (module_name, args) in enumerate(sequence, start=1):
         with UPDATE_JOB_LOCK:

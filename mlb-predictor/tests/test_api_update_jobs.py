@@ -449,58 +449,13 @@ def test_start_update_job_blocks_rebuild_predictions_when_desktop_history_missin
     assert payload["blocker"] == blocker
 
 
-def test_start_update_job_blocks_refresh_everything_when_desktop_history_missing(monkeypatch):
-    _reset_update_jobs()
-    blocker = {"message": "Desktop historical data is incomplete."}
+def test_action_blocker_allows_refresh_everything():
+    """refresh_everything is never blocked — it populates the history tables."""
+    from datetime import date
 
-    monkeypatch.setattr(
-        app_module,
-        "_action_blocker",
-        lambda action, target_date: blocker if action == "refresh_everything" else None,
-    )
-    monkeypatch.setattr(
-        app_module,
-        "_fetch_status",
-        lambda target_date: {"target_date": target_date.isoformat(), "rebuild_blocker": blocker},
-    )
+    blocker = app_module._action_blocker("refresh_everything", date(2026, 4, 2))
+    assert blocker is None
 
-    response = app_module.start_update_job(
-        app_module.UpdateJobRunRequest(
-            action="refresh_everything",
-            target_date="2026-04-02",
-        )
-    )
-    payload = json.loads(response.body)
-
-    assert response.status_code == 409
-    assert payload["ok"] is False
-    assert payload["message"] == blocker["message"]
-    assert payload["blocker"] == blocker
-
-
-def test_background_update_job_marks_blocked_rebuild_failed(monkeypatch):
-    _reset_update_jobs()
-    blocker = {"message": "Desktop historical data is incomplete."}
-
-    monkeypatch.setattr(
-        app_module,
-        "_action_blocker",
-        lambda action, target_date: blocker if action == "rebuild_predictions" else None,
-    )
-    monkeypatch.setattr(
-        app_module,
-        "_fetch_status",
-        lambda target_date: {"target_date": target_date.isoformat(), "rebuild_blocker": blocker},
-    )
-
-    job = app_module._create_update_job("rebuild_predictions", "2026-04-02")
-    app_module._run_update_job_background(job["job_id"])
-    stored_job = app_module._get_update_job(job["job_id"])
-
-    assert stored_job is not None
-    assert stored_job["status"] == "failed"
-    assert stored_job["error"] == blocker["message"]
-    assert stored_job["status_snapshot"]["rebuild_blocker"] == blocker
 
 
 def test_update_job_history_persists_to_disk(monkeypatch, tmp_path):
