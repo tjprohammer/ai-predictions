@@ -5009,12 +5009,14 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
         for d in sorted(by_date):
             rows = by_date[d]
             cal_errors, fund_errors, mkt_errors = [], [], []
-            cal_preds, fund_preds, mkt_preds = [], [], []
+            cal_preds, fund_preds, mkt_preds, actuals = [], [], [], []
             for r in rows:
                 actual = _to_float(r.get("actual"))
                 cal = _to_float(r.get("predicted_total_runs"))
                 fund = _to_float(r.get("predicted_total_fundamentals"))
                 mkt = _to_float(r.get("market_total"))
+                if actual is not None:
+                    actuals.append(actual)
                 if cal is not None:
                     cal_preds.append(cal)
                 if fund is not None:
@@ -5030,6 +5032,7 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
             totals_daily.append({
                 "date": d,
                 "games": len(rows),
+                "actual_avg": round(sum(actuals) / len(actuals), 2) if actuals else None,
                 "calibrated_mae": round(sum(cal_errors) / len(cal_errors), 3) if cal_errors else None,
                 "fundamentals_mae": round(sum(fund_errors) / len(fund_errors), 3) if fund_errors else None,
                 "market_mae": round(sum(mkt_errors) / len(mkt_errors), 3) if mkt_errors else None,
@@ -5070,12 +5073,14 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
         for d in sorted(by_date_k):
             rows = by_date_k[d]
             cal_errors, fund_errors, mkt_errors = [], [], []
-            cal_preds, fund_preds, mkt_preds = [], [], []
+            cal_preds, fund_preds, mkt_preds, actuals = [], [], [], []
             for r in rows:
                 actual = _to_float(r.get("actual"))
                 cal = _to_float(r.get("predicted_strikeouts"))
                 fund = _to_float(r.get("predicted_strikeouts_fundamentals"))
                 mkt = _to_float(r.get("market_line"))
+                if actual is not None:
+                    actuals.append(actual)
                 if cal is not None:
                     cal_preds.append(cal)
                 if fund is not None:
@@ -5091,6 +5096,7 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
             strikeouts_daily.append({
                 "date": d,
                 "pitchers": len(rows),
+                "actual_avg": round(sum(actuals) / len(actuals), 2) if actuals else None,
                 "calibrated_mae": round(sum(cal_errors) / len(cal_errors), 3) if cal_errors else None,
                 "fundamentals_mae": round(sum(fund_errors) / len(fund_errors), 3) if fund_errors else None,
                 "market_mae": round(sum(mkt_errors) / len(mkt_errors), 3) if mkt_errors else None,
@@ -5101,6 +5107,7 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
 
     def _agg(daily: list[dict], count_key: str) -> dict[str, Any]:
         total_count = sum(d.get(count_key, 0) for d in daily)
+        actual_vals = [d["actual_avg"] for d in daily if d.get("actual_avg") is not None]
         cal_vals = [d["calibrated_mae"] for d in daily if d.get("calibrated_mae") is not None]
         fund_vals = [d["fundamentals_mae"] for d in daily if d.get("fundamentals_mae") is not None]
         mkt_vals = [d["market_mae"] for d in daily if d.get("market_mae") is not None]
@@ -5110,6 +5117,7 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
         return {
             "days": len(daily),
             "total_count": total_count,
+            "actual_avg": round(sum(actual_vals) / len(actual_vals), 2) if actual_vals else None,
             "calibrated_mae": round(sum(cal_vals) / len(cal_vals), 3) if cal_vals else None,
             "fundamentals_mae": round(sum(fund_vals) / len(fund_vals), 3) if fund_vals else None,
             "market_mae": round(sum(mkt_vals) / len(mkt_vals), 3) if mkt_vals else None,

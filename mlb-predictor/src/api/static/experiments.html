@@ -747,6 +747,10 @@
               <span class="metric-value">${agg.days} days &middot; ${agg.total_count} predictions</span>
             </div>
             <div class="metric-row">
+              <span class="metric-label"><span class="score-pill actual">${fmt(agg.actual_avg)}</span> Actual<span class="metric-hint">avg outcome</span></span>
+              <span class="metric-value">&nbsp;</span>
+            </div>
+            <div class="metric-row">
               <span class="metric-label">${scorePill(agg.fundamentals_avg, "fund", "Stats-Only")}<span class="metric-hint">avg prediction</span></span>
               <span class="metric-value ${bestClass(vals, agg.fundamentals_mae)}">off by ${fmt(agg.fundamentals_mae)} ${unit}<span class="metric-hint">avg</span> ${deltaTag(agg.fundamentals_mae, agg.calibrated_mae)}</span>
             </div>
@@ -774,20 +778,21 @@
         const lane = countKey === "games" ? "totals" : "strikeouts";
         const unit = lane === "totals" ? "runs" : "Ks";
         const countLabel = countKey === "games" ? "Games" : "Pitchers";
-        const headerRow = `<tr><th>Date</th><th>${countLabel}</th><th>Stats-Only<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Blended<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Vegas<br><span style="font-weight:400;text-transform:none;letter-spacing:0">line &rarr; miss</span></th><th>More Accurate</th></tr>`;
+        const headerRow = `<tr><th>Date</th><th>${countLabel}</th><th>Actual<br><span style="font-weight:400;text-transform:none;letter-spacing:0">avg outcome</span></th><th>Stats-Only<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Blended<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Vegas<br><span style="font-weight:400;text-transform:none;letter-spacing:0">line &rarr; miss</span></th><th>More Accurate</th></tr>`;
         const bodyRows = daily.map((d) => {
           const vals = [d.fundamentals_mae, d.calibrated_mae, d.market_mae];
           const rid = `detail-${lane}-${d.date}`;
           return `<tr class="daily-row" data-date="${d.date}" data-lane="${lane}" data-detail="${rid}">
             <td>${d.date}</td>
             <td>${d[countKey] || 0}</td>
+            <td><span class="score-pill actual">${fmt(d.actual_avg)}</span></td>
             <td class="${bestClass(vals, d.fundamentals_mae)}">${scorePill(d.fundamentals_avg, "fund", "")} &rarr; ${fmt(d.fundamentals_mae)}</td>
             <td class="${bestClass(vals, d.calibrated_mae)}">${scorePill(d.calibrated_avg, "cal", "")} &rarr; ${fmt(d.calibrated_mae)}</td>
             <td class="${bestClass(vals, d.market_mae)}">${scorePill(d.market_avg, "mkt", "")} &rarr; ${fmt(d.market_mae)}</td>
             <td>${statusBadge(d.fundamentals_mae, d.calibrated_mae)}</td>
           </tr>
           <tr class="detail-row" id="${rid}">
-            <td colspan="6"><div class="detail-wrap" id="${rid}-content">Loading&hellip;</div></td>
+            <td colspan="7"><div class="detail-wrap" id="${rid}-content">Loading&hellip;</div></td>
           </tr>`;
         }).join("");
         return `
