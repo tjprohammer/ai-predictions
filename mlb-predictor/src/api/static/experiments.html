@@ -217,8 +217,10 @@
 
       .explainer .key-item {
         display: flex;
-        align-items: center;
-        gap: 6px;
+        align-items: flex-start;
+        gap: 8px;
+        flex: 1 1 280px;
+        min-width: 0;
       }
 
       .explainer .key-dot {
@@ -226,6 +228,28 @@
         height: 10px;
         border-radius: 50%;
         flex-shrink: 0;
+        margin-top: 4px;
+      }
+
+      .explainer .key-name {
+        font-weight: 800;
+        color: var(--ink);
+        white-space: nowrap;
+      }
+
+      .explainer .key-desc {
+        display: block;
+        font-size: 0.82rem;
+        line-height: 1.45;
+        margin-top: 2px;
+      }
+
+      .explainer .key-features {
+        display: block;
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin-top: 3px;
+        font-style: italic;
       }
 
       .controls {
@@ -576,13 +600,34 @@
       </div>
 
       <div class="explainer">
-        <strong>How to read this page:</strong> We're testing two prediction approaches head-to-head against the Vegas line.
-        The key number is <strong>Avg Miss</strong> &mdash; how far off a prediction was from the real outcome, on average.
-        <strong>Lower is better.</strong> An avg miss of 1.50 means our prediction was typically 1.5 runs away from the actual game total.
+        <strong>How to read this page:</strong> We train a machine learning model on real baseball stats to predict game totals (combined runs scored) and individual pitcher strikeouts.
+        The question is: does blending in the Vegas line make our predictions better, or can the stats alone beat the market?
+        The key number is <strong>Avg Miss</strong> &mdash; how far off each prediction was from the real outcome.
+        <strong>Lower is better.</strong> An avg miss of 1.50 means our prediction was typically 1.5 runs (or Ks) away from what actually happened.
         <div class="model-key">
-          <span class="key-item"><span class="key-dot" style="background:var(--accent)"></span> <strong>Stats-Only</strong> &mdash; our model using only baseball stats, no Vegas influence</span>
-          <span class="key-item"><span class="key-dot" style="background:var(--warm)"></span> <strong>Blended</strong> &mdash; our model adjusted toward the Vegas line</span>
-          <span class="key-item"><span class="key-dot" style="background:var(--muted)"></span> <strong>Vegas</strong> &mdash; the sportsbook line itself</span>
+          <span class="key-item">
+            <span class="key-dot" style="background:var(--accent)"></span>
+            <span>
+              <span class="key-name">Stats-Only</span>
+              <span class="key-desc">Our model's raw prediction using <strong>only baseball data</strong> &mdash; no Vegas influence at all. This is what the model thinks will happen based purely on the numbers.</span>
+              <span class="key-features">Totals: offensive rates, starter matchups (xwOBA, CSW, velo, whiff%), bullpen workload &amp; ERA, lineup quality, park factors, weather. Strikeouts: pitcher K rates, recent form (3/5 game), opponent lineup K%, handedness splits, venue K factor.</span>
+            </span>
+          </span>
+          <span class="key-item">
+            <span class="key-dot" style="background:var(--warm)"></span>
+            <span>
+              <span class="key-name">Blended</span>
+              <span class="key-desc">Takes the Stats-Only prediction and <strong>adjusts it toward the Vegas line</strong> using a calibration model. The idea is that the market carries information our stats might miss (injuries, weather changes, sharp money).</span>
+              <span class="key-features">Uses the same stats model as Stats-Only, then feeds both the raw prediction and the Vegas line into a second model that decides how much weight to give each.</span>
+            </span>
+          </span>
+          <span class="key-item">
+            <span class="key-dot" style="background:var(--muted)"></span>
+            <span>
+              <span class="key-name">Vegas</span>
+              <span class="key-desc">The sportsbook's over/under line (totals) or prop line (strikeouts). This is our benchmark &mdash; <strong>can our model beat the house?</strong></span>
+            </span>
+          </span>
         </div>
       </div>
 
