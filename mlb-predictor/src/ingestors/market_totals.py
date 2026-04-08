@@ -1206,17 +1206,23 @@ def main() -> int:
     required_player_prop_markets = {market.strip().lower() for market in args.require_player_prop_coverage}
 
     inserted = 0
+    odds_api_game_ok = False
+    odds_api_props_ok = False
+
+    # --- Game totals: try Odds API first, fall back to Covers ---
     if settings.odds_api_key:
         try:
             odds_rows = _timed_fetch("odds_api", _fetch_odds_api_rows, start_date, end_date, settings.odds_api_key)
         except requests.RequestException as exc:
-            log.warning("Odds API market pull failed: %s", exc)
+            log.warning("Odds API market pull failed: %s — falling back to Covers", exc)
         else:
+            odds_api_game_ok = True
             inserted += upsert_rows("game_markets", odds_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
             _write_market_snapshot_versions(odds_rows)
             if odds_rows:
                 log.info("Imported %s market rows from the Odds API", len(odds_rows))
-    else:
+
+    if not odds_api_game_ok:
         try:
             covers_rows = _timed_fetch("covers_totals", _fetch_covers_rows, start_date, end_date)
         except requests.RequestException as exc:
@@ -1225,8 +1231,9 @@ def main() -> int:
             inserted += upsert_rows("game_markets", covers_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
             _write_market_snapshot_versions(covers_rows)
             if covers_rows:
-                log.info("Imported %s market rows from Covers totals HTML", len(covers_rows))
+                log.info("Imported %s market rows from Covers totals HTML (fallback)", len(covers_rows))
 
+    # --- Player props + first-5: try Odds API first, fall back to Covers + Rotowire ---
     if settings.odds_api_key:
         try:
             odds_prop_rows, odds_first5_rows = _timed_fetch(
@@ -1237,8 +1244,9 @@ def main() -> int:
                 settings.odds_api_key,
             )
         except requests.RequestException as exc:
-            log.warning("Odds API player prop pull failed: %s", exc)
+            log.warning("Odds API player prop pull failed: %s — falling back to Covers + Rotowire", exc)
         else:
+            odds_api_props_ok = True
             if odds_prop_rows:
                 _ensure_player_prop_markets_table()
                 inserted += upsert_rows(
@@ -1255,7 +1263,8 @@ def main() -> int:
                 )
                 _write_market_snapshot_versions(odds_first5_rows)
                 log.info("Imported %s first-5 totals market rows from the Odds API", len(odds_first5_rows))
-    else:
+
+    if not odds_api_props_ok:
         try:
             covers_prop_rows = _timed_fetch(
                 "covers_player_props",
@@ -1273,7 +1282,7 @@ def main() -> int:
                     covers_prop_rows,
                     ["game_id", "player_id", "sportsbook", "market_type", "snapshot_ts"],
                 )
-                log.info("Imported %s player prop rows from Covers player props HTML", len(covers_prop_rows))
+                log.info("Imported %s player prop rows from Covers player props HTML (fallback)", len(covers_prop_rows))
         try:
             rotowire_prop_rows = _timed_fetch(
                 "rotowire_player_props",
@@ -1291,7 +1300,7 @@ def main() -> int:
                     rotowire_prop_rows,
                     ["game_id", "player_id", "sportsbook", "market_type", "snapshot_ts"],
                 )
-                log.info("Imported %s player prop rows from Rotowire player props HTML", len(rotowire_prop_rows))
+                log.info("Imported %s player prop rows from Rotowire player props HTML (fallback)", len(rotowire_prop_rows))
 
     if not csv_path.exists():
         log.info("No manual market CSV found at %s", csv_path)
