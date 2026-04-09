@@ -2164,6 +2164,9 @@
       const playerSearchCard = document.getElementById("playerSearchCard");
       let psDebounce = null;
       let psAbort = null;
+      let psLastPlayer = null;
+      let psLastAgg = null;
+      let psLastGames = null;
 
       function clearAutocomplete() {
         playerSearchResults.innerHTML = "";
@@ -2208,8 +2211,8 @@
           .map(
             (p) =>
               `<div class="autocomplete-item" data-player-id="${p.player_id}" data-player='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
-                <span class="ac-name">${esc(p.full_name)}</span>
-                <span class="ac-meta">${esc(p.position)} · ${esc(p.team_abbr)}</span>
+                <span class="ac-name">${escapeHtml(p.full_name)}</span>
+                <span class="ac-meta">${escapeHtml(p.position)} · ${escapeHtml(p.team_abbr)}</span>
               </div>`,
           )
           .join("");
@@ -2245,6 +2248,9 @@
             return;
           }
           const agg = aggregateStats(frame);
+          psLastPlayer = player;
+          psLastAgg = agg;
+          psLastGames = frame;
           playerSearchCard.innerHTML = renderPlayerCardHTML(player, agg, frame);
         } catch (err) {
           console.error(err);
@@ -2296,20 +2302,27 @@
       }
 
       function renderPlayerCardHTML(player, agg, games) {
-        const gameCols = games
-          .slice(0, 7)
-          .map(
-            (g) =>
-              `<td title="${esc(g.game_date)} vs ${esc(g.opponent)}">${g.hits}/${g.at_bats}</td>`,
-          )
-          .join("");
+        const history = games.map((g) => ({
+          ...g,
+          had_hit: (g.hits || 0) > 0,
+        }));
+        const hitGames = history.filter((g) => g.had_hit).length;
+        const fakeRow = {
+          player_id: player.player_id,
+          player_name: player.full_name,
+          recent_hit_history: history,
+        };
         return `
         <article class="player-card">
           <div class="player-head">
             <div>
               <div class="section-tag">Player Lookup</div>
-              <div class="player-name">${esc(player.full_name)}</div>
-              <div class="player-context">${esc(player.position)} | ${esc(player.team_abbr)} | Bats ${esc(player.bats)} | Last ${agg.games} games</div>
+              <div class="player-name">${escapeHtml(player.full_name)}</div>
+              <div class="player-context">${escapeHtml(player.position)} | ${escapeHtml(player.team_abbr)} | Bats ${escapeHtml(player.bats)} | Last ${agg.games} games</div>
+            </div>
+            <div class="player-topline">
+              <span class="chip ${Number(agg.avg) >= 0.280 ? "good" : Number(agg.avg) <= 0.200 ? "warn" : ""}">${agg.avg} AVG</span>
+              <span class="chip">${hitGames}/${history.length} hit games</span>
             </div>
           </div>
 
@@ -2327,6 +2340,8 @@
               <span class="metric-value" style="color: ${Number(agg.slg) >= 0.450 ? "var(--good)" : Number(agg.slg) <= 0.320 ? "var(--warn)" : "inherit"}">${agg.slg}</span>
             </div>
           </div>
+
+          ${renderRecentHistory(fakeRow)}
 
           <div class="data-stack">
             <div class="data-row">
@@ -2354,21 +2369,35 @@
               <span class="data-value">${agg.ab}</span>
             </div>
           </div>
-
-          <div class="history-block" style="padding:12px 14px">
-            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;color:rgba(255,255,255,.85)">
-              <tr><th style="padding:4px 6px;text-align:left;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(255,255,255,.5)">Recent</th>${gameCols}</tr>
-            </table>
-          </div>
         </article>`;
       }
 
-      function esc(s) {
-        if (!s) return "";
-        const d = document.createElement("div");
-        d.textContent = s;
-        return d.innerHTML;
-      }
+      playerSearchCard.addEventListener("click", (event) => {
+        const filterButton = event.target.closest("[data-history-filter]");
+        if (filterButton) {
+          const playerKey = String(filterButton.dataset.playerKey || "");
+          const filterKey = String(filterButton.dataset.historyFilter || "l10");
+          if (playerKey) {
+            state.historyFilters[playerKey] = filterKey;
+            if (psLastPlayer && psLastGames) {
+              playerSearchCard.innerHTML = renderPlayerCardHTML(psLastPlayer, psLastAgg, psLastGames);
+            }
+          }
+          return;
+        }
+        const statButton = event.target.closest("[data-stat-filter]");
+        if (statButton) {
+          const playerKey = String(statButton.dataset.playerKey || "");
+          const statKey = String(statButton.dataset.statFilter || "hits");
+          if (playerKey) {
+            state.statFilters[playerKey] = statKey;
+            if (psLastPlayer && psLastGames) {
+              playerSearchCard.innerHTML = renderPlayerCardHTML(psLastPlayer, psLastAgg, psLastGames);
+            }
+          }
+          return;
+        }
+      });
 
       refreshPage();
     </script>
