@@ -1207,6 +1207,7 @@
       const pageState = {
         detail: null,
         historyFilters: {},
+        statFilters: {},
       };
 
       function appUrl(path = "") {
@@ -1238,6 +1239,7 @@
       }
 
       function numberOr(value, fallback = null) {
+        if (value == null || value === "") return fallback;
         const number = Number(value);
         return Number.isFinite(number) ? number : fallback;
       }
@@ -1418,6 +1420,30 @@
         ];
       }
 
+      function statFilterOptions() {
+        return [
+          { key: "hits", label: "H", field: "hits" },
+          { key: "runs", label: "R", field: "runs" },
+          { key: "rbi", label: "RBI", field: "rbi" },
+          { key: "home_runs", label: "HR", field: "home_runs" },
+          { key: "total_bases", label: "TB", field: "total_bases" },
+          { key: "walks", label: "BB", field: "walks" },
+          { key: "stolen_bases", label: "SB", field: "stolen_bases" },
+          { key: "strikeouts", label: "K", field: "strikeouts" },
+        ];
+      }
+
+      function getStatFilter(player) {
+        const playerKey = String(
+          player?.player_id || player?.player_name || "player",
+        );
+        return pageState.statFilters[playerKey] || "hits";
+      }
+
+      function getStatValue(entry, statKey) {
+        return numberOr(entry[statKey], 0) ?? 0;
+      }
+
       function getHistoryFilter(player) {
         const playerKey = String(
           player?.player_id || player?.player_name || "player",
@@ -1463,68 +1489,89 @@
         const filterTitle =
           historyFilterOptions().find((item) => item.key === filterKey)
             ?.label || "L15";
+        const activeStat = getStatFilter(player);
         return `
           <div class="history-block">
             <div class="history-head">
               <div class="history-caption ${formTone}"><strong>${filterKey === "h2h" ? filterTitle : defaultHistoryTitle}</strong>${filterKey === "h2h" ? ` · ${filterTitle}` : ""} · newest on left · ${hitGames}/${shownHistory.length || 0} hit games · Green = hit · red = no hit · taller bars = multi-hit</div>
-              <div class="history-filters">
-                ${historyFilterOptions()
-                  .map(
-                    (item) =>
-                      `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`,
-                  )
-                  .join("")}
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                <div class="history-filters">
+                  ${historyFilterOptions()
+                    .map(
+                      (item) =>
+                        `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`,
+                    )
+                    .join("")}
+                </div>
+                <div class="history-filters">
+                  ${statFilterOptions()
+                    .map(
+                      (item) =>
+                        `<button class="history-filter ${item.key === activeStat ? "active" : ""}" type="button" data-stat-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`,
+                    )
+                    .join("")}
+                </div>
               </div>
             </div>
             ${
               shownHistory.length
-                ? `
-            <div class="history-chart" style="--history-baseline-offset:${(() => {
-              const historyBarMaxHeight = 62;
-              const maxHits = Math.max(
-                1,
-                ...shownHistory.map((game) => numberOr(game.hits, 0) ?? 0),
-              );
-              return maxHits <= 1
-                ? 0
-                : ((maxHits - 1) / maxHits) * historyBarMaxHeight;
-            })()}px;">
+                ? (() => {
+                    const historyBarMaxHeight = 62;
+                    const missBarHeight = 16;
+                    const maxVal = Math.max(
+                      1,
+                      ...shownHistory.map((game) =>
+                        getStatValue(game, activeStat),
+                      ),
+                    );
+                    const baselineOffset =
+                      maxVal <= 1
+                        ? 0
+                        : ((maxVal - 1) / maxVal) * historyBarMaxHeight;
+                    return `
+            <div class="history-chart" style="--history-baseline-offset:${baselineOffset}px;">
               <div class="history-baseline"><span class="history-baseline-label">1</span></div>
               <div class="history-grid" style="grid-template-columns: repeat(${shownHistory.length}, minmax(0, 1fr));">
               ${shownHistory
-                .map((game) => {
-                  const historyBarMaxHeight = 62;
-                  const missBarHeight = 16;
-                  const maxHits = Math.max(
-                    1,
-                    ...shownHistory.map(
-                      (entry) => numberOr(entry.hits, 0) ?? 0,
-                    ),
-                  );
-                  const hits = numberOr(game.hits, 0) ?? 0;
-                  const chartHits = Math.max(hits, 0);
-                  const totalBasesValue = numberOr(game.total_bases, 0) ?? 0;
-                  const homeRunsValue = numberOr(game.home_runs, 0) ?? 0;
+                .map((entry) => {
+                  const val = getStatValue(entry, activeStat);
+                  const chartVal = Math.max(val, 0);
                   const barHeight =
-                    chartHits > 0
-                      ? (chartHits / maxHits) * historyBarMaxHeight
+                    chartVal > 0
+                      ? (chartVal / maxVal) * historyBarMaxHeight
                       : missBarHeight;
-                  const title = `${formatShortDate(game.game_date)} vs ${game.opponent || "TBD"} · ${hits} H · ${totalBasesValue} TB${homeRunsValue > 0 ? ` · ${homeRunsValue} HR` : ""}`;
+                  const barTone = chartVal > 0 ? "hit" : "miss";
+                  const hits = numberOr(entry.hits, 0) ?? 0;
+                  const totalBasesValue = numberOr(entry.total_bases, 0) ?? 0;
+                  const homeRunsValue = numberOr(entry.home_runs, 0) ?? 0;
+                  const runsValue = numberOr(entry.runs, 0) ?? 0;
+                  const rbiValue = numberOr(entry.rbi, 0) ?? 0;
+                  const walksValue = numberOr(entry.walks, 0) ?? 0;
+                  const sbValue = numberOr(entry.stolen_bases, 0) ?? 0;
+                  const kValue = numberOr(entry.strikeouts, 0) ?? 0;
+                  const tipParts = [
+                    `${formatShortDate(entry.game_date)} vs ${entry.opponent || "TBD"}`,
+                    `${hits} H`, `${runsValue} R`, `${rbiValue} RBI`,
+                    `${homeRunsValue} HR`, `${totalBasesValue} TB`,
+                    `${walksValue} BB`, `${sbValue} SB`, `${kValue} K`,
+                  ];
+                  const title = tipParts.join(" · ");
                   return `
                   <div class="history-game" title="${escapeHtml(title)}">
-                    <div class="history-value">${chartHits}</div>
+                    <div class="history-value">${chartVal}</div>
                     <div class="history-bar-wrap">
-                      <div class="history-bar ${game.had_hit ? "hit" : "miss"}" style="height:${barHeight}px;"></div>
+                      <div class="history-bar ${barTone}" style="height:${barHeight}px;"></div>
                     </div>
-                    <div class="history-date">${escapeHtml(formatShortDate(game.game_date).replace(/\s+/g, ""))}</div>
-                    <div class="history-opponent">${escapeHtml(formatOpponentTag(game.opponent))}</div>
+                    <div class="history-date">${escapeHtml(formatShortDate(entry.game_date).replace(/\s+/g, ""))}</div>
+                    <div class="history-opponent">${escapeHtml(formatOpponentTag(entry.opponent))}</div>
                   </div>
                 `;
                 })
                 .join("")}
               </div>
             </div>
-            `
+            `;
+                  })()
                 : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(player?.opponent))} games found for this filter.</div>`
             }
           </div>
@@ -2628,16 +2675,25 @@
         .getElementById("lineupGrid")
         .addEventListener("click", (event) => {
           const filterButton = event.target.closest("[data-history-filter]");
-          if (!filterButton || !pageState.detail) {
+          if (filterButton && pageState.detail) {
+            const playerKey = String(filterButton.dataset.playerKey || "");
+            const filterKey = String(filterButton.dataset.historyFilter || "l15");
+            if (playerKey) {
+              pageState.historyFilters[playerKey] = filterKey;
+              renderLineupPanels(pageState.detail);
+            }
             return;
           }
-          const playerKey = String(filterButton.dataset.playerKey || "");
-          const filterKey = String(filterButton.dataset.historyFilter || "l15");
-          if (!playerKey) {
+          const statButton = event.target.closest("[data-stat-filter]");
+          if (statButton && pageState.detail) {
+            const playerKey = String(statButton.dataset.playerKey || "");
+            const statKey = String(statButton.dataset.statFilter || "hits");
+            if (playerKey) {
+              pageState.statFilters[playerKey] = statKey;
+              renderLineupPanels(pageState.detail);
+            }
             return;
           }
-          pageState.historyFilters[playerKey] = filterKey;
-          renderLineupPanels(pageState.detail);
         });
       document.getElementById("summaryGrid").innerHTML =
         '<article class="summary-card loading-card">Loading matchup summary…</article>';

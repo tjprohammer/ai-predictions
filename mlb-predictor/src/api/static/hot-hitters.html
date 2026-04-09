@@ -924,10 +924,10 @@
           <div class="eyebrow">Hitter Analysis</div>
           <h1>Search any hitter. Spot the hot streaks.</h1>
           <p class="hero-copy">
-            Look up any position player for recent splits, platoon data,
-            lineup status, and matchup context. The streak board below
-            surfaces hitters on active hit streaks and bats that are
-            materially heating up, with model receipts on every card.
+            Look up any position player for recent splits, platoon data, lineup
+            status, and matchup context. The streak board below surfaces hitters
+            on active hit streaks and bats that are materially heating up, with
+            model receipts on every card.
           </p>
           <div class="hero-actions">
             <a class="button-link secondary" data-app-link="" href="."
@@ -1087,13 +1087,15 @@
         </div>
       </section>
 
-      <section class="panel" style="overflow:visible;z-index:3">
+      <section class="panel" style="overflow: visible; z-index: 3">
         <div class="panel-head">
           <div>
             <div class="section-tag">Player Lookup</div>
             <h2>Search any hitter</h2>
           </div>
-          <span class="panel-subtitle">Filter by team, position, or today's starters</span>
+          <span class="panel-subtitle"
+            >Filter by team, position, or today's starters</span
+          >
         </div>
         <div class="player-search-wrap" style="margin-bottom: 16px">
           <div
@@ -1147,8 +1149,22 @@
               <option value="OF">OF</option>
               <option value="DH">DH</option>
             </select>
-            <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;color:var(--muted);cursor:pointer;white-space:nowrap;">
-              <input type="checkbox" id="psStartingOnly" style="accent-color:var(--accent);"/>
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 0.85rem;
+                color: var(--muted);
+                cursor: pointer;
+                white-space: nowrap;
+              "
+            >
+              <input
+                type="checkbox"
+                id="psStartingOnly"
+                style="accent-color: var(--accent)"
+              />
               Starting today
             </label>
           </div>
@@ -2237,9 +2253,36 @@
 
       /* Populate team dropdown from all 30 MLB teams */
       const MLB_TEAMS = [
-        "ATH","ATL","AZ","BAL","BOS","CHC","CIN","CLE","COL","CWS",
-        "DET","HOU","KC","LAA","LAD","MIA","MIL","MIN","NYM","NYY",
-        "PHI","PIT","SD","SEA","SF","STL","TB","TEX","TOR","WSH",
+        "ATH",
+        "ATL",
+        "AZ",
+        "BAL",
+        "BOS",
+        "CHC",
+        "CIN",
+        "CLE",
+        "COL",
+        "CWS",
+        "DET",
+        "HOU",
+        "KC",
+        "LAA",
+        "LAD",
+        "MIA",
+        "MIL",
+        "MIN",
+        "NYM",
+        "NYY",
+        "PHI",
+        "PIT",
+        "SD",
+        "SEA",
+        "SF",
+        "STL",
+        "TB",
+        "TEX",
+        "TOR",
+        "WSH",
       ];
       MLB_TEAMS.forEach((t) => {
         const opt = document.createElement("option");
@@ -2307,13 +2350,17 @@
             const confirmed = Number(p.is_confirmed) === 1;
             let statusBadge = "";
             if (inLineup && confirmed) {
-              statusBadge = '<span class="status-chip good" style="font-size:0.72rem;padding:1px 6px;margin-left:6px;">Confirmed</span>';
+              statusBadge =
+                '<span class="status-chip good" style="font-size:0.72rem;padding:1px 6px;margin-left:6px;">Confirmed</span>';
             } else if (inLineup) {
-              statusBadge = '<span class="status-chip warn" style="font-size:0.72rem;padding:1px 6px;margin-left:6px;">Expected</span>';
+              statusBadge =
+                '<span class="status-chip warn" style="font-size:0.72rem;padding:1px 6px;margin-left:6px;">Expected</span>';
             }
             const slot = inLineup ? ` #${p.lineup_slot}` : "";
             const opp = p.opponent ? ` vs ${escapeHtml(p.opponent)}` : "";
-            const pitcherNote = p.opposing_pitcher_name ? ` · ${escapeHtml(p.opposing_pitcher_throws || "")}HP ${escapeHtml(p.opposing_pitcher_name)}` : "";
+            const pitcherNote = p.opposing_pitcher_name
+              ? ` · ${escapeHtml(p.opposing_pitcher_throws || "")}HP ${escapeHtml(p.opposing_pitcher_name)}`
+              : "";
             return `<div class="autocomplete-item" data-player-id="${p.player_id}" data-player='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
                 <span class="ac-name">${escapeHtml(p.full_name)}${statusBadge}</span>
                 <span class="ac-meta">${escapeHtml(p.position)} · ${escapeHtml(p.team_abbr)}${slot}${opp}${pitcherNote}</span>
@@ -2425,9 +2472,14 @@
 
       /* Compute platoon splits from recent games that include opposing_pitcher_throws */
       function computePlatoonSplits(games) {
-        const splits = { L: { ab: 0, h: 0, games: 0 }, R: { ab: 0, h: 0, games: 0 } };
+        const splits = {
+          L: { ab: 0, h: 0, games: 0 },
+          R: { ab: 0, h: 0, games: 0 },
+        };
         for (const g of games) {
-          const hand = String(g.opposing_pitcher_throws || "").toUpperCase().slice(0, 1);
+          const hand = String(g.opposing_pitcher_throws || "")
+            .toUpperCase()
+            .slice(0, 1);
           if (hand === "L" || hand === "R") {
             splits[hand].ab += g.at_bats || 0;
             splits[hand].h += g.hits || 0;
@@ -2441,7 +2493,8 @@
         const s = splits[hand];
         if (!s || s.ab <= 0) return "";
         const avg = (s.h / s.ab).toFixed(3);
-        const tone = Number(avg) >= 0.280 ? "good" : Number(avg) <= 0.200 ? "warn" : "";
+        const tone =
+          Number(avg) >= 0.28 ? "good" : Number(avg) <= 0.2 ? "warn" : "";
         return `<span class="chip ${tone}">vs ${hand}HP ${avg}</span>`;
       }
 
@@ -2459,22 +2512,29 @@
 
         /* Check if player is in hot-hitter data for rich badges */
         const hotRow = findHotHitterRow(player.player_id);
-        const form = hotRow ? (hotRow.form || {}) : null;
+        const form = hotRow ? hotRow.form || {} : null;
         const splits = computePlatoonSplits(games);
 
         /* Lineup status from search result or hot-hitter data */
-        const inLineup = player.lineup_slot != null || (hotRow && hotRow.lineup_slot != null);
-        const isConfirmed = Number(player.is_confirmed) === 1 || (hotRow && hotRow.is_confirmed_lineup);
+        const inLineup =
+          player.lineup_slot != null || (hotRow && hotRow.lineup_slot != null);
+        const isConfirmed =
+          Number(player.is_confirmed) === 1 ||
+          (hotRow && hotRow.is_confirmed_lineup);
         const isInferred = hotRow && hotRow.is_inferred_lineup;
         let lineupChip = "";
         if (inLineup && isConfirmed) {
-          lineupChip = '<span class="status-chip good">Starting (Confirmed)</span>';
+          lineupChip =
+            '<span class="status-chip good">Starting (Confirmed)</span>';
         } else if (inLineup && isInferred) {
-          lineupChip = '<span class="status-chip warn">Expected (Inferred)</span>';
+          lineupChip =
+            '<span class="status-chip warn">Expected (Inferred)</span>';
         } else if (inLineup) {
-          lineupChip = '<span class="status-chip warn">In Lineup (Projected)</span>';
+          lineupChip =
+            '<span class="status-chip warn">In Lineup (Projected)</span>';
         } else {
-          lineupChip = '<span class="status-chip" style="opacity:.5">Not in today\'s lineup</span>';
+          lineupChip =
+            '<span class="status-chip" style="opacity:.5">Not in today\'s lineup</span>';
         }
 
         /* Hot qualifier / form badge */
@@ -2484,10 +2544,15 @@
         if (form && form.label) {
           const qTone = form.tone || "good";
           qualifierChip = `<span class="chip ${escapeHtml(qTone)}">${escapeHtml(form.label)}</span>`;
-          const reasons = (form.reasons || []).map(
-            (r) => `<div class="reason-chip ${escapeHtml(qTone)}">${escapeHtml(r)}</div>`
-          ).join("");
-          reasonsHTML = reasons ? `<div class="reason-list">${reasons}</div>` : "";
+          const reasons = (form.reasons || [])
+            .map(
+              (r) =>
+                `<div class="reason-chip ${escapeHtml(qTone)}">${escapeHtml(r)}</div>`,
+            )
+            .join("");
+          reasonsHTML = reasons
+            ? `<div class="reason-list">${reasons}</div>`
+            : "";
           whyHotRow = `
             <div class="data-row">
               <span class="data-label">Why ${escapeHtml(form.label)}</span>
@@ -2509,9 +2574,9 @@
         /* Opposing pitcher context */
         const oppPitcher = player.opposing_pitcher_name
           ? `vs ${escapeHtml(player.opposing_pitcher_throws || "")}HP ${escapeHtml(player.opposing_pitcher_name)}`
-          : (hotRow && hotRow.opposing_pitcher_name
+          : hotRow && hotRow.opposing_pitcher_name
             ? `vs ${escapeHtml(hotRow.opposing_pitcher_name)}`
-            : "");
+            : "";
 
         /* Lineup slot from search or hot data */
         const slot = player.lineup_slot ?? (hotRow ? hotRow.lineup_slot : null);
