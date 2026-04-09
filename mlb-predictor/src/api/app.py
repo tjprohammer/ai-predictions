@@ -845,6 +845,11 @@ def _fetch_recent_hit_history_map(
                 b.hits,
                 b.at_bats,
                 b.home_runs,
+                b.runs,
+                b.rbi,
+                b.walks,
+                b.stolen_bases,
+                b.strikeouts,
                 (
                     COALESCE(b.singles, 0)
                     + 2 * COALESCE(b.doubles, 0)
@@ -867,6 +872,11 @@ def _fetch_recent_hit_history_map(
             hits,
             at_bats,
             home_runs,
+            runs,
+            rbi,
+            walks,
+            stolen_bases,
+            strikeouts,
             total_bases
         FROM recent
         WHERE row_rank <= :history_limit
@@ -890,6 +900,11 @@ def _fetch_recent_hit_history_map(
                 "hits": hits,
                 "at_bats": at_bats,
                 "home_runs": int(row.get("home_runs") or 0),
+                "runs": int(row.get("runs") or 0),
+                "rbi": int(row.get("rbi") or 0),
+                "walks": int(row.get("walks") or 0),
+                "stolen_bases": int(row.get("stolen_bases") or 0),
+                "strikeouts": int(row.get("strikeouts") or 0),
                 "total_bases": int(row.get("total_bases") or 0),
                 "had_hit": hits > 0,
             }

@@ -17,9 +17,9 @@ def test_hot_hitters_html_has_streak_sort_and_recent_history_chart():
     assert 'history-filter' in html
     assert 'function parseDisplayDate(value)' in html
     assert 'history-baseline-label">1</span>' in html
-    assert 'Green = hit · red = no hit' in html
-    assert 'taller bars = multi-hit' in html
-    assert 'const chartHits = Math.max(hits, 0);' in html
+    assert 'hit games' in html
+    assert 'data-stat-filter' in html
+    assert 'const chartVal = Math.max(val, 0);' in html
     assert 'l15' not in html.lower()
     assert 'function filteredHistory(player, history)' in html
     assert 'function renderRecentHistory(row)' in html

@@ -1162,7 +1162,14 @@
         if (row.actual_status === "pending") return "Outcome pending";
         if (row.actual_status === "dnp")
           return row.actual_status_label || "No box score row yet";
-        return `${row.actual_hits ?? 0} H in ${row.actual_at_bats ?? 0} AB, ${row.actual_plate_appearances ?? 0} PA`;
+        const parts = [`${row.actual_hits ?? 0} H`];
+        if (numberOr(row.actual_runs) > 0) parts.push(`${row.actual_runs} R`);
+        if (numberOr(row.actual_rbi) > 0) parts.push(`${row.actual_rbi} RBI`);
+        if (numberOr(row.actual_home_runs) > 0) parts.push(`${row.actual_home_runs} HR`);
+        if (numberOr(row.actual_walks) > 0) parts.push(`${row.actual_walks} BB`);
+        if (numberOr(row.actual_stolen_bases) > 0) parts.push(`${row.actual_stolen_bases} SB`);
+        if (numberOr(row.actual_total_bases) > 0) parts.push(`${row.actual_total_bases} TB`);
+        return `${parts.join(" · ")} in ${row.actual_at_bats ?? 0} AB, ${row.actual_plate_appearances ?? 0} PA`;
       }
 
       function pitcherHandMatchup(row) {
@@ -1285,6 +1292,7 @@
         rows: [],
         summary: null,
         historyFilters: {},
+        statFilters: {},
       };
 
       applyAppLinks();
@@ -1401,6 +1409,30 @@
           return history.slice(0, 10);
         }
         return history.slice(0, 10);
+      }
+
+      function statFilterOptions() {
+        return [
+          { key: "hits", label: "H", field: "hits" },
+          { key: "runs", label: "R", field: "runs" },
+          { key: "rbi", label: "RBI", field: "rbi" },
+          { key: "home_runs", label: "HR", field: "home_runs" },
+          { key: "total_bases", label: "TB", field: "total_bases" },
+          { key: "walks", label: "BB", field: "walks" },
+          { key: "stolen_bases", label: "SB", field: "stolen_bases" },
+          { key: "strikeouts", label: "K", field: "strikeouts" },
+        ];
+      }
+
+      function getStatFilter(player) {
+        const playerKey = String(
+          player?.player_id || player?.player_name || "player",
+        );
+        return state.statFilters[playerKey] || "hits";
+      }
+
+      function getStatValue(entry, statKey) {
+        return numberOr(entry[statKey], 0) ?? 0;
       }
 
       function sortRows(rows) {
@@ -1535,57 +1567,82 @@
         const filterTitle =
           historyFilterOptions().find((item) => item.key === filterKey)
             ?.label || "L10";
+        const activeStat = getStatFilter(row);
+        const activeStatOption = statFilterOptions().find((item) => item.key === activeStat) || statFilterOptions()[0];
         return `
           <div class="history-block">
             <div class="history-head">
-              <div class="history-caption ${formTone}"><strong>${filterKey === "h2h" ? filterTitle : defaultHistoryTitle}</strong>${filterKey === "h2h" ? ` · ${filterTitle}` : ""} · newest on left · ${hitGames}/${shownHistory.length || 0} hit games · Green = hit · red = no hit · taller bars = multi-hit</div>
-              <div class="history-filters">
-                ${historyFilterOptions()
-                  .map(
-                    (item) =>
-                      `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`,
-                  )
-                  .join("")}
+              <div class="history-caption ${formTone}"><strong>${filterKey === "h2h" ? filterTitle : defaultHistoryTitle}</strong>${filterKey === "h2h" ? ` · ${filterTitle}` : ""} · newest on left · ${hitGames}/${shownHistory.length || 0} hit games</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                <div class="history-filters">
+                  ${historyFilterOptions()
+                    .map(
+                      (item) =>
+                        `<button class="history-filter ${item.key === filterKey ? "active" : ""}" type="button" data-history-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`,
+                    )
+                    .join("")}
+                </div>
+                <div class="history-filters">
+                  ${statFilterOptions()
+                    .map(
+                      (item) =>
+                        `<button class="history-filter ${item.key === activeStat ? "active" : ""}" type="button" data-stat-filter="${item.key}" data-player-key="${playerKey}">${item.label}</button>`,
+                    )
+                    .join("")}
+                </div>
               </div>
             </div>
             ${
               shownHistory.length
-                ? `
-            <div class="history-chart" style="--history-baseline-offset:${(() => {
-              const historyBarMaxHeight = 62;
-              const maxHits = Math.max(
-                1,
-                ...shownHistory.map((game) => numberOr(game.hits, 0) ?? 0),
-              );
-              return maxHits <= 1
-                ? 0
-                : ((maxHits - 1) / maxHits) * historyBarMaxHeight;
-            })()}px;">
+                ? (() => {
+                  const historyBarMaxHeight = 62;
+                  const missBarHeight = 16;
+                  const maxVal = Math.max(
+                    1,
+                    ...shownHistory.map((game) => getStatValue(game, activeStat)),
+                  );
+                  const baselineOffset = maxVal <= 1
+                    ? 0
+                    : ((maxVal - 1) / maxVal) * historyBarMaxHeight;
+                  return `
+            <div class="history-chart" style="--history-baseline-offset:${baselineOffset}px;">
               <div class="history-baseline"><span class="history-baseline-label">1</span></div>
               <div class="history-grid" style="grid-template-columns: repeat(${shownHistory.length}, minmax(0, 1fr));">
               ${shownHistory
                 .map((entry) => {
-                  const historyBarMaxHeight = 62;
-                  const missBarHeight = 16;
-                  const maxHits = Math.max(
-                    1,
-                    ...shownHistory.map((game) => numberOr(game.hits, 0) ?? 0),
-                  );
+                  const val = getStatValue(entry, activeStat);
+                  const chartVal = Math.max(val, 0);
                   const hadHit = Boolean(entry.had_hit);
+                  const barHeight =
+                    chartVal > 0
+                      ? (chartVal / maxVal) * historyBarMaxHeight
+                      : missBarHeight;
+                  const barTone = chartVal > 0 ? "hit" : "miss";
                   const hits = numberOr(entry.hits, 0) ?? 0;
-                  const chartHits = Math.max(hits, 0);
                   const totalBasesValue = numberOr(entry.total_bases, 0) ?? 0;
                   const homeRunsValue = numberOr(entry.home_runs, 0) ?? 0;
-                  const barHeight =
-                    chartHits > 0
-                      ? (chartHits / maxHits) * historyBarMaxHeight
-                      : missBarHeight;
-                  const title = `${formatShortDate(entry.game_date)} vs ${entry.opponent || "TBD"} · ${hits} H · ${totalBasesValue} TB${homeRunsValue > 0 ? ` · ${homeRunsValue} HR` : ""}`;
+                  const runsValue = numberOr(entry.runs, 0) ?? 0;
+                  const rbiValue = numberOr(entry.rbi, 0) ?? 0;
+                  const walksValue = numberOr(entry.walks, 0) ?? 0;
+                  const sbValue = numberOr(entry.stolen_bases, 0) ?? 0;
+                  const kValue = numberOr(entry.strikeouts, 0) ?? 0;
+                  const tipParts = [
+                    `${formatShortDate(entry.game_date)} vs ${entry.opponent || "TBD"}`,
+                    `${hits} H`,
+                    `${runsValue} R`,
+                    `${rbiValue} RBI`,
+                    `${homeRunsValue} HR`,
+                    `${totalBasesValue} TB`,
+                    `${walksValue} BB`,
+                    `${sbValue} SB`,
+                    `${kValue} K`,
+                  ];
+                  const title = tipParts.join(" · ");
                   return `
                     <div class="history-game" title="${escapeHtml(title)}">
-                      <div class="history-value">${chartHits}</div>
+                      <div class="history-value">${chartVal}</div>
                       <div class="history-bar-wrap">
-                        <div class="history-bar ${hadHit ? "hit" : "miss"}" style="height:${barHeight}px;"></div>
+                        <div class="history-bar ${barTone}" style="height:${barHeight}px;"></div>
                       </div>
                       <div class="history-date">${escapeHtml(formatShortDate(entry.game_date).replace(/\s+/g, ""))}</div>
                       <div class="history-opponent">${escapeHtml(formatOpponentTag(entry.opponent))}</div>
@@ -1595,7 +1652,8 @@
                 .join("")}
               </div>
             </div>
-            `
+            `;
+                })()
                 : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(row?.opponent))} games found for this filter.</div>`
             }
           </div>
@@ -1937,16 +1995,25 @@
       targetDateInput.addEventListener("change", refreshPage);
       cardsGrid.addEventListener("click", (event) => {
         const filterButton = event.target.closest("[data-history-filter]");
-        if (!filterButton) {
+        if (filterButton) {
+          const playerKey = String(filterButton.dataset.playerKey || "");
+          const filterKey = String(filterButton.dataset.historyFilter || "l10");
+          if (playerKey) {
+            state.historyFilters[playerKey] = filterKey;
+            renderRows();
+          }
           return;
         }
-        const playerKey = String(filterButton.dataset.playerKey || "");
-        const filterKey = String(filterButton.dataset.historyFilter || "l10");
-        if (!playerKey) {
+        const statButton = event.target.closest("[data-stat-filter]");
+        if (statButton) {
+          const playerKey = String(statButton.dataset.playerKey || "");
+          const statKey = String(statButton.dataset.statFilter || "hits");
+          if (playerKey) {
+            state.statFilters[playerKey] = statKey;
+            renderRows();
+          }
           return;
         }
-        state.historyFilters[playerKey] = filterKey;
-        renderRows();
       });
       showProjectedHittersButton.addEventListener("click", () => {
         confirmedOnlyInput.checked = false;
