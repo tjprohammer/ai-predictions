@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -13,6 +14,7 @@ if str(ROOT) not in sys.path:
 
 from sqlalchemy import MetaData, Table, create_engine, inspect, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.types import Date as SADate, DateTime as SADateTime
 
 from src.utils.db import get_dialect_name
 from src.utils.db_migrate import run_migrations
@@ -128,6 +130,9 @@ def _copy_table(source_engine: Engine, destination_engine: Engine, table_name: s
     if not shared_columns:
         return 0
 
+    date_columns = {c.name for c in destination_table.columns if isinstance(c.type, SADate) and not isinstance(c.type, SADateTime)}
+    datetime_columns = {c.name for c in destination_table.columns if isinstance(c.type, SADateTime)}
+
     statement = select(*(source_table.c[column_name] for column_name in shared_columns))
     inserted = 0
 
@@ -138,13 +143,21 @@ def _copy_table(source_engine: Engine, destination_engine: Engine, table_name: s
             rows = result.fetchmany(chunk_size)
             if not rows:
                 break
-            payload = [
-                {
+            payload = []
+            for row in rows:
+                row_dict = {
                     column_name: _sqlite_ready_value(row._mapping[column_name])
                     for column_name in shared_columns
                 }
-                for row in rows
-            ]
+                for col in date_columns:
+                    val = row_dict.get(col)
+                    if isinstance(val, str):
+                        row_dict[col] = date.fromisoformat(val)
+                for col in datetime_columns:
+                    val = row_dict.get(col)
+                    if isinstance(val, str):
+                        row_dict[col] = datetime.fromisoformat(val)
+                payload.append(row_dict)
             destination_connection.execute(destination_table.insert(), payload)
             inserted += len(payload)
 
