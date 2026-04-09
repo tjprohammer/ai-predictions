@@ -1171,10 +1171,14 @@
         const parts = [`${row.actual_hits ?? 0} H`];
         if (numberOr(row.actual_runs) > 0) parts.push(`${row.actual_runs} R`);
         if (numberOr(row.actual_rbi) > 0) parts.push(`${row.actual_rbi} RBI`);
-        if (numberOr(row.actual_home_runs) > 0) parts.push(`${row.actual_home_runs} HR`);
-        if (numberOr(row.actual_walks) > 0) parts.push(`${row.actual_walks} BB`);
-        if (numberOr(row.actual_stolen_bases) > 0) parts.push(`${row.actual_stolen_bases} SB`);
-        if (numberOr(row.actual_total_bases) > 0) parts.push(`${row.actual_total_bases} TB`);
+        if (numberOr(row.actual_home_runs) > 0)
+          parts.push(`${row.actual_home_runs} HR`);
+        if (numberOr(row.actual_walks) > 0)
+          parts.push(`${row.actual_walks} BB`);
+        if (numberOr(row.actual_stolen_bases) > 0)
+          parts.push(`${row.actual_stolen_bases} SB`);
+        if (numberOr(row.actual_total_bases) > 0)
+          parts.push(`${row.actual_total_bases} TB`);
         return `${parts.join(" · ")} in ${row.actual_at_bats ?? 0} AB, ${row.actual_plate_appearances ?? 0} PA`;
       }
 
@@ -1187,7 +1191,10 @@
         const bb = bvp.walks ?? 0;
         const k = bvp.strikeouts ?? 0;
         const rbi = bvp.rbi ?? 0;
-        const avg = bvp.batting_avg != null ? formatBattingAverage(bvp.batting_avg) : formatBattingAverage(ab > 0 ? h / ab : null);
+        const avg =
+          bvp.batting_avg != null
+            ? formatBattingAverage(bvp.batting_avg)
+            : formatBattingAverage(ab > 0 ? h / ab : null);
         const parts = [`${h}-for-${ab}`];
         if (hr > 0) parts.push(`${hr} HR`);
         if (rbi > 0) parts.push(`${rbi} RBI`);
@@ -1196,7 +1203,11 @@
         parts.push(avg + " AVG");
         if (bvp.ops != null) parts.push(formatBattingAverage(bvp.ops) + " OPS");
         const source = bvp.source === "career" ? "career" : "recent";
-        return { line: parts.join(" · "), avg: numberOr(bvp.batting_avg), source };
+        return {
+          line: parts.join(" · "),
+          avg: numberOr(bvp.batting_avg),
+          source,
+        };
       }
 
       function pitcherHandMatchup(row) {
@@ -1596,7 +1607,9 @@
           historyFilterOptions().find((item) => item.key === filterKey)
             ?.label || "L10";
         const activeStat = getStatFilter(row);
-        const activeStatOption = statFilterOptions().find((item) => item.key === activeStat) || statFilterOptions()[0];
+        const activeStatOption =
+          statFilterOptions().find((item) => item.key === activeStat) ||
+          statFilterOptions()[0];
         return `
           <div class="history-block">
             <div class="history-head">
@@ -1623,16 +1636,19 @@
             ${
               shownHistory.length
                 ? (() => {
-                  const historyBarMaxHeight = 62;
-                  const missBarHeight = 16;
-                  const maxVal = Math.max(
-                    1,
-                    ...shownHistory.map((game) => getStatValue(game, activeStat)),
-                  );
-                  const baselineOffset = maxVal <= 1
-                    ? 0
-                    : ((maxVal - 1) / maxVal) * historyBarMaxHeight;
-                  return `
+                    const historyBarMaxHeight = 62;
+                    const missBarHeight = 16;
+                    const maxVal = Math.max(
+                      1,
+                      ...shownHistory.map((game) =>
+                        getStatValue(game, activeStat),
+                      ),
+                    );
+                    const baselineOffset =
+                      maxVal <= 1
+                        ? 0
+                        : ((maxVal - 1) / maxVal) * historyBarMaxHeight;
+                    return `
             <div class="history-chart" style="--history-baseline-offset:${baselineOffset}px;">
               <div class="history-baseline"><span class="history-baseline-label">1</span></div>
               <div class="history-grid" style="grid-template-columns: repeat(${shownHistory.length}, minmax(0, 1fr));">
@@ -1681,7 +1697,7 @@
               </div>
             </div>
             `;
-                })()
+                  })()
                 : `<div class="history-empty">No prior ${escapeHtml(formatOpponentTag(row?.opponent))} games found for this filter.</div>`
             }
           </div>
@@ -1855,15 +1871,15 @@
           <div class="metric-grid">
             <div class="metric-box">
               <span class="metric-label">Hit Probability</span>
-              <span class="metric-value" style="color: ${numberOr(row.predicted_hit_probability) >= 0.55 ? 'var(--good)' : numberOr(row.predicted_hit_probability) < 0.45 ? 'var(--warn)' : 'inherit'}">${formatPercent(row.predicted_hit_probability, 0)}</span>
+              <span class="metric-value" style="color: ${numberOr(row.predicted_hit_probability) >= 0.55 ? "var(--good)" : numberOr(row.predicted_hit_probability) < 0.45 ? "var(--warn)" : "inherit"}">${formatPercent(row.predicted_hit_probability, 0)}</span>
             </div>
             <div class="metric-box gold">
               <span class="metric-label">${hasMarket ? "Edge" : "Market"}</span>
-              <span class="metric-value" style="color: ${numberOr(row.edge) > 0.03 ? 'var(--good)' : numberOr(row.edge) < -0.03 ? 'var(--bad)' : 'inherit'}">${hasMarket ? formatSigned(row.edge, 3) : "Pending"}</span>
+              <span class="metric-value" style="color: ${numberOr(row.edge) > 0.03 ? "var(--good)" : numberOr(row.edge) < -0.03 ? "var(--bad)" : "inherit"}">${hasMarket ? formatSigned(row.edge, 3) : "Pending"}</span>
             </div>
             <div class="metric-box">
               <span class="metric-label">Heat Score</span>
-              <span class="metric-value" style="color: ${numberOr(form.heat_score) >= 3.0 ? 'var(--good)' : numberOr(form.heat_score) <= 1.5 ? 'var(--warn)' : 'inherit'}">${formatNumber(form.heat_score, 2)}</span>
+              <span class="metric-value" style="color: ${numberOr(form.heat_score) >= 3.0 ? "var(--good)" : numberOr(form.heat_score) <= 1.5 ? "var(--warn)" : "inherit"}">${formatNumber(form.heat_score, 2)}</span>
             </div>
           </div>
 
@@ -1880,15 +1896,15 @@
             </div>
             <div class="data-row">
               <span class="data-label">7G / 30G Hit Rate</span>
-              <span class="data-value"><span style="color: ${numberOr(row.hit_rate_7) >= 0.35 ? 'var(--good)' : numberOr(row.hit_rate_7) <= 0.20 ? 'var(--warn)' : 'inherit'}">${formatPercent(row.hit_rate_7)}</span> / <span style="color: ${numberOr(row.hit_rate_30) >= 0.35 ? 'var(--good)' : numberOr(row.hit_rate_30) <= 0.20 ? 'var(--warn)' : 'inherit'}">${formatPercent(row.hit_rate_30)}</span></span>
+              <span class="data-value"><span style="color: ${numberOr(row.hit_rate_7) >= 0.35 ? "var(--good)" : numberOr(row.hit_rate_7) <= 0.2 ? "var(--warn)" : "inherit"}">${formatPercent(row.hit_rate_7)}</span> / <span style="color: ${numberOr(row.hit_rate_30) >= 0.35 ? "var(--good)" : numberOr(row.hit_rate_30) <= 0.2 ? "var(--warn)" : "inherit"}">${formatPercent(row.hit_rate_30)}</span></span>
             </div>
             <div class="data-row">
               <span class="data-label">xwOBA14 / HH14</span>
-              <span class="data-value"><span style="color: ${numberOr(row.xwoba_14) >= 0.340 ? 'var(--good)' : numberOr(row.xwoba_14) <= 0.290 ? 'var(--warn)' : 'inherit'}">${formatNumber(row.xwoba_14, 3)}</span> / <span style="color: ${numberOr(row.hard_hit_pct_14) >= 0.40 ? 'var(--good)' : numberOr(row.hard_hit_pct_14) <= 0.25 ? 'var(--warn)' : 'inherit'}">${formatPercent(row.hard_hit_pct_14)}</span></span>
+              <span class="data-value"><span style="color: ${numberOr(row.xwoba_14) >= 0.34 ? "var(--good)" : numberOr(row.xwoba_14) <= 0.29 ? "var(--warn)" : "inherit"}">${formatNumber(row.xwoba_14, 3)}</span> / <span style="color: ${numberOr(row.hard_hit_pct_14) >= 0.4 ? "var(--good)" : numberOr(row.hard_hit_pct_14) <= 0.25 ? "var(--warn)" : "inherit"}">${formatPercent(row.hard_hit_pct_14)}</span></span>
             </div>
             <div class="data-row">
               <span class="data-label">xBA14 / K%14</span>
-              <span class="data-value"><span style="color: ${numberOr(row.xba_14) >= 0.280 ? 'var(--good)' : numberOr(row.xba_14) <= 0.220 ? 'var(--warn)' : 'inherit'}">${formatNumber(row.xba_14, 3)}</span> / <span style="color: ${numberOr(row.k_pct_14) >= 0.25 ? 'var(--warn)' : numberOr(row.k_pct_14) <= 0.15 ? 'var(--good)' : 'inherit'}">${formatPercent(row.k_pct_14)}</span></span>
+              <span class="data-value"><span style="color: ${numberOr(row.xba_14) >= 0.28 ? "var(--good)" : numberOr(row.xba_14) <= 0.22 ? "var(--warn)" : "inherit"}">${formatNumber(row.xba_14, 3)}</span> / <span style="color: ${numberOr(row.k_pct_14) >= 0.25 ? "var(--warn)" : numberOr(row.k_pct_14) <= 0.15 ? "var(--good)" : "inherit"}">${formatPercent(row.k_pct_14)}</span></span>
             </div>
             <div class="data-row">
               <span class="data-label">Streak / Last 7</span>
@@ -1900,11 +1916,16 @@
             </div>
             <div class="data-row">
               <span class="data-label">Season BA / Last 7 BA</span>
-              <span class="data-value"><span style="color: ${numberOr(row.batting_avg_season) >= 0.280 ? 'var(--good)' : numberOr(row.batting_avg_season) <= 0.220 ? 'var(--warn)' : 'inherit'}">${formatBattingAverage(row.batting_avg_season)}</span> / <span style="color: ${numberOr(row.batting_avg_last7) >= 0.300 ? 'var(--good)' : numberOr(row.batting_avg_last7) <= 0.200 ? 'var(--warn)' : 'inherit'}">${formatBattingAverage(row.batting_avg_last7)}</span></span>
+              <span class="data-value"><span style="color: ${numberOr(row.batting_avg_season) >= 0.28 ? "var(--good)" : numberOr(row.batting_avg_season) <= 0.22 ? "var(--warn)" : "inherit"}">${formatBattingAverage(row.batting_avg_season)}</span> / <span style="color: ${numberOr(row.batting_avg_last7) >= 0.3 ? "var(--good)" : numberOr(row.batting_avg_last7) <= 0.2 ? "var(--warn)" : "inherit"}">${formatBattingAverage(row.batting_avg_last7)}</span></span>
             </div>
             <div class="data-row">
-              <span class="data-label">Vs ${escapeHtml(row.opposing_pitcher_name ? row.opposing_pitcher_name.split(' ').pop() : 'Pitcher')}</span>
-              <span class="data-value">${(() => { const b = bvpSummary(row); return b ? `<span style="color: ${b.avg >= 0.280 ? 'var(--good)' : b.avg <= 0.180 ? 'var(--bad)' : 'inherit'}">${escapeHtml(b.line)}</span> <span style="opacity:0.5;font-size:0.75em">(${b.source})</span>` : 'No matchup data'; })()}</span>
+              <span class="data-label">Vs ${escapeHtml(row.opposing_pitcher_name ? row.opposing_pitcher_name.split(" ").pop() : "Pitcher")}</span>
+              <span class="data-value">${(() => {
+                const b = bvpSummary(row);
+                return b
+                  ? `<span style="color: ${b.avg >= 0.28 ? "var(--good)" : b.avg <= 0.18 ? "var(--bad)" : "inherit"}">${escapeHtml(b.line)}</span> <span style="opacity:0.5;font-size:0.75em">(${b.source})</span>`
+                  : "No matchup data";
+              })()}</span>
             </div>
             <div class="data-row">
               <span class="data-label">Vs Pitcher Hand</span>
@@ -2001,8 +2022,17 @@
 
       function populateTeamFilter() {
         const current = teamFilterInput.value;
-        const teams = [...new Set((state.rows || []).map((r) => r.team).filter(Boolean))].sort();
-        teamFilterInput.innerHTML = '<option value="">All teams</option>' + teams.map((t) => `<option value="${escapeHtml(t)}"${t === current ? ' selected' : ''}>${escapeHtml(t)}</option>`).join('');
+        const teams = [
+          ...new Set((state.rows || []).map((r) => r.team).filter(Boolean)),
+        ].sort();
+        teamFilterInput.innerHTML =
+          '<option value="">All teams</option>' +
+          teams
+            .map(
+              (t) =>
+                `<option value="${escapeHtml(t)}"${t === current ? " selected" : ""}>${escapeHtml(t)}</option>`,
+            )
+            .join("");
       }
 
       async function refreshPage() {

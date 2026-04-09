@@ -823,14 +823,19 @@
     <script>
       function detectAppBase() {
         const { pathname } = window.location;
-        if (pathname.endsWith("/experiments/")) return pathname.slice(0, -"/experiments/".length) || "/";
-        if (pathname.endsWith("/experiments")) return pathname.slice(0, -"/experiments".length) || "/";
+        if (pathname.endsWith("/experiments/"))
+          return pathname.slice(0, -"/experiments/".length) || "/";
+        if (pathname.endsWith("/experiments"))
+          return pathname.slice(0, -"/experiments".length) || "/";
         return pathname.endsWith("/") ? pathname : `${pathname}/`;
       }
       const appBase = detectAppBase();
       function appUrl(path = "") {
         const normalizedBase = appBase.endsWith("/") ? appBase : `${appBase}/`;
-        return new URL(path, `${window.location.origin}${normalizedBase}`).toString();
+        return new URL(
+          path,
+          `${window.location.origin}${normalizedBase}`,
+        ).toString();
       }
 
       const appEl = document.getElementById("app");
@@ -935,7 +940,9 @@
       }
 
       function recordPill(won, lost, push, cls) {
-        const w = won || 0, l = lost || 0, p = push || 0;
+        const w = won || 0,
+          l = lost || 0,
+          p = push || 0;
         const total = w + l + p;
         if (total === 0) return `<span class="score-pill ${cls}">—</span>`;
         const pct = total > 0 ? Math.round((w / total) * 100) : 0;
@@ -998,7 +1005,8 @@
         if (!daily || daily.length === 0) {
           return `<div class="daily-table"><h2>${label} &mdash; Daily Breakdown</h2><div class="empty-state">No completed games with dual predictions yet</div></div>`;
         }
-        const lane = laneOverride || (countKey === "games" ? "totals" : "strikeouts");
+        const lane =
+          laneOverride || (countKey === "games" ? "totals" : "strikeouts");
         const unit = lane === "totals" ? "runs" : "Ks";
         const countLabel = countKey === "games" ? "Games" : "Pitchers";
         const headerRow = `<tr><th>Date</th><th>${countLabel}</th><th>Actual<br><span style="font-weight:400;text-transform:none;letter-spacing:0">avg outcome</span></th><th>Stats-Only W-L</th><th>Blended W-L</th><th>Stats-Only<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Blended<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Vegas<br><span style="font-weight:400;text-transform:none;letter-spacing:0">line &rarr; miss</span></th><th>More Accurate</th></tr>`;
@@ -1141,7 +1149,9 @@
         appEl.innerHTML = `<div class="empty-state">Loading&hellip;</div>`;
         try {
           const resp = await fetch(
-            appUrl(`api/experiments/summary?window_days=${window_days}&target_date=${target_date}`),
+            appUrl(
+              `api/experiments/summary?window_days=${window_days}&target_date=${target_date}`,
+            ),
           );
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
@@ -1171,9 +1181,19 @@
             );
           html += `</div>`;
           if (hasTotals)
-            html += renderDailyTable("Totals", data.totals.daily, "games", "totals");
+            html += renderDailyTable(
+              "Totals",
+              data.totals.daily,
+              "games",
+              "totals",
+            );
           if (hasF5)
-            html += renderDailyTable("First-5 Innings", data.first5.daily, "games", "first5");
+            html += renderDailyTable(
+              "First-5 Innings",
+              data.first5.daily,
+              "games",
+              "first5",
+            );
           if (hasK)
             html += renderDailyTable(
               "Pitcher Strikeouts",

@@ -763,11 +763,7 @@
           <span>Pitcher Ks</span>
           <span class="jump-count" id="strikeoutsCount">-</span>
         </button>
-        <button
-          class="jump-chip"
-          data-section-target="first5"
-          type="button"
-        >
+        <button class="jump-chip" data-section-target="first5" type="button">
           <span>First-5 Inn.</span>
           <span class="jump-count" id="first5Count">-</span>
         </button>
@@ -1219,7 +1215,10 @@
         strikeoutsCount.textContent = String(strikeoutRows.length);
         first5Count.textContent = String(first5Rows.length);
         allCount.textContent = String(
-          totalsRows.length + hitterRows.length + strikeoutRows.length + first5Rows.length,
+          totalsRows.length +
+            hitterRows.length +
+            strikeoutRows.length +
+            first5Rows.length,
         );
         updateSectionVisibility();
         totalsSubtitle.textContent = `${totalsRows.length} totals result${totalsRows.length === 1 ? "" : "s"} shown`;

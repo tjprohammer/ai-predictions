@@ -1482,7 +1482,10 @@
 
       function renderFirst5SummaryCard(first5) {
         if (!first5?.supported) return "";
-        const predicted = numberOr(first5.predicted_total_fundamentals, numberOr(first5.predicted_total_runs));
+        const predicted = numberOr(
+          first5.predicted_total_fundamentals,
+          numberOr(first5.predicted_total_runs),
+        );
         const market = numberOr(first5.market_total);
         const awayExpected = numberOr(first5.away_expected_runs);
         const homeExpected = numberOr(first5.home_expected_runs);
@@ -1636,8 +1639,14 @@
         if (mode === "total") {
           return sorted.sort(
             (left, right) =>
-              numberOr((right.totals || {}).predicted_total_fundamentals, numberOr((right.totals || {}).predicted_total_runs, -1)) -
-              numberOr((left.totals || {}).predicted_total_fundamentals, numberOr((left.totals || {}).predicted_total_runs, -1)),
+              numberOr(
+                (right.totals || {}).predicted_total_fundamentals,
+                numberOr((right.totals || {}).predicted_total_runs, -1),
+              ) -
+              numberOr(
+                (left.totals || {}).predicted_total_fundamentals,
+                numberOr((left.totals || {}).predicted_total_runs, -1),
+              ),
           );
         }
         if (mode === "lean") {

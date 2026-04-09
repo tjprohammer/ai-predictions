@@ -1496,9 +1496,18 @@
         color: var(--muted);
       }
 
-      .stat-good { color: var(--good); font-weight: 700; }
-      .stat-warn { color: var(--warn); font-weight: 700; }
-      .stat-bad { color: var(--bad); font-weight: 700; }
+      .stat-good {
+        color: var(--good);
+        font-weight: 700;
+      }
+      .stat-warn {
+        color: var(--warn);
+        font-weight: 700;
+      }
+      .stat-bad {
+        color: var(--bad);
+        font-weight: 700;
+      }
 
       .team-panel {
         display: grid;
@@ -2097,7 +2106,9 @@
             <div class="section-tag">Season Leaders</div>
             <h2>League context entering today</h2>
           </div>
-          <span class="panel-subtitle" id="leadersSubtitle">Loading season leaderboards</span>
+          <span class="panel-subtitle" id="leadersSubtitle"
+            >Loading season leaderboards</span
+          >
         </div>
         <div class="leaders-grid" id="leadersGrid">
           <div class="empty-state">Loading season leaders...</div>
@@ -2799,16 +2810,16 @@
       function xwobaTone(val) {
         const n = numberOr(val);
         if (n == null) return "";
-        if (n >= 0.340) return "stat-good";
-        if (n <= 0.290) return "stat-warn";
+        if (n >= 0.34) return "stat-good";
+        if (n <= 0.29) return "stat-warn";
         return "";
       }
 
       function xwobaAgainstTone(val) {
         const n = numberOr(val);
         if (n == null) return "";
-        if (n >= 0.340) return "stat-warn";
-        if (n <= 0.290) return "stat-good";
+        if (n >= 0.34) return "stat-warn";
+        if (n <= 0.29) return "stat-good";
         return "";
       }
 
@@ -2824,14 +2835,14 @@
         const n = numberOr(val);
         if (n == null) return "";
         if (n >= 0.28) return "stat-good";
-        if (n <= 0.20) return "stat-warn";
+        if (n <= 0.2) return "stat-warn";
         return "";
       }
 
       function cswTone(val) {
         const n = numberOr(val);
         if (n == null) return "";
-        if (n >= 0.30) return "stat-good";
+        if (n >= 0.3) return "stat-good";
         if (n <= 0.25) return "stat-warn";
         return "";
       }
@@ -2840,15 +2851,15 @@
         const n = numberOr(val);
         if (n == null) return "";
         if (n >= 0.35) return "stat-good";
-        if (n <= 0.20) return "stat-warn";
+        if (n <= 0.2) return "stat-warn";
         return "";
       }
 
       function confidenceTone(val) {
         const n = numberOr(val);
         if (n == null) return "";
-        if (n >= 0.70) return "stat-good";
-        if (n <= 0.40) return "stat-warn";
+        if (n >= 0.7) return "stat-good";
+        if (n <= 0.4) return "stat-warn";
         return "";
       }
 
@@ -3679,7 +3690,10 @@
       }
 
       function primaryTotalPrediction(totals) {
-        return numberOr(totals.predicted_total_fundamentals, numberOr(totals.predicted_total_runs));
+        return numberOr(
+          totals.predicted_total_fundamentals,
+          numberOr(totals.predicted_total_runs),
+        );
       }
 
       function historicalOutcomeInfo(game) {
@@ -4492,7 +4506,10 @@
           return `${opponentTeam} opponent`;
         }
         const projection = starter.k_projection || {};
-        const projectedKs = numberOr(projection.projected_strikeouts_fundamentals, projection.projected_strikeouts);
+        const projectedKs = numberOr(
+          projection.projected_strikeouts_fundamentals,
+          projection.projected_strikeouts,
+        );
         const opponentK = projection.opponent_k_pct_used;
         const handedness = handednessCountsLabel(projection.lineup_handedness);
         const market = projection.market || {};
@@ -4513,7 +4530,10 @@
 
       function renderStarterProjectionPill(label, starter, opponentTeam) {
         const projection = starter?.k_projection || {};
-        const projectedKs = numberOr(projection.projected_strikeouts_fundamentals, projection.projected_strikeouts);
+        const projectedKs = numberOr(
+          projection.projected_strikeouts_fundamentals,
+          projection.projected_strikeouts,
+        );
         const baselineKs = projection.baseline_strikeouts;
         const market = projection.market || {};
         return renderCompactSummaryPill(
@@ -4690,7 +4710,10 @@
             "No first-5 prediction available",
           );
         }
-        const pred = numberOr(first5.predicted_total_fundamentals, numberOr(first5.predicted_total_runs));
+        const pred = numberOr(
+          first5.predicted_total_fundamentals,
+          numberOr(first5.predicted_total_runs),
+        );
         const mkt = numberOr(first5.market_total);
         const value =
           pred != null
