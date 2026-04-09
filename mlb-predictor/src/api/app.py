@@ -6576,22 +6576,24 @@ def player_search(
     q: str = Query(default="", max_length=100),
     team: str = Query(default="", max_length=10),
     position: str = Query(default="", max_length=10),
-    limit: int = Query(default=15, ge=1, le=50),
+    starting_only: bool = Query(default=False),
+    target_date: date = Query(default_factory=date.today),
+    limit: int = Query(default=25, ge=1, le=50),
 ) -> JSONResponse:
-    """Search non-pitcher players by name. Returns id, name, position, team."""
+    """Search non-pitcher players by name with optional lineup enrichment."""
     if not _table_exists("dim_players"):
         return _json_response({"players": []})
     safe_q = q.strip()
     safe_team = team.strip()
     safe_pos = position.strip()
-    if not safe_q and not safe_team and not safe_pos:
+    if not safe_q and not safe_team and not safe_pos and not starting_only:
         return _json_response({"players": []})
     clauses = [
         "dp.position IS NOT NULL",
         "dp.position != 'P'",
         "dp.active = 1",
     ]
-    params: dict[str, object] = {"limit": limit}
+    params: dict[str, object] = {"limit": limit, "target_date": target_date.isoformat()}
     if safe_q and len(safe_q) >= 2:
         clauses.append("dp.full_name LIKE :pattern")
         params["pattern"] = f"%{safe_q}%"
@@ -6601,14 +6603,59 @@ def player_search(
     if safe_pos:
         clauses.append("dp.position = :position")
         params["position"] = safe_pos
+    has_lineups = _table_exists("lineups")
+    has_games = _table_exists("games")
+    has_pitcher_starts = _table_exists("pitcher_starts")
+    if starting_only:
+        if not has_lineups:
+            return _json_response({"players": []})
+        clauses.append("lu.player_id IS NOT NULL")
     where = " AND ".join(clauses)
+    lineup_join = ""
+    pitcher_join = ""
+    lineup_cols = ", NULL AS lineup_slot, 0 AS is_confirmed, NULL AS game_id"
+    game_cols = ", NULL AS opponent, NULL AS game_start_ts"
+    pitcher_cols = ", NULL AS opposing_pitcher_name, NULL AS opposing_pitcher_throws"
+    if has_lineups:
+        lineup_join = """
+        LEFT JOIN (
+            SELECT player_id, lineup_slot, is_confirmed, game_id,
+                   ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY snapshot_ts DESC) AS rn
+            FROM lineups
+            WHERE game_date = :target_date
+        ) lu ON lu.player_id = dp.player_id AND lu.rn = 1"""
+        lineup_cols = ", lu.lineup_slot, COALESCE(lu.is_confirmed, 0) AS is_confirmed, lu.game_id"
+    if has_lineups and has_games:
+        game_cols = """, CASE WHEN dp.team_abbr = g.home_team THEN g.away_team
+                             WHEN dp.team_abbr = g.away_team THEN g.home_team
+                             ELSE NULL END AS opponent, g.game_start_ts"""
+        lineup_join += """
+        LEFT JOIN games g ON g.game_id = lu.game_id"""
+    if has_lineups and has_games and has_pitcher_starts:
+        pitcher_join = """
+        LEFT JOIN (
+            SELECT ps.game_id, ps.team, dp2.full_name AS pitcher_name, dp2.throws AS pitcher_throws
+            FROM pitcher_starts ps
+            JOIN dim_players dp2 ON dp2.player_id = ps.pitcher_id
+            WHERE ps.game_date = :target_date
+        ) opp_p ON opp_p.game_id = lu.game_id AND opp_p.team != dp.team_abbr"""
+        pitcher_cols = ", opp_p.pitcher_name AS opposing_pitcher_name, opp_p.pitcher_throws AS opposing_pitcher_throws"
+    order_clause = "dp.full_name"
+    if has_lineups:
+        order_clause = """
+            CASE WHEN lu.player_id IS NOT NULL THEN 0 ELSE 1 END,
+            lu.lineup_slot ASC,
+            dp.full_name"""
     frame = _safe_frame(
         f"""
         SELECT dp.player_id, dp.full_name, dp.position, dp.team_abbr,
                dp.bats, dp.throws
+               {lineup_cols}{game_cols}{pitcher_cols}
         FROM dim_players dp
+        {lineup_join}
+        {pitcher_join}
         WHERE {where}
-        ORDER BY dp.full_name
+        ORDER BY {order_clause}
         LIMIT :limit
         """,
         params,
@@ -6622,11 +6669,20 @@ def player_recent_stats(
     target_date: date = Query(default_factory=date.today),
     limit: int = Query(default=10, ge=1, le=30),
 ) -> JSONResponse:
-    """Return recent game batting lines for a single player."""
+    """Return recent game batting lines for a single player, with opposing pitcher hand."""
     if not _table_exists("player_game_batting"):
         return _json_response({"games": []})
+    has_pitcher_starts = _table_exists("pitcher_starts")
+    pitcher_join = ""
+    pitcher_col = ", NULL AS opposing_pitcher_throws"
+    if has_pitcher_starts:
+        pitcher_join = """
+        LEFT JOIN pitcher_starts ps
+          ON ps.game_id = b.game_id AND ps.team = b.opponent
+        LEFT JOIN dim_players dp ON dp.player_id = ps.pitcher_id"""
+        pitcher_col = ", dp.throws AS opposing_pitcher_throws"
     frame = _safe_frame(
-        """
+        f"""
         SELECT
             b.game_date,
             b.opponent,
@@ -6644,7 +6700,9 @@ def player_recent_stats(
                 + 3 * COALESCE(b.triples, 0)
                 + 4 * COALESCE(b.home_runs, 0)
             ) AS total_bases
+            {pitcher_col}
         FROM player_game_batting b
+        {pitcher_join}
         WHERE b.player_id = :player_id
           AND b.game_date <= :target_date
         ORDER BY b.game_date DESC, b.game_id DESC

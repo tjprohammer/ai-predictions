@@ -410,7 +410,7 @@
         border-radius: var(--radius-md);
         border: 1px solid var(--line);
         font-size: 1rem;
-        background: rgba(255,255,255,0.86);
+        background: rgba(255, 255, 255, 0.86);
         color: var(--ink);
       }
       .player-search-wrap input:focus {
@@ -433,7 +433,9 @@
         z-index: 10;
         display: none;
       }
-      .autocomplete-list.open { display: block; }
+      .autocomplete-list.open {
+        display: block;
+      }
       .autocomplete-item {
         padding: 10px 16px;
         cursor: pointer;
@@ -443,7 +445,9 @@
         font-size: 0.92rem;
         border-bottom: 1px solid var(--line);
       }
-      .autocomplete-item:last-child { border-bottom: none; }
+      .autocomplete-item:last-child {
+        border-bottom: none;
+      }
       .autocomplete-item:hover,
       .autocomplete-item.active {
         background: var(--accent-soft);
@@ -1093,19 +1097,46 @@
             >Loading hot hitters</span
           >
         </div>
-        <div class="player-search-wrap" style="margin-bottom:16px">
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <div class="player-search-wrap" style="margin-bottom: 16px">
+          <div
+            style="
+              display: flex;
+              gap: 8px;
+              flex-wrap: wrap;
+              align-items: center;
+            "
+          >
             <input
               id="playerSearchInput"
               type="search"
               placeholder="Search any hitter by name…"
               autocomplete="off"
-              style="flex:1;min-width:180px"
+              style="flex: 1; min-width: 180px"
             />
-            <select id="psTeamFilter" style="padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-md);font-size:0.88rem;background:var(--panel);">
+            <select
+              id="psTeamFilter"
+              style="
+                padding: 8px 10px;
+                border: 1px solid var(--line);
+                border-radius: var(--radius-md);
+                font-size: 0.88rem;
+                background: var(--panel);
+                color: var(--ink);
+              "
+            >
               <option value="">All teams</option>
             </select>
-            <select id="psPositionFilter" style="padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-md);font-size:0.88rem;background:var(--panel);">
+            <select
+              id="psPositionFilter"
+              style="
+                padding: 8px 10px;
+                border: 1px solid var(--line);
+                border-radius: var(--radius-md);
+                font-size: 0.88rem;
+                background: var(--panel);
+                color: var(--ink);
+              "
+            >
               <option value="">All positions</option>
               <option value="C">C</option>
               <option value="1B">1B</option>
@@ -1118,6 +1149,10 @@
               <option value="OF">OF</option>
               <option value="DH">DH</option>
             </select>
+            <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;color:var(--muted);cursor:pointer;white-space:nowrap;">
+              <input type="checkbox" id="psStartingOnly" style="accent-color:var(--accent);"/>
+              Starting today
+            </label>
           </div>
           <div class="autocomplete-list" id="playerSearchResults"></div>
         </div>
@@ -2183,6 +2218,7 @@
       const playerSearchCard = document.getElementById("playerSearchCard");
       const psTeamFilter = document.getElementById("psTeamFilter");
       const psPositionFilter = document.getElementById("psPositionFilter");
+      const psStartingOnly = document.getElementById("psStartingOnly");
       let psDebounce = null;
       let psAbort = null;
       let psLastPlayer = null;
@@ -2193,9 +2229,9 @@
       const MLB_TEAMS = [
         "ATH","ATL","AZ","BAL","BOS","CHC","CIN","CLE","COL","CWS",
         "DET","HOU","KC","LAA","LAD","MIA","MIL","MIN","NYM","NYY",
-        "PHI","PIT","SD","SEA","SF","STL","TB","TEX","TOR","WSH"
+        "PHI","PIT","SD","SEA","SF","STL","TB","TEX","TOR","WSH",
       ];
-      MLB_TEAMS.forEach(t => {
+      MLB_TEAMS.forEach((t) => {
         const opt = document.createElement("option");
         opt.value = t;
         opt.textContent = t;
@@ -2211,20 +2247,25 @@
         const q = playerSearchInput.value.trim();
         const team = psTeamFilter.value;
         const pos = psPositionFilter.value;
+        const startingOnly = psStartingOnly.checked;
         clearAutocomplete();
         if (psDebounce) clearTimeout(psDebounce);
         if (psAbort) {
           psAbort.abort();
           psAbort = null;
         }
-        if (q.length < 2 && !team && !pos) return;
+        if (q.length < 2 && !team && !pos && !startingOnly) return;
         psDebounce = setTimeout(async () => {
           try {
             psAbort = new AbortController();
-            const params = new URLSearchParams({ limit: 10 });
+            const params = new URLSearchParams({
+              limit: "25",
+              target_date: targetDateInput.value || localDateValue(),
+            });
             if (q) params.set("q", q);
             if (team) params.set("team", team);
             if (pos) params.set("position", pos);
+            if (startingOnly) params.set("starting_only", "true");
             const res = await fetch(
               appUrl(`api/players/search?${params.toString()}`),
               { signal: psAbort.signal },
@@ -2241,6 +2282,7 @@
       playerSearchInput.addEventListener("input", triggerPlayerSearch);
       psTeamFilter.addEventListener("change", triggerPlayerSearch);
       psPositionFilter.addEventListener("change", triggerPlayerSearch);
+      psStartingOnly.addEventListener("change", triggerPlayerSearch);
 
       function renderAutocomplete(players) {
         if (!players.length) {
@@ -2250,13 +2292,23 @@
           return;
         }
         playerSearchResults.innerHTML = players
-          .map(
-            (p) =>
-              `<div class="autocomplete-item" data-player-id="${p.player_id}" data-player='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
-                <span class="ac-name">${escapeHtml(p.full_name)}</span>
-                <span class="ac-meta">${escapeHtml(p.position)} · ${escapeHtml(p.team_abbr)}</span>
-              </div>`,
-          )
+          .map((p) => {
+            const inLineup = p.lineup_slot != null;
+            const confirmed = Number(p.is_confirmed) === 1;
+            let statusBadge = "";
+            if (inLineup && confirmed) {
+              statusBadge = '<span class="status-chip good" style="font-size:0.72rem;padding:1px 6px;margin-left:6px;">Confirmed</span>';
+            } else if (inLineup) {
+              statusBadge = '<span class="status-chip warn" style="font-size:0.72rem;padding:1px 6px;margin-left:6px;">Expected</span>';
+            }
+            const slot = inLineup ? ` #${p.lineup_slot}` : "";
+            const opp = p.opponent ? ` vs ${escapeHtml(p.opponent)}` : "";
+            const pitcherNote = p.opposing_pitcher_name ? ` · ${escapeHtml(p.opposing_pitcher_throws || "")}HP ${escapeHtml(p.opposing_pitcher_name)}` : "";
+            return `<div class="autocomplete-item" data-player-id="${p.player_id}" data-player='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
+                <span class="ac-name">${escapeHtml(p.full_name)}${statusBadge}</span>
+                <span class="ac-meta">${escapeHtml(p.position)} · ${escapeHtml(p.team_abbr)}${slot}${opp}${pitcherNote}</span>
+              </div>`;
+          })
           .join("");
         playerSearchResults.style.display = "block";
       }
@@ -2273,6 +2325,11 @@
       document.addEventListener("click", (e) => {
         if (!e.target.closest(".player-search-wrap")) clearAutocomplete();
       });
+
+      /* Find this player in loaded hot-hitter data if available */
+      function findHotHitterRow(playerId) {
+        return (state.rows || []).find((r) => r.player_id === playerId) || null;
+      }
 
       async function showPlayerCard(player) {
         playerSearchCard.innerHTML =
@@ -2338,9 +2395,44 @@
         }
         const avg = ab > 0 ? (h / ab).toFixed(3) : ".000";
         const slg = ab > 0 ? (tb / ab).toFixed(3) : ".000";
-        const obp =
-          ab + bb > 0 ? ((h + bb) / (ab + bb)).toFixed(3) : ".000";
-        return { games: games.length, ab, h, hr, r, rbi, bb, sb, k, tb, avg, slg, obp };
+        const obp = ab + bb > 0 ? ((h + bb) / (ab + bb)).toFixed(3) : ".000";
+        return {
+          games: games.length,
+          ab,
+          h,
+          hr,
+          r,
+          rbi,
+          bb,
+          sb,
+          k,
+          tb,
+          avg,
+          slg,
+          obp,
+        };
+      }
+
+      /* Compute platoon splits from recent games that include opposing_pitcher_throws */
+      function computePlatoonSplits(games) {
+        const splits = { L: { ab: 0, h: 0, games: 0 }, R: { ab: 0, h: 0, games: 0 } };
+        for (const g of games) {
+          const hand = String(g.opposing_pitcher_throws || "").toUpperCase().slice(0, 1);
+          if (hand === "L" || hand === "R") {
+            splits[hand].ab += g.at_bats || 0;
+            splits[hand].h += g.hits || 0;
+            splits[hand].games += 1;
+          }
+        }
+        return splits;
+      }
+
+      function platoonBadgeHTML(splits, hand) {
+        const s = splits[hand];
+        if (!s || s.ab <= 0) return "";
+        const avg = (s.h / s.ab).toFixed(3);
+        const tone = Number(avg) >= 0.280 ? "good" : Number(avg) <= 0.200 ? "warn" : "";
+        return `<span class="chip ${tone}">vs ${hand}HP ${avg}</span>`;
       }
 
       function renderPlayerCardHTML(player, agg, games) {
@@ -2354,45 +2446,165 @@
           player_name: player.full_name,
           recent_hit_history: history,
         };
+
+        /* Check if player is in hot-hitter data for rich badges */
+        const hotRow = findHotHitterRow(player.player_id);
+        const form = hotRow ? (hotRow.form || {}) : null;
+        const splits = computePlatoonSplits(games);
+
+        /* Lineup status from search result or hot-hitter data */
+        const inLineup = player.lineup_slot != null || (hotRow && hotRow.lineup_slot != null);
+        const isConfirmed = Number(player.is_confirmed) === 1 || (hotRow && hotRow.is_confirmed_lineup);
+        const isInferred = hotRow && hotRow.is_inferred_lineup;
+        let lineupChip = "";
+        if (inLineup && isConfirmed) {
+          lineupChip = '<span class="status-chip good">Starting (Confirmed)</span>';
+        } else if (inLineup && isInferred) {
+          lineupChip = '<span class="status-chip warn">Expected (Inferred)</span>';
+        } else if (inLineup) {
+          lineupChip = '<span class="status-chip warn">In Lineup (Projected)</span>';
+        } else {
+          lineupChip = '<span class="status-chip" style="opacity:.5">Not in today\'s lineup</span>';
+        }
+
+        /* Hot qualifier / form badge */
+        let qualifierChip = "";
+        let reasonsHTML = "";
+        let whyHotRow = "";
+        if (form && form.label) {
+          const qTone = form.tone || "good";
+          qualifierChip = `<span class="chip ${escapeHtml(qTone)}">${escapeHtml(form.label)}</span>`;
+          const reasons = (form.reasons || []).map(
+            (r) => `<div class="reason-chip ${escapeHtml(qTone)}">${escapeHtml(r)}</div>`
+          ).join("");
+          reasonsHTML = reasons ? `<div class="reason-list">${reasons}</div>` : "";
+          whyHotRow = `
+            <div class="data-row">
+              <span class="data-label">Why ${escapeHtml(form.label)}</span>
+              <span class="data-value">${escapeHtml(form.summary || "Recent form above baseline")}</span>
+            </div>`;
+        }
+
+        /* Platoon split badges */
+        const vsLBadge = platoonBadgeHTML(splits, "L");
+        const vsRBadge = platoonBadgeHTML(splits, "R");
+
+        /* Vs pitcher hand badge from hot-hitter data */
+        let handBadge = "";
+        if (hotRow) {
+          const hm = pitcherHandMatchup(hotRow);
+          handBadge = `<span class="chip ${escapeHtml(hm.tone)}">${escapeHtml(hm.chip)}</span>`;
+        }
+
+        /* Opposing pitcher context */
+        const oppPitcher = player.opposing_pitcher_name
+          ? `vs ${escapeHtml(player.opposing_pitcher_throws || ""}HP ${escapeHtml(player.opposing_pitcher_name)}`
+          : (hotRow && hotRow.opposing_pitcher_name
+            ? `vs ${escapeHtml(hotRow.opposing_pitcher_name)}`
+            : "");
+
+        /* Lineup slot from search or hot data */
+        const slot = player.lineup_slot ?? (hotRow ? hotRow.lineup_slot : null);
+        const opponent = player.opponent || (hotRow ? hotRow.opponent : null);
+
+        /* Context line */
+        const contextParts = [
+          slot != null ? `#${slot} spot` : null,
+          player.position || null,
+          player.bats ? `${player.bats}HB` : null,
+          opponent ? `vs ${opponent}` : null,
+          oppPitcher || null,
+        ].filter(Boolean);
+
+        /* BvP from hot-hitter data */
+        let bvpRow = "";
+        if (hotRow) {
+          const b = bvpSummary(hotRow);
+          if (b) {
+            bvpRow = `
+            <div class="data-row">
+              <span class="data-label">Vs ${escapeHtml(hotRow.opposing_pitcher_name ? hotRow.opposing_pitcher_name.split(" ").pop() : "Pitcher")}</span>
+              <span class="data-value"><span style="color: ${b.avg >= 0.28 ? "var(--good)" : b.avg <= 0.18 ? "var(--bad)" : "inherit"}">${escapeHtml(b.line)}</span> <span style="opacity:0.5;font-size:0.75em">(${b.source})</span></span>
+            </div>`;
+          }
+        }
+
+        /* Streak from recent games */
+        let streakLen = 0;
+        for (const g of history) {
+          if (g.had_hit) streakLen++;
+          else break;
+        }
+
+        /* Hot-hitter specific rows */
+        let hotDataRows = "";
+        if (hotRow) {
+          hotDataRows = `
+            <div class="data-row">
+              <span class="data-label">7G / 30G Hit Rate</span>
+              <span class="data-value"><span style="color: ${numberOr(hotRow.hit_rate_7) >= 0.35 ? "var(--good)" : numberOr(hotRow.hit_rate_7) <= 0.2 ? "var(--warn)" : "inherit"}">${formatPercent(hotRow.hit_rate_7)}</span> / <span style="color: ${numberOr(hotRow.hit_rate_30) >= 0.35 ? "var(--good)" : numberOr(hotRow.hit_rate_30) <= 0.2 ? "var(--warn)" : "inherit"}">${formatPercent(hotRow.hit_rate_30)}</span></span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">xwOBA14 / HH14</span>
+              <span class="data-value"><span style="color: ${numberOr(hotRow.xwoba_14) >= 0.34 ? "var(--good)" : numberOr(hotRow.xwoba_14) <= 0.29 ? "var(--warn)" : "inherit"}">${formatNumber(hotRow.xwoba_14, 3)}</span> / <span style="color: ${numberOr(hotRow.hard_hit_pct_14) >= 0.4 ? "var(--good)" : numberOr(hotRow.hard_hit_pct_14) <= 0.25 ? "var(--warn)" : "inherit"}">${formatPercent(hotRow.hard_hit_pct_14)}</span></span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">Hit Probability</span>
+              <span class="data-value" style="color: ${numberOr(hotRow.predicted_hit_probability) >= 0.55 ? "var(--good)" : numberOr(hotRow.predicted_hit_probability) < 0.45 ? "var(--warn)" : "inherit"}">${formatPercent(hotRow.predicted_hit_probability, 0)}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">Heat Score</span>
+              <span class="data-value" style="color: ${numberOr(form?.heat_score) >= 3.0 ? "var(--good)" : numberOr(form?.heat_score) <= 1.5 ? "var(--warn)" : "inherit"}">${formatNumber(form?.heat_score, 2)}</span>
+            </div>`;
+        }
+
         return `
         <article class="player-card">
           <div class="player-head">
             <div>
-              <div class="section-tag">Player Lookup</div>
+              <div class="section-tag">Player Lookup${opponent ? " · " + escapeHtml(player.team_abbr) + " vs " + escapeHtml(opponent) : ""}</div>
               <div class="player-name">${escapeHtml(player.full_name)}</div>
-              <div class="player-context">${escapeHtml(player.position)} | ${escapeHtml(player.team_abbr)} | Bats ${escapeHtml(player.bats)} | Last ${agg.games} games</div>
+              <div class="player-context">${escapeHtml(contextParts.join(" | "))}</div>
             </div>
             <div class="player-topline">
-              <span class="chip ${Number(agg.avg) >= 0.280 ? "good" : Number(agg.avg) <= 0.200 ? "warn" : ""}">${agg.avg} AVG</span>
-              <span class="chip">${hitGames}/${history.length} hit games</span>
+              ${qualifierChip}
+              ${handBadge}
+              ${vsLBadge}
+              ${vsRBadge}
+              ${lineupChip}
             </div>
           </div>
+
+          ${reasonsHTML}
 
           <div class="metric-grid">
             <div class="metric-box">
               <span class="metric-label">AVG</span>
-              <span class="metric-value" style="color: ${Number(agg.avg) >= 0.280 ? "var(--good)" : Number(agg.avg) <= 0.200 ? "var(--warn)" : "inherit"}">${agg.avg}</span>
+              <span class="metric-value" style="color: ${Number(agg.avg) >= 0.28 ? "var(--good)" : Number(agg.avg) <= 0.2 ? "var(--warn)" : "inherit"}">${agg.avg}</span>
             </div>
             <div class="metric-box">
               <span class="metric-label">OBP</span>
-              <span class="metric-value" style="color: ${Number(agg.obp) >= 0.350 ? "var(--good)" : Number(agg.obp) <= 0.280 ? "var(--warn)" : "inherit"}">${agg.obp}</span>
+              <span class="metric-value" style="color: ${Number(agg.obp) >= 0.35 ? "var(--good)" : Number(agg.obp) <= 0.28 ? "var(--warn)" : "inherit"}">${agg.obp}</span>
             </div>
             <div class="metric-box">
               <span class="metric-label">SLG</span>
-              <span class="metric-value" style="color: ${Number(agg.slg) >= 0.450 ? "var(--good)" : Number(agg.slg) <= 0.320 ? "var(--warn)" : "inherit"}">${agg.slg}</span>
+              <span class="metric-value" style="color: ${Number(agg.slg) >= 0.45 ? "var(--good)" : Number(agg.slg) <= 0.32 ? "var(--warn)" : "inherit"}">${agg.slg}</span>
             </div>
           </div>
 
           ${renderRecentHistory(fakeRow)}
 
           <div class="data-stack">
+            ${whyHotRow}
+            ${bvpRow}
             <div class="data-row">
-              <span class="data-label">H</span>
-              <span class="data-value">${agg.h}</span>
+              <span class="data-label">Streak</span>
+              <span class="data-value">${streakLen > 0 ? streakLen + "G hit streak" : "No active streak"} · ${hitGames}/${history.length} hit games</span>
             </div>
+            ${hotDataRows}
             <div class="data-row">
-              <span class="data-label">HR</span>
-              <span class="data-value">${agg.hr}</span>
+              <span class="data-label">H / HR</span>
+              <span class="data-value">${agg.h} / ${agg.hr}</span>
             </div>
             <div class="data-row">
               <span class="data-label">R / RBI</span>
@@ -2403,12 +2615,16 @@
               <span class="data-value">${agg.bb} / ${agg.k}</span>
             </div>
             <div class="data-row">
-              <span class="data-label">SB</span>
-              <span class="data-value">${agg.sb}</span>
+              <span class="data-label">SB / AB</span>
+              <span class="data-value">${agg.sb} / ${agg.ab}</span>
             </div>
             <div class="data-row">
-              <span class="data-label">AB</span>
-              <span class="data-value">${agg.ab}</span>
+              <span class="data-label">Vs LHP</span>
+              <span class="data-value">${splits.L.ab > 0 ? `${(splits.L.h / splits.L.ab).toFixed(3)} (${splits.L.h}-${splits.L.ab}, ${splits.L.games}G)` : "No data"}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">Vs RHP</span>
+              <span class="data-value">${splits.R.ab > 0 ? `${(splits.R.h / splits.R.ab).toFixed(3)} (${splits.R.h}-${splits.R.ab}, ${splits.R.games}G)` : "No data"}</span>
             </div>
           </div>
         </article>`;
@@ -2422,7 +2638,11 @@
           if (playerKey) {
             state.historyFilters[playerKey] = filterKey;
             if (psLastPlayer && psLastGames) {
-              playerSearchCard.innerHTML = renderPlayerCardHTML(psLastPlayer, psLastAgg, psLastGames);
+              playerSearchCard.innerHTML = renderPlayerCardHTML(
+                psLastPlayer,
+                psLastAgg,
+                psLastGames,
+              );
             }
           }
           return;
@@ -2434,7 +2654,11 @@
           if (playerKey) {
             state.statFilters[playerKey] = statKey;
             if (psLastPlayer && psLastGames) {
-              playerSearchCard.innerHTML = renderPlayerCardHTML(psLastPlayer, psLastAgg, psLastGames);
+              playerSearchCard.innerHTML = renderPlayerCardHTML(
+                psLastPlayer,
+                psLastAgg,
+                psLastGames,
+              );
             }
           }
           return;
