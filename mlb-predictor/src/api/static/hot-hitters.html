@@ -1094,12 +1094,31 @@
           >
         </div>
         <div class="player-search-wrap" style="margin-bottom:16px">
-          <input
-            id="playerSearchInput"
-            type="search"
-            placeholder="Search any hitter by name…"
-            autocomplete="off"
-          />
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <input
+              id="playerSearchInput"
+              type="search"
+              placeholder="Search any hitter by name…"
+              autocomplete="off"
+              style="flex:1;min-width:180px"
+            />
+            <select id="psTeamFilter" style="padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-md);font-size:0.88rem;background:var(--panel);">
+              <option value="">All teams</option>
+            </select>
+            <select id="psPositionFilter" style="padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-md);font-size:0.88rem;background:var(--panel);">
+              <option value="">All positions</option>
+              <option value="C">C</option>
+              <option value="1B">1B</option>
+              <option value="2B">2B</option>
+              <option value="3B">3B</option>
+              <option value="SS">SS</option>
+              <option value="LF">LF</option>
+              <option value="CF">CF</option>
+              <option value="RF">RF</option>
+              <option value="OF">OF</option>
+              <option value="DH">DH</option>
+            </select>
+          </div>
           <div class="autocomplete-list" id="playerSearchResults"></div>
         </div>
         <div id="playerSearchCard"></div>
@@ -2162,33 +2181,52 @@
         "playerSearchResults",
       );
       const playerSearchCard = document.getElementById("playerSearchCard");
+      const psTeamFilter = document.getElementById("psTeamFilter");
+      const psPositionFilter = document.getElementById("psPositionFilter");
       let psDebounce = null;
       let psAbort = null;
       let psLastPlayer = null;
       let psLastAgg = null;
       let psLastGames = null;
 
+      /* Populate team dropdown from all 30 MLB teams */
+      const MLB_TEAMS = [
+        "ATH","ATL","AZ","BAL","BOS","CHC","CIN","CLE","COL","CWS",
+        "DET","HOU","KC","LAA","LAD","MIA","MIL","MIN","NYM","NYY",
+        "PHI","PIT","SD","SEA","SF","STL","TB","TEX","TOR","WSH"
+      ];
+      MLB_TEAMS.forEach(t => {
+        const opt = document.createElement("option");
+        opt.value = t;
+        opt.textContent = t;
+        psTeamFilter.appendChild(opt);
+      });
+
       function clearAutocomplete() {
         playerSearchResults.innerHTML = "";
         playerSearchResults.style.display = "none";
       }
 
-      playerSearchInput.addEventListener("input", () => {
+      function triggerPlayerSearch() {
         const q = playerSearchInput.value.trim();
+        const team = psTeamFilter.value;
+        const pos = psPositionFilter.value;
         clearAutocomplete();
         if (psDebounce) clearTimeout(psDebounce);
         if (psAbort) {
           psAbort.abort();
           psAbort = null;
         }
-        if (q.length < 2) return;
+        if (q.length < 2 && !team && !pos) return;
         psDebounce = setTimeout(async () => {
           try {
             psAbort = new AbortController();
+            const params = new URLSearchParams({ limit: 10 });
+            if (q) params.set("q", q);
+            if (team) params.set("team", team);
+            if (pos) params.set("position", pos);
             const res = await fetch(
-              appUrl(
-                `api/players/search?q=${encodeURIComponent(q)}&limit=10`,
-              ),
+              appUrl(`api/players/search?${params.toString()}`),
               { signal: psAbort.signal },
             );
             if (!res.ok) return;
@@ -2198,7 +2236,11 @@
             if (e.name !== "AbortError") console.error(e);
           }
         }, 250);
-      });
+      }
+
+      playerSearchInput.addEventListener("input", triggerPlayerSearch);
+      psTeamFilter.addEventListener("change", triggerPlayerSearch);
+      psPositionFilter.addEventListener("change", triggerPlayerSearch);
 
       function renderAutocomplete(players) {
         if (!players.length) {

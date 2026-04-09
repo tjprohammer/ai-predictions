@@ -6573,26 +6573,45 @@ def hot_hitters(
 
 @app.get("/api/players/search")
 def player_search(
-    q: str = Query(min_length=2, max_length=100),
+    q: str = Query(default="", max_length=100),
+    team: str = Query(default="", max_length=10),
+    position: str = Query(default="", max_length=10),
     limit: int = Query(default=15, ge=1, le=50),
 ) -> JSONResponse:
     """Search non-pitcher players by name. Returns id, name, position, team."""
     if not _table_exists("dim_players"):
         return _json_response({"players": []})
     safe_q = q.strip()
+    safe_team = team.strip()
+    safe_pos = position.strip()
+    if not safe_q and not safe_team and not safe_pos:
+        return _json_response({"players": []})
+    clauses = [
+        "dp.position IS NOT NULL",
+        "dp.position != 'P'",
+        "dp.active = 1",
+    ]
+    params: dict[str, object] = {"limit": limit}
+    if safe_q and len(safe_q) >= 2:
+        clauses.append("dp.full_name LIKE :pattern")
+        params["pattern"] = f"%{safe_q}%"
+    if safe_team:
+        clauses.append("dp.team_abbr = :team")
+        params["team"] = safe_team
+    if safe_pos:
+        clauses.append("dp.position = :position")
+        params["position"] = safe_pos
+    where = " AND ".join(clauses)
     frame = _safe_frame(
-        """
+        f"""
         SELECT dp.player_id, dp.full_name, dp.position, dp.team_abbr,
                dp.bats, dp.throws
         FROM dim_players dp
-        WHERE dp.position IS NOT NULL
-          AND dp.position != 'P'
-          AND dp.active = 1
-          AND dp.full_name LIKE :pattern
+        WHERE {where}
         ORDER BY dp.full_name
         LIMIT :limit
         """,
-        {"pattern": f"%{safe_q}%", "limit": limit},
+        params,
     )
     return _json_response({"players": _frame_records(frame)})
 
