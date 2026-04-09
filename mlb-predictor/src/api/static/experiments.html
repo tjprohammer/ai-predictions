@@ -982,11 +982,11 @@
         `;
       }
 
-      function renderDailyTable(label, daily, countKey) {
+      function renderDailyTable(label, daily, countKey, laneOverride) {
         if (!daily || daily.length === 0) {
           return `<div class="daily-table"><h2>${label} &mdash; Daily Breakdown</h2><div class="empty-state">No completed games with dual predictions yet</div></div>`;
         }
-        const lane = countKey === "games" ? "totals" : "strikeouts";
+        const lane = laneOverride || (countKey === "games" ? "totals" : "strikeouts");
         const unit = lane === "totals" ? "runs" : "Ks";
         const countLabel = countKey === "games" ? "Games" : "Pitchers";
         const headerRow = `<tr><th>Date</th><th>${countLabel}</th><th>Actual<br><span style="font-weight:400;text-transform:none;letter-spacing:0">avg outcome</span></th><th>Stats-Only W-L</th><th>Blended W-L</th><th>Stats-Only<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Blended<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Vegas<br><span style="font-weight:400;text-transform:none;letter-spacing:0">line &rarr; miss</span></th><th>More Accurate</th></tr>`;
@@ -1082,6 +1082,9 @@
         if (lane === "totals") {
           html += `<h4>Game Totals</h4>`;
           html += renderDetailGames(data.totals, "matchup");
+        } else if (lane === "first5") {
+          html += `<h4>First-5 Innings Totals</h4>`;
+          html += renderDetailGames(data.first5, "matchup");
         } else {
           html += `<h4>Pitcher Strikeouts</h4>`;
           html += renderDetailGames(data.strikeouts, "pitcher");
@@ -1133,10 +1136,12 @@
 
           const totalsAgg = data.totals?.aggregate || {};
           const kAgg = data.strikeouts?.aggregate || {};
+          const f5Agg = data.first5?.aggregate || {};
           const hasTotals = totalsAgg.days > 0;
           const hasK = kAgg.days > 0;
+          const hasF5 = f5Agg.days > 0;
 
-          if (!hasTotals && !hasK) {
+          if (!hasTotals && !hasK && !hasF5) {
             appEl.innerHTML = `<div class="empty-state">No completed games with dual predictions in the ${window_days}-day window ending ${target_date}.<br><br>Dual predictions will appear after running predictions with the experiment branch code on dates with final game outcomes.</div>`;
             return;
           }
@@ -1144,6 +1149,8 @@
           let html = `<div class="summary-grid">`;
           if (hasTotals)
             html += renderSummary("Totals", totalsAgg, data.totals.daily);
+          if (hasF5)
+            html += renderSummary("First-5 Innings", f5Agg, data.first5.daily);
           if (hasK)
             html += renderSummary(
               "Pitcher Strikeouts",
@@ -1152,12 +1159,15 @@
             );
           html += `</div>`;
           if (hasTotals)
-            html += renderDailyTable("Totals", data.totals.daily, "games");
+            html += renderDailyTable("Totals", data.totals.daily, "games", "totals");
+          if (hasF5)
+            html += renderDailyTable("First-5 Innings", data.first5.daily, "games", "first5");
           if (hasK)
             html += renderDailyTable(
               "Pitcher Strikeouts",
               data.strikeouts.daily,
               "pitchers",
+              "strikeouts",
             );
 
           appEl.innerHTML = html;

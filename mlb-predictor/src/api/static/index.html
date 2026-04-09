@@ -4437,7 +4437,7 @@
             "No first-5 prediction available",
           );
         }
-        const pred = numberOr(first5.predicted_total_runs);
+        const pred = numberOr(first5.predicted_total_fundamentals, numberOr(first5.predicted_total_runs));
         const mkt = numberOr(first5.market_total);
         const value =
           pred != null

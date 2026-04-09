@@ -670,6 +670,7 @@
                 <option value="totals">Totals only</option>
                 <option value="hitters">Hitter hits only</option>
                 <option value="strikeouts">Pitcher Ks only</option>
+                <option value="first5">First-5 innings only</option>
               </select>
             </div>
             <div class="field">
@@ -727,6 +728,13 @@
             Waiting for data
           </div>
         </article>
+        <article class="summary-card">
+          <div class="section-tag">First-5 Inn.</div>
+          <div class="summary-value" id="first5Summary">-</div>
+          <div class="summary-foot" id="first5SummaryFoot">
+            Waiting for data
+          </div>
+        </article>
       </section>
 
       <section class="section-jumpbar" aria-label="Section shortcuts">
@@ -753,6 +761,14 @@
         >
           <span>Pitcher Ks</span>
           <span class="jump-count" id="strikeoutsCount">-</span>
+        </button>
+        <button
+          class="jump-chip"
+          data-section-target="first5"
+          type="button"
+        >
+          <span>First-5 Inn.</span>
+          <span class="jump-count" id="first5Count">-</span>
         </button>
       </section>
 
@@ -794,6 +810,19 @@
             >
           </div>
           <div class="table-shell" id="strikeoutsTable"></div>
+        </section>
+
+        <section class="panel" id="first5Section" data-section="first5">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">First-5 Innings</div>
+              <h2 class="panel-title">Did the first-5 over or under hit?</h2>
+            </div>
+            <span class="panel-subtitle" id="first5Subtitle"
+              >Loading first-5 results</span
+            >
+          </div>
+          <div class="table-shell" id="first5Table"></div>
         </section>
       </section>
     </main>
@@ -1120,10 +1149,31 @@
         `;
       }
 
+      function renderFirst5Row(row) {
+        const matchup = `${row.away_team || "?"} @ ${row.home_team || "?"}`;
+        return `
+          <div class="table-row ${escapeHtml(row.result || "pending")}">
+            <div class="cell-main">
+              <div class="cell-title">${escapeHtml(matchup)}</div>
+              <div class="cell-subtitle">${escapeHtml(formatDateTime(row.game_start_ts))} · ${escapeHtml(row.game_status || "status pending")}</div>
+            </div>
+            <div>${escapeHtml(formatNumber(numberOr(row.predicted_total_fundamentals, row.predicted_total_runs), 2))}${row.predicted_total_runs != null && row.predicted_total_fundamentals != null ? ` <span class="tiny-label" title="Blended (market-calibrated)">(B ${escapeHtml(formatNumber(row.predicted_total_runs, 2))})</span>` : ""}</div>
+            <div>${escapeHtml(formatNumber(row.market_total, 1))} · ${escapeHtml((row.recommended_side || "no line").toUpperCase())}</div>
+            <div>${escapeHtml(formatNumber(row.actual_total_runs, 0))} · ${escapeHtml((row.actual_side || "pending").toUpperCase())}</div>
+            <div class="cell-main">
+              <div>${escapeHtml(formatPercent(row.over_probability, 0))} over · ${escapeHtml(formatPercent(row.under_probability, 0))} under</div>
+              <div class="result-note">Edge ${escapeHtml(formatSigned(row.edge, 3))}</div>
+            </div>
+            <div><span class="result-badge ${escapeHtml(row.result || "pending")}">${escapeHtml(resultLabel(row.result))}</span></div>
+          </div>
+        `;
+      }
+
       function updateSummary(summary) {
         const totals = summary?.totals || {};
         const hitters = summary?.hitters || {};
         const strikeouts = summary?.strikeouts || {};
+        const first5 = summary?.first5 || {};
         gamesSummary.textContent = `${summary?.final_games || 0}/${summary?.total_games || 0}`;
         gamesSummaryFoot.textContent = `${summary?.pending_games || 0} game${summary?.pending_games === 1 ? "" : "s"} still pending final grading.`;
         totalsSummary.textContent = `${totals.won || 0}-${totals.lost || 0}-${totals.push || 0}`;
@@ -1132,6 +1182,8 @@
         hittersSummaryFoot.textContent = `${hitters.market_backed || 0} market-backed hitters · ${hitters.missing || 0} missing box score rows`;
         strikeoutsSummary.textContent = `${strikeouts.won || 0}-${strikeouts.lost || 0}`;
         strikeoutsSummaryFoot.textContent = `${strikeouts.market_backed || 0} market-backed Ks · ${strikeouts.no_line || 0} no-line starters`;
+        first5Summary.textContent = `${first5.won || 0}-${first5.lost || 0}-${first5.push || 0}`;
+        first5SummaryFoot.textContent = `${first5.market_backed || 0} market-backed F5 · ${first5.pending || 0} pending`;
       }
 
       function renderAll(payload) {
@@ -1147,18 +1199,24 @@
           applyResultFilter(payload.strikeouts || []),
           "strikeouts",
         );
+        const first5Rows = sortRows(
+          applyResultFilter(payload.first5 || []),
+          "first5",
+        );
 
         updateSummary(payload.summary || {});
         totalsCount.textContent = String(totalsRows.length);
         hittersCount.textContent = String(hitterRows.length);
         strikeoutsCount.textContent = String(strikeoutRows.length);
+        first5Count.textContent = String(first5Rows.length);
         allCount.textContent = String(
-          totalsRows.length + hitterRows.length + strikeoutRows.length,
+          totalsRows.length + hitterRows.length + strikeoutRows.length + first5Rows.length,
         );
         updateSectionVisibility();
         totalsSubtitle.textContent = `${totalsRows.length} totals result${totalsRows.length === 1 ? "" : "s"} shown`;
         hittersSubtitle.textContent = `${hitterRows.length} hitter result${hitterRows.length === 1 ? "" : "s"} shown`;
         strikeoutsSubtitle.textContent = `${strikeoutRows.length} pitcher result${strikeoutRows.length === 1 ? "" : "s"} shown`;
+        first5Subtitle.textContent = `${first5Rows.length} first-5 result${first5Rows.length === 1 ? "" : "s"} shown`;
 
         totalsTable.innerHTML = renderTable(
           ["Matchup", "Model", "Line / Pick", "Actual", "Context", "Result"],
@@ -1178,6 +1236,12 @@
           renderStrikeoutRow,
           "No strikeout rows match this filter.",
         );
+        first5Table.innerHTML = renderTable(
+          ["Matchup", "Model", "Line / Pick", "Actual", "Context", "Result"],
+          first5Rows,
+          renderFirst5Row,
+          "No first-5 rows match this filter.",
+        );
       }
 
       async function refreshResults() {
@@ -1187,6 +1251,7 @@
         totalsSubtitle.textContent = "Refreshing totals";
         hittersSubtitle.textContent = "Refreshing hitters";
         strikeoutsSubtitle.textContent = "Refreshing strikeouts";
+        first5Subtitle.textContent = "Refreshing first-5";
         const response = await fetch(
           appUrl(
             `api/results/daily?target_date=${encodeURIComponent(dateValue)}&hit_min_probability=${encodeURIComponent(hitMinProbability)}`,

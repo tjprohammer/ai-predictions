@@ -3666,6 +3666,7 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
             p.model_version,
             p.prediction_ts,
             p.predicted_total_runs,
+            p.predicted_total_fundamentals,
             COALESCE(p.market_total, market.market_total) AS market_total,
             p.over_probability,
             p.under_probability,
@@ -3686,24 +3687,27 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
         if game_id is None:
             continue
         predicted_total = _to_float(row.get("predicted_total_runs"))
+        predicted_total_fundamentals = _to_float(row.get("predicted_total_fundamentals"))
+        # Use stats-only as primary; fall back to blended
+        primary_total = predicted_total_fundamentals if predicted_total_fundamentals is not None else predicted_total
         market_total = _to_float(row.get("market_total"))
         actual_total = _to_float(row.get("total_runs_first5"))
         away_expected_runs, home_expected_runs = _scale_expected_run_split(
-            predicted_total,
+            primary_total,
             row.get("away_context_runs"),
             row.get("home_context_runs"),
         )
         supported = any(
             value is not None
             for value in (
-                predicted_total,
+                primary_total,
                 market_total,
                 actual_total,
                 away_expected_runs,
                 home_expected_runs,
             )
         )
-        recommended_side = _recommended_side(predicted_total, market_total)
+        recommended_side = _recommended_side(primary_total, market_total)
         actual_side = _actual_side(actual_total, market_total) if actual_total is not None else None
         payload = {
             "supported": supported,
@@ -3711,6 +3715,7 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
             "model_version": row.get("model_version"),
             "prediction_ts": row.get("prediction_ts"),
             "predicted_total_runs": row.get("predicted_total_runs"),
+            "predicted_total_fundamentals": row.get("predicted_total_fundamentals"),
             "market_total": row.get("market_total"),
             "over_probability": row.get("over_probability"),
             "under_probability": row.get("under_probability"),
@@ -3724,7 +3729,7 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
             "recommended_side": recommended_side,
             "actual_side": actual_side,
             "result": _graded_pick_result(recommended_side, actual_side, actual_total is not None),
-            "delta_vs_market": None if predicted_total is None or market_total is None else round(predicted_total - market_total, 2),
+            "delta_vs_market": None if primary_total is None or market_total is None else round(primary_total - market_total, 2),
         }
         payload_by_game[int(game_id)] = _apply_market_freeze_payload(
             payload,
@@ -5231,12 +5236,100 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
             "cal_push": sum(d.get("cal_push", 0) for d in daily),
         }
 
+    first5_daily: list[dict[str, Any]] = []
+
+    if _table_exists("predictions_first5_totals") and _table_exists("games"):
+        frame = _safe_frame(
+            """
+            WITH ranked AS (
+                SELECT p.*, ROW_NUMBER() OVER (
+                    PARTITION BY p.game_id ORDER BY p.prediction_ts DESC
+                ) AS rn
+                FROM predictions_first5_totals p
+                WHERE p.game_date BETWEEN :start_date AND :end_date
+            )
+            SELECT
+                p.game_date,
+                p.predicted_total_runs,
+                p.predicted_total_fundamentals,
+                p.market_total,
+                g.total_runs_first5 AS actual
+            FROM ranked p
+            INNER JOIN games g ON g.game_id = p.game_id AND g.game_date = p.game_date
+            WHERE p.rn = 1
+              AND g.total_runs_first5 IS NOT NULL
+            ORDER BY p.game_date
+            """,
+            {"start_date": start_date, "end_date": target_date},
+        )
+        by_date_f5: dict[str, list[dict]] = {}
+        for row in _frame_records(frame):
+            d = str(row.get("game_date", ""))[:10]
+            by_date_f5.setdefault(d, []).append(row)
+        for d in sorted(by_date_f5):
+            rows = by_date_f5[d]
+            cal_errors, fund_errors, mkt_errors = [], [], []
+            cal_preds, fund_preds, mkt_preds, actuals = [], [], [], []
+            fund_won, fund_lost, fund_push = 0, 0, 0
+            cal_won, cal_lost, cal_push = 0, 0, 0
+            for r in rows:
+                actual = _to_float(r.get("actual"))
+                cal = _to_float(r.get("predicted_total_runs"))
+                fund = _to_float(r.get("predicted_total_fundamentals"))
+                mkt = _to_float(r.get("market_total"))
+                if actual is not None:
+                    actuals.append(actual)
+                if cal is not None:
+                    cal_preds.append(cal)
+                if fund is not None:
+                    fund_preds.append(fund)
+                if mkt is not None:
+                    mkt_preds.append(mkt)
+                if actual is not None and cal is not None:
+                    cal_errors.append(abs(actual - cal))
+                if actual is not None and fund is not None:
+                    fund_errors.append(abs(actual - fund))
+                if actual is not None and mkt is not None:
+                    mkt_errors.append(abs(actual - mkt))
+                if actual is not None and mkt is not None:
+                    actual_side = "over" if actual > mkt else ("under" if actual < mkt else "push")
+                    if fund is not None:
+                        fund_side = "over" if fund >= mkt else "under"
+                        if actual_side == "push":
+                            fund_push += 1
+                        elif fund_side == actual_side:
+                            fund_won += 1
+                        else:
+                            fund_lost += 1
+                    if cal is not None:
+                        cal_side = "over" if cal >= mkt else "under"
+                        if actual_side == "push":
+                            cal_push += 1
+                        elif cal_side == actual_side:
+                            cal_won += 1
+                        else:
+                            cal_lost += 1
+            first5_daily.append({
+                "date": d,
+                "games": len(rows),
+                "actual_avg": round(sum(actuals) / len(actuals), 2) if actuals else None,
+                "calibrated_mae": round(sum(cal_errors) / len(cal_errors), 3) if cal_errors else None,
+                "fundamentals_mae": round(sum(fund_errors) / len(fund_errors), 3) if fund_errors else None,
+                "market_mae": round(sum(mkt_errors) / len(mkt_errors), 3) if mkt_errors else None,
+                "calibrated_avg": round(sum(cal_preds) / len(cal_preds), 2) if cal_preds else None,
+                "fundamentals_avg": round(sum(fund_preds) / len(fund_preds), 2) if fund_preds else None,
+                "market_avg": round(sum(mkt_preds) / len(mkt_preds), 2) if mkt_preds else None,
+                "fund_won": fund_won, "fund_lost": fund_lost, "fund_push": fund_push,
+                "cal_won": cal_won, "cal_lost": cal_lost, "cal_push": cal_push,
+            })
+
     return {
         "target_date": target_date.isoformat(),
         "window_days": window_days,
         "start_date": start_date.isoformat(),
         "totals": {"daily": totals_daily, "aggregate": _agg(totals_daily, "games")},
         "strikeouts": {"daily": strikeouts_daily, "aggregate": _agg(strikeouts_daily, "pitchers")},
+        "first5": {"daily": first5_daily, "aggregate": _agg(first5_daily, "games")},
     }
 
 
@@ -5331,10 +5424,54 @@ def _fetch_experiment_daily_detail(target_date: date) -> dict[str, Any]:
                 "mkt_error": round(abs(actual - mkt), 2) if actual is not None and mkt is not None else None,
             })
 
+    first5_games: list[dict[str, Any]] = []
+
+    if _table_exists("predictions_first5_totals") and _table_exists("games"):
+        frame = _safe_frame(
+            """
+            WITH ranked AS (
+                SELECT p.*, ROW_NUMBER() OVER (
+                    PARTITION BY p.game_id ORDER BY p.prediction_ts DESC
+                ) AS rn
+                FROM predictions_first5_totals p
+                WHERE p.game_date = :target_date
+            )
+            SELECT
+                p.game_id,
+                g.away_team || ' @ ' || g.home_team AS matchup,
+                p.predicted_total_runs   AS calibrated,
+                p.predicted_total_fundamentals AS fundamentals,
+                p.market_total           AS market,
+                g.total_runs_first5      AS actual
+            FROM ranked p
+            INNER JOIN games g ON g.game_id = p.game_id AND g.game_date = p.game_date
+            WHERE p.rn = 1
+            ORDER BY g.away_team
+            """,
+            {"target_date": target_date},
+        )
+        for r in _frame_records(frame):
+            actual = _to_float(r.get("actual"))
+            cal = _to_float(r.get("calibrated"))
+            fund = _to_float(r.get("fundamentals"))
+            mkt = _to_float(r.get("market"))
+            first5_games.append({
+                "game_id": r.get("game_id"),
+                "matchup": r.get("matchup", ""),
+                "calibrated": round(cal, 2) if cal is not None else None,
+                "fundamentals": round(fund, 2) if fund is not None else None,
+                "market": round(mkt, 2) if mkt is not None else None,
+                "actual": int(actual) if actual is not None else None,
+                "cal_error": round(abs(actual - cal), 2) if actual is not None and cal is not None else None,
+                "fund_error": round(abs(actual - fund), 2) if actual is not None and fund is not None else None,
+                "mkt_error": round(abs(actual - mkt), 2) if actual is not None and mkt is not None else None,
+            })
+
     return {
         "target_date": target_date.isoformat(),
         "totals": totals_games,
         "strikeouts": strikeouts_games,
+        "first5": first5_games,
     }
 
 
@@ -5591,6 +5728,74 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
                 }
             )
 
+    first5_rows: list[dict[str, Any]] = []
+
+    if _table_exists("predictions_first5_totals") and _table_exists("games"):
+        first5_frame = _safe_frame(
+            """
+            WITH ranked_predictions AS (
+                SELECT
+                    p.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY p.game_id
+                        ORDER BY p.prediction_ts DESC
+                    ) AS row_rank
+                FROM predictions_first5_totals p
+                WHERE p.game_date = :target_date
+            )
+            SELECT
+                p.game_id,
+                p.game_date,
+                g.game_start_ts,
+                g.status,
+                g.away_team,
+                g.home_team,
+                p.predicted_total_runs,
+                p.predicted_total_fundamentals,
+                p.market_total,
+                p.over_probability,
+                p.under_probability,
+                p.edge,
+                g.total_runs_first5 AS actual_total_runs
+            FROM ranked_predictions p
+            INNER JOIN games g
+                ON g.game_id = p.game_id
+               AND g.game_date = p.game_date
+            WHERE p.row_rank = 1
+            ORDER BY g.game_start_ts, p.game_id
+            """,
+            {"target_date": target_date},
+        )
+        for row in _frame_records(first5_frame):
+            is_final = _is_final_game_status(row.get("status"))
+            fundamentals_total = _to_float(row.get("predicted_total_fundamentals"))
+            blended_total = _to_float(row.get("predicted_total_runs"))
+            predicted_total = fundamentals_total if fundamentals_total is not None else blended_total
+            recommended_side = _recommended_side(predicted_total, row.get("market_total"))
+            actual_side = _actual_side(row.get("actual_total_runs"), row.get("market_total")) if is_final else None
+            first5_rows.append(
+                {
+                    "game_id": row.get("game_id"),
+                    "game_date": row.get("game_date"),
+                    "game_start_ts": row.get("game_start_ts"),
+                    "game_status": row.get("status"),
+                    "is_final": is_final,
+                    "away_team": row.get("away_team"),
+                    "home_team": row.get("home_team"),
+                    "predicted_total_runs": row.get("predicted_total_runs"),
+                    "predicted_total_fundamentals": row.get("predicted_total_fundamentals"),
+                    "market_total": row.get("market_total"),
+                    "over_probability": row.get("over_probability"),
+                    "under_probability": row.get("under_probability"),
+                    "edge": row.get("edge"),
+                    "actual_total_runs": row.get("actual_total_runs"),
+                    "recommended_side": recommended_side,
+                    "actual_side": actual_side,
+                    "result": _graded_pick_result(recommended_side, actual_side, is_final),
+                    "market_backed": row.get("market_total") is not None,
+                }
+            )
+
     final_games = sum(1 for row in totals_rows if row.get("is_final"))
     total_games = len(totals_rows)
     return {
@@ -5601,10 +5806,12 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
             "totals": _summarize_category(totals_rows),
             "hitters": _summarize_category(hitter_rows),
             "strikeouts": _summarize_category(strikeout_rows),
+            "first5": _summarize_category(first5_rows),
         },
         "totals": totals_rows,
         "hitters": hitter_rows,
         "strikeouts": strikeout_rows,
+        "first5": first5_rows,
     }
 
 

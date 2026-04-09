@@ -1657,7 +1657,7 @@
           return;
         }
         section.style.display = "";
-        const predicted = numberOr(first5.predicted_total_runs);
+        const predicted = numberOr(first5.predicted_total_fundamentals, numberOr(first5.predicted_total_runs));
         const market = numberOr(first5.market_total);
         const edge = numberOr(first5.edge);
         const awayExp = numberOr(first5.away_expected_runs);
@@ -2063,7 +2063,7 @@
 
         // --- FIRST 5 ---
         if (first5.supported) {
-          const f5predicted = numberOr(first5.predicted_total_runs);
+          const f5predicted = numberOr(first5.predicted_total_fundamentals, numberOr(first5.predicted_total_runs));
           const f5market = numberOr(first5.market_total);
           const f5edge = numberOr(first5.edge);
           const awayExp = numberOr(first5.away_expected_runs);
