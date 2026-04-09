@@ -877,6 +877,80 @@
         margin-bottom: 8px;
       }
 
+      /* ── Sortable column headers ────────────────────────────── */
+      .matchup-table th[data-sort] {
+        cursor: pointer;
+        user-select: none;
+        position: relative;
+        padding-right: 18px;
+      }
+      .matchup-table th[data-sort]:hover {
+        color: var(--accent);
+      }
+      .matchup-table th[data-sort]::after {
+        content: "⇅";
+        position: absolute;
+        right: 4px;
+        font-size: 0.6rem;
+        opacity: 0.3;
+      }
+      .matchup-table th.sort-asc::after { content: "▲"; opacity: 0.8; }
+      .matchup-table th.sort-desc::after { content: "▼"; opacity: 0.8; }
+
+      /* ── Team header rows inside matchup tables ─────────────── */
+      .matchup-team-header td {
+        font-size: 0.72rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--accent);
+        background: rgba(11, 106, 88, 0.06) !important;
+        padding: 6px 12px !important;
+        text-align: left !important;
+        border-bottom: 1px solid var(--line) !important;
+      }
+
+      /* ── Sample-size row tinting ────────────────────────────── */
+      .sample-none td { opacity: 0.4; }
+      .sample-low td { opacity: 0.65; }
+      .sample-med td { opacity: 0.85; }
+      .sample-good td { opacity: 1; }
+
+      /* ── Lineup slot badge ──────────────────────────────────── */
+      .slot-badge {
+        display: inline-block;
+        font-size: 0.6rem;
+        font-weight: 700;
+        color: var(--muted);
+        background: rgba(20, 33, 25, 0.06);
+        border-radius: 4px;
+        padding: 1px 4px;
+        margin-left: 4px;
+        vertical-align: middle;
+      }
+
+      /* ── Sample size legend ─────────────────────────────────── */
+      .matchup-legend {
+        font-size: 0.68rem;
+        color: var(--muted);
+        padding: 8px 12px 0;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .sample-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 3px;
+        vertical-align: middle;
+      }
+      .sample-dot.sample-good { background: var(--accent); opacity: 1; }
+      .sample-dot.sample-med  { background: var(--accent); opacity: 0.55; }
+      .sample-dot.sample-low  { background: var(--muted);  opacity: 0.5; }
+      .sample-dot.sample-none { background: var(--muted);  opacity: 0.25; }
+
       @media (max-width: 1100px) {
         .hero-grid,
         .summary-grid,
@@ -2052,36 +2126,127 @@
             renderPlatoonTable(platoon),
             renderH2hCards(h2h),
           ].join("");
+          // Wire up sortable headers after rendering
+          document.querySelectorAll(".matchup-table th[data-sort]").forEach(th => {
+            th.addEventListener("click", () => sortMatchupTable(th));
+          });
         } catch (err) {
           console.warn("Matchup splits load failed:", err);
         }
       }
 
+      /* ── Sortable matchup table logic ─────────────────────────── */
+      function sortMatchupTable(th) {
+        const table = th.closest("table");
+        const tbody = table.querySelector("tbody");
+        // Find all sortable section tbodies (skip team-header rows)
+        const idx = Array.from(th.parentElement.children).indexOf(th);
+        const key = th.dataset.sort;
+        const isNum = th.dataset.sortType === "num";
+        const dir = th.classList.contains("sort-asc") ? "desc" : "asc";
+        // Clear sort indicators on siblings
+        th.parentElement.querySelectorAll("th").forEach(h => {
+          h.classList.remove("sort-asc", "sort-desc");
+        });
+        th.classList.add(dir === "asc" ? "sort-asc" : "sort-desc");
+        // Collect rows per team group
+        const allRows = Array.from(tbody.querySelectorAll("tr"));
+        const groups = [];
+        let current = null;
+        for (const row of allRows) {
+          if (row.classList.contains("matchup-team-header")) {
+            if (current) groups.push(current);
+            current = { header: row, rows: [] };
+          } else if (current) {
+            current.rows.push(row);
+          } else {
+            // No header grouping, just flat rows
+            if (!groups.length) groups.push({ header: null, rows: [] });
+            groups[0].rows.push(row);
+          }
+        }
+        if (current) groups.push(current);
+        for (const group of groups) {
+          group.rows.sort((a, b) => {
+            const cellA = a.children[idx];
+            const cellB = b.children[idx];
+            let valA = cellA ? cellA.textContent.trim() : "";
+            let valB = cellB ? cellB.textContent.trim() : "";
+            if (isNum) {
+              valA = parseFloat(valA) || 0;
+              valB = parseFloat(valB) || 0;
+            }
+            if (valA < valB) return dir === "asc" ? -1 : 1;
+            if (valA > valB) return dir === "asc" ? 1 : -1;
+            return 0;
+          });
+        }
+        // Re-append in order
+        tbody.innerHTML = "";
+        for (const group of groups) {
+          if (group.header) tbody.appendChild(group.header);
+          for (const row of group.rows) tbody.appendChild(row);
+        }
+      }
+
       function renderBvpTable(rows) {
         if (!rows.length) return "";
+        // Group rows by batter team — each group faces one opposing starter
+        const teams = [...new Set(rows.map(r => r.batter_team))];
+        const pitcherByTeam = {};
+        for (const r of rows) {
+          if (!pitcherByTeam[r.batter_team]) pitcherByTeam[r.batter_team] = r.pitcher_name || "Starter";
+        }
+        const teamRows = rows.map(r => {
+          const pa = r.plate_appearances ?? 0;
+          const sampleCls = pa === 0 ? "sample-none" : pa < 5 ? "sample-low" : pa < 15 ? "sample-med" : "sample-good";
+          return `<tr class="${sampleCls}" data-team="${escapeHtml(r.batter_team || "")}">
+            <td>${escapeHtml(r.batter_name || "-")}${r.lineup_slot ? ` <span class="slot-badge">#${r.lineup_slot}</span>` : ""}</td>
+            <td>${formatInteger(r.games)}</td>
+            <td>${formatInteger(r.plate_appearances)}</td>
+            <td>${formatInteger(r.hits)}</td>
+            <td>${formatInteger(r.home_runs)}</td>
+            <td>${formatInteger(r.walks)}</td>
+            <td>${formatInteger(r.strikeouts)}</td>
+            <td>${formatBattingAverage(r.batting_avg)}</td>
+            <td>${formatBattingAverage(r.obp)}</td>
+            <td>${formatBattingAverage(r.slg)}</td>
+            <td>${formatBattingAverage(r.ops)}</td>
+          </tr>`;
+        });
+        // Build grouped body with team headers
+        let tbody = "";
+        for (const team of teams) {
+          const pitcher = pitcherByTeam[team];
+          tbody += `<tr class="matchup-team-header"><td colspan="11">${escapeHtml(team)} lineup vs. ${escapeHtml(pitcher)}</td></tr>`;
+          tbody += teamRows.filter((_, i) => rows[i].batter_team === team).join("");
+        }
         return `
           <div class="matchup-subsection">
             <div class="matchup-sub-tag">Batter vs. Pitcher (Career)</div>
             <div class="matchup-table-wrap">
               <table class="matchup-table">
                 <thead><tr>
-                  <th>Batter</th><th>vs Pitcher</th><th>G</th><th>PA</th><th>H</th><th>HR</th><th>BB</th><th>K</th><th>AVG</th><th>OBP</th><th>SLG</th><th>OPS</th>
+                  <th data-sort="batter" data-sort-type="str">Batter</th>
+                  <th data-sort="g" data-sort-type="num">G</th>
+                  <th data-sort="pa" data-sort-type="num">PA</th>
+                  <th data-sort="h" data-sort-type="num">H</th>
+                  <th data-sort="hr" data-sort-type="num">HR</th>
+                  <th data-sort="bb" data-sort-type="num">BB</th>
+                  <th data-sort="k" data-sort-type="num">K</th>
+                  <th data-sort="avg" data-sort-type="num">AVG</th>
+                  <th data-sort="obp" data-sort-type="num">OBP</th>
+                  <th data-sort="slg" data-sort-type="num">SLG</th>
+                  <th data-sort="ops" data-sort-type="num">OPS</th>
                 </tr></thead>
-                <tbody>${rows.map(r => `<tr>
-                  <td>${escapeHtml(r.batter_name || "-")}</td>
-                  <td>${escapeHtml(r.pitcher_name || "-")}</td>
-                  <td>${formatInteger(r.games)}</td>
-                  <td>${formatInteger(r.plate_appearances)}</td>
-                  <td>${formatInteger(r.hits)}</td>
-                  <td>${formatInteger(r.home_runs)}</td>
-                  <td>${formatInteger(r.walks)}</td>
-                  <td>${formatInteger(r.strikeouts)}</td>
-                  <td>${formatBattingAverage(r.batting_avg)}</td>
-                  <td>${formatBattingAverage(r.obp)}</td>
-                  <td>${formatBattingAverage(r.slg)}</td>
-                  <td>${formatBattingAverage(r.ops)}</td>
-                </tr>`).join("")}</tbody>
+                <tbody>${tbody}</tbody>
               </table>
+            </div>
+            <div class="matchup-legend">
+              <span class="sample-dot sample-good"></span> 15+ PA
+              <span class="sample-dot sample-med"></span> 5–14 PA
+              <span class="sample-dot sample-low"></span> &lt;5 PA
+              <span class="sample-dot sample-none"></span> No PA
             </div>
           </div>`;
       }
@@ -2094,10 +2259,19 @@
             <div class="matchup-table-wrap">
               <table class="matchup-table">
                 <thead><tr>
-                  <th>Pitcher</th><th>G</th><th>IP</th><th>ERA</th><th>WHIP</th><th>K</th><th>K/9</th><th>H</th><th>BB</th><th>ER</th>
+                  <th data-sort="pitcher" data-sort-type="str">Pitcher</th>
+                  <th data-sort="g" data-sort-type="num">G</th>
+                  <th data-sort="ip" data-sort-type="num">IP</th>
+                  <th data-sort="era" data-sort-type="num">ERA</th>
+                  <th data-sort="whip" data-sort-type="num">WHIP</th>
+                  <th data-sort="k" data-sort-type="num">K</th>
+                  <th data-sort="k9" data-sort-type="num">K/9</th>
+                  <th data-sort="h" data-sort-type="num">H</th>
+                  <th data-sort="bb" data-sort-type="num">BB</th>
+                  <th data-sort="er" data-sort-type="num">ER</th>
                 </tr></thead>
                 <tbody>${rows.map(r => `<tr>
-                  <td>${escapeHtml(r.pitcher_name || "-")}</td>
+                  <td>${escapeHtml(r.pitcher_name || "-")}${r.pitcher_team ? ` <span class="slot-badge">${escapeHtml(r.pitcher_team)}</span>` : ""}</td>
                   <td>${formatInteger(r.games)}</td>
                   <td>${formatNumber(r.innings_pitched, 1)}</td>
                   <td>${formatNumber(r.era, 2)}</td>
@@ -2115,31 +2289,52 @@
 
       function renderPlatoonTable(rows) {
         if (!rows.length) return "";
+        // All rows should be the same split type now (filtered server-side to opposing pitcher's hand)
+        const splitLabel = rows[0]?.split_type === "platoon_lhp" ? "vs LHP" : rows[0]?.split_type === "platoon_rhp" ? "vs RHP" : "Platoon";
+        const seasonLabel = rows[0]?.season || "Season";
+        // Group by team
+        const teams = [...new Set(rows.map(r => r.batter_team))];
+        let tbody = "";
+        for (const team of teams) {
+          const teamRows = rows.filter(r => r.batter_team === team);
+          tbody += `<tr class="matchup-team-header"><td colspan="11">${escapeHtml(team)} ${escapeHtml(splitLabel)} (${seasonLabel})</td></tr>`;
+          tbody += teamRows.map(r => {
+            const pa = r.plate_appearances ?? 0;
+            const sampleCls = pa === 0 ? "sample-none" : pa < 10 ? "sample-low" : pa < 30 ? "sample-med" : "sample-good";
+            return `<tr class="${sampleCls}">
+              <td>${escapeHtml(r.batter_name || "-")}${r.lineup_slot ? ` <span class="slot-badge">#${r.lineup_slot}</span>` : ""}</td>
+              <td>${formatInteger(r.games)}</td>
+              <td>${formatInteger(r.plate_appearances)}</td>
+              <td>${formatInteger(r.hits)}</td>
+              <td>${formatInteger(r.home_runs)}</td>
+              <td>${formatInteger(r.walks)}</td>
+              <td>${formatInteger(r.strikeouts)}</td>
+              <td>${formatBattingAverage(r.batting_avg)}</td>
+              <td>${formatBattingAverage(r.obp)}</td>
+              <td>${formatBattingAverage(r.slg)}</td>
+              <td>${formatBattingAverage(r.ops)}</td>
+            </tr>`;
+          }).join("");
+        }
         return `
           <div class="matchup-subsection">
-            <div class="matchup-sub-tag">Platoon Splits (${rows[0]?.season || "Season"})</div>
+            <div class="matchup-sub-tag">Platoon Splits · ${escapeHtml(splitLabel)} (${seasonLabel})</div>
             <div class="matchup-table-wrap">
               <table class="matchup-table">
                 <thead><tr>
-                  <th>Batter</th><th>Split</th><th>G</th><th>PA</th><th>H</th><th>HR</th><th>BB</th><th>K</th><th>AVG</th><th>OBP</th><th>SLG</th><th>OPS</th>
+                  <th data-sort="batter" data-sort-type="str">Batter</th>
+                  <th data-sort="g" data-sort-type="num">G</th>
+                  <th data-sort="pa" data-sort-type="num">PA</th>
+                  <th data-sort="h" data-sort-type="num">H</th>
+                  <th data-sort="hr" data-sort-type="num">HR</th>
+                  <th data-sort="bb" data-sort-type="num">BB</th>
+                  <th data-sort="k" data-sort-type="num">K</th>
+                  <th data-sort="avg" data-sort-type="num">AVG</th>
+                  <th data-sort="obp" data-sort-type="num">OBP</th>
+                  <th data-sort="slg" data-sort-type="num">SLG</th>
+                  <th data-sort="ops" data-sort-type="num">OPS</th>
                 </tr></thead>
-                <tbody>${rows.map(r => {
-                  const splitLabel = r.split_type === "platoon_lhp" ? "vs LHP" : r.split_type === "platoon_rhp" ? "vs RHP" : r.split_type;
-                  return `<tr>
-                    <td>${escapeHtml(r.batter_name || "-")}</td>
-                    <td>${escapeHtml(splitLabel)}</td>
-                    <td>${formatInteger(r.games)}</td>
-                    <td>${formatInteger(r.plate_appearances)}</td>
-                    <td>${formatInteger(r.hits)}</td>
-                    <td>${formatInteger(r.home_runs)}</td>
-                    <td>${formatInteger(r.walks)}</td>
-                    <td>${formatInteger(r.strikeouts)}</td>
-                    <td>${formatBattingAverage(r.batting_avg)}</td>
-                    <td>${formatBattingAverage(r.obp)}</td>
-                    <td>${formatBattingAverage(r.slg)}</td>
-                    <td>${formatBattingAverage(r.ops)}</td>
-                  </tr>`;
-                }).join("")}</tbody>
+                <tbody>${tbody}</tbody>
               </table>
             </div>
           </div>`;

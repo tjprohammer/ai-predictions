@@ -6247,24 +6247,38 @@ def game_matchups(game_id: int) -> JSONResponse:
     if not _table_exists("matchup_splits"):
         return _json_response({"matchups": []})
 
-    # Get lineup batters and the opposing starter for this game
+    # ── BvP: only the opposing starter each batter faces today ──────
     bvp_frame = _safe_frame(
         """
+        WITH latest_lineup AS (
+            SELECT player_id, team,
+                   MAX(lineup_slot) AS lineup_slot
+            FROM lineups
+            WHERE game_id = :game_id
+            GROUP BY player_id, team
+        )
         SELECT ms.player_id     AS batter_id,
                dp.full_name     AS batter_name,
                ms.opponent_id   AS pitcher_id,
                dp2.full_name    AS pitcher_name,
+               l.lineup_slot,
+               l.team           AS batter_team,
                ms.games, ms.plate_appearances, ms.at_bats,
                ms.hits, ms.home_runs, ms.walks, ms.strikeouts,
                ms.rbi, ms.runs, ms.doubles, ms.triples,
                ms.batting_avg, ms.obp, ms.slg, ms.ops
         FROM matchup_splits ms
-        JOIN lineups l ON l.player_id = ms.player_id
-                       AND l.game_id = :game_id
+        JOIN latest_lineup l ON l.player_id = ms.player_id
+        /* Only include the opposing starter – not every pitcher the batter
+           has ever faced.  Each lineup batter's team != the opposing starter's
+           team for that same game_id. */
+        JOIN pitcher_starts ps ON ps.game_id = :game_id
+                               AND ps.pitcher_id = ms.opponent_id
+                               AND ps.team != l.team
         LEFT JOIN dim_players dp  ON dp.player_id = ms.player_id
         LEFT JOIN dim_players dp2 ON dp2.player_id = ms.opponent_id
         WHERE ms.split_type = 'bvp'
-        ORDER BY l.lineup_slot
+        ORDER BY l.team, l.lineup_slot
         """,
         {"game_id": game_id},
     )
@@ -6273,6 +6287,7 @@ def game_matchups(game_id: int) -> JSONResponse:
         """
         SELECT ms.player_id   AS pitcher_id,
                dp.full_name   AS pitcher_name,
+               ps.team        AS pitcher_team,
                ms.games, ms.era, ms.strikeouts,
                ms.innings_pitched, ms.earned_runs,
                ms.walks, ms.hits,
@@ -6286,24 +6301,37 @@ def game_matchups(game_id: int) -> JSONResponse:
         {"game_id": game_id},
     )
 
-    # Platoon splits: each lineup batter's season stats vs LHP / RHP
+    # ── Platoon splits: only the relevant split for the opposing pitcher's hand ──
     platoon_frame = _safe_frame(
         """
+        WITH latest_lineup AS (
+            SELECT player_id, team,
+                   MAX(lineup_slot) AS lineup_slot
+            FROM lineups
+            WHERE game_id = :game_id
+            GROUP BY player_id, team
+        )
         SELECT ms.player_id   AS batter_id,
                dp.full_name   AS batter_name,
                ms.split_type,
                ms.season,
+               l.lineup_slot,
+               l.team           AS batter_team,
                ms.games, ms.plate_appearances, ms.at_bats,
                ms.hits, ms.home_runs, ms.walks, ms.strikeouts,
                ms.rbi, ms.doubles, ms.triples,
                ms.batting_avg, ms.obp, ms.slg, ms.ops
         FROM matchup_splits ms
-        JOIN lineups l ON l.player_id = ms.player_id
-                       AND l.game_id = :game_id
+        JOIN latest_lineup l ON l.player_id = ms.player_id
+        /* Restrict to the split matching the opposing starter's throwing hand */
+        JOIN pitcher_starts ps ON ps.game_id = :game_id
+                               AND ps.team != l.team
+        JOIN dim_players dp_opp ON dp_opp.player_id = ps.pitcher_id
         LEFT JOIN dim_players dp ON dp.player_id = ms.player_id
-        WHERE ms.split_type IN ('platoon_lhp', 'platoon_rhp')
-          AND ms.plate_appearances > 0
-        ORDER BY l.lineup_slot, ms.split_type
+        WHERE ms.plate_appearances > 0
+          AND (  (dp_opp.throws = 'L' AND ms.split_type = 'platoon_lhp')
+              OR (dp_opp.throws = 'R' AND ms.split_type = 'platoon_rhp'))
+        ORDER BY l.team, l.lineup_slot
         """,
         {"game_id": game_id},
     )

@@ -65,17 +65,23 @@ def _detect_slate_collapse(
     if pred_range < _COLLAPSE_RANGE_THRESHOLD:
         return f"slate_range_too_narrow({pred_range:.2f})"
 
-    valid_markets = [m for m in market_totals if m is not None and not (isinstance(m, float) and math.isnan(m))]
-    if valid_markets:
-        sides = ["over" if p >= m else "under" for p, m in zip(preds, valid_markets) if m is not None]
-        if sides:
-            dominant = max(sides.count("over"), sides.count("under"))
-            fraction = dominant / len(sides)
-            if fraction > _COLLAPSE_ONE_SIDE_THRESHOLD:
-                return f"slate_one_sided({fraction:.0%})"
-            avg_gap = float(np.mean(preds[: len(valid_markets)]) - np.mean(valid_markets))
-            if abs(avg_gap) > _COLLAPSE_AVG_GAP_THRESHOLD:
-                return f"slate_avg_gap_extreme({avg_gap:+.2f})"
+    # Pair predictions with their corresponding market values (aligned by index).
+    paired = [
+        (float(p), float(m))
+        for p, m in zip(preds, market_totals)
+        if m is not None and not (isinstance(m, float) and math.isnan(m))
+    ]
+    if len(paired) >= 8:  # need meaningful sample to judge one-sidedness
+        sides = ["over" if p >= m else "under" for p, m in paired]
+        dominant = max(sides.count("over"), sides.count("under"))
+        fraction = dominant / len(sides)
+        if fraction > _COLLAPSE_ONE_SIDE_THRESHOLD:
+            return f"slate_one_sided({fraction:.0%})"
+        paired_preds = np.array([p for p, _ in paired])
+        paired_mkts = np.array([m for _, m in paired])
+        avg_gap = float(np.mean(paired_preds) - np.mean(paired_mkts))
+        if abs(avg_gap) > _COLLAPSE_AVG_GAP_THRESHOLD:
+            return f"slate_avg_gap_extreme({avg_gap:+.2f})"
 
     return None
 
