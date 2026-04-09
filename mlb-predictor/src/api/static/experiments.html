@@ -922,6 +922,15 @@
         `;
       }
 
+      function recordPill(won, lost, push, cls) {
+        const w = won || 0, l = lost || 0, p = push || 0;
+        const total = w + l + p;
+        if (total === 0) return `<span class="score-pill ${cls}">—</span>`;
+        const pct = total > 0 ? Math.round((w / total) * 100) : 0;
+        const pushLabel = p > 0 ? `-${p}` : "";
+        return `<span class="score-pill ${cls}">${w}-${l}${pushLabel} (${pct}%)</span>`;
+      }
+
       function renderSummary(label, agg, daily) {
         const vals = [agg.fundamentals_mae, agg.calibrated_mae, agg.market_mae];
         const unit = label.includes("Strikeout") ? "Ks" : "runs";
@@ -934,6 +943,22 @@
             </div>
             <div class="metric-row">
               <span class="metric-label"><span class="score-pill actual">${fmt(agg.actual_avg)}</span> Actual<span class="metric-hint">avg outcome</span></span>
+              <span class="metric-value">&nbsp;</span>
+            </div>
+            <div class="metric-row" style="background:var(--accent-soft);border-radius:8px;padding:4px 8px;margin:-2px -8px">
+              <span class="metric-label"><strong>Pick Record (W-L)</strong><span class="metric-hint">over/under vs market line</span></span>
+              <span class="metric-value">&nbsp;</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">${recordPill(agg.fund_won, agg.fund_lost, agg.fund_push, "fund")} Stats-Only</span>
+              <span class="metric-value">&nbsp;</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">${recordPill(agg.cal_won, agg.cal_lost, agg.cal_push, "cal")} Blended</span>
+              <span class="metric-value">&nbsp;</span>
+            </div>
+            <div class="metric-row" style="background:var(--accent-soft);border-radius:8px;padding:4px 8px;margin:-2px -8px">
+              <span class="metric-label"><strong>Prediction Accuracy (MAE)</strong><span class="metric-hint">avg miss from actual</span></span>
               <span class="metric-value">&nbsp;</span>
             </div>
             <div class="metric-row">
@@ -964,7 +989,7 @@
         const lane = countKey === "games" ? "totals" : "strikeouts";
         const unit = lane === "totals" ? "runs" : "Ks";
         const countLabel = countKey === "games" ? "Games" : "Pitchers";
-        const headerRow = `<tr><th>Date</th><th>${countLabel}</th><th>Actual<br><span style="font-weight:400;text-transform:none;letter-spacing:0">avg outcome</span></th><th>Stats-Only<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Blended<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Vegas<br><span style="font-weight:400;text-transform:none;letter-spacing:0">line &rarr; miss</span></th><th>More Accurate</th></tr>`;
+        const headerRow = `<tr><th>Date</th><th>${countLabel}</th><th>Actual<br><span style="font-weight:400;text-transform:none;letter-spacing:0">avg outcome</span></th><th>Stats-Only W-L</th><th>Blended W-L</th><th>Stats-Only<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Blended<br><span style="font-weight:400;text-transform:none;letter-spacing:0">predicted &rarr; miss</span></th><th>Vegas<br><span style="font-weight:400;text-transform:none;letter-spacing:0">line &rarr; miss</span></th><th>More Accurate</th></tr>`;
         const bodyRows = daily
           .map((d) => {
             const vals = [d.fundamentals_mae, d.calibrated_mae, d.market_mae];
@@ -973,13 +998,15 @@
             <td>${d.date}</td>
             <td>${d[countKey] || 0}</td>
             <td><span class="score-pill actual">${fmt(d.actual_avg)}</span></td>
+            <td><strong>${d.fund_won || 0}-${d.fund_lost || 0}${d.fund_push ? `-${d.fund_push}` : ""}</strong></td>
+            <td>${d.cal_won || 0}-${d.cal_lost || 0}${d.cal_push ? `-${d.cal_push}` : ""}</td>
             <td class="${bestClass(vals, d.fundamentals_mae)}">${scorePill(d.fundamentals_avg, "fund", "")} &rarr; ${fmt(d.fundamentals_mae)}</td>
             <td class="${bestClass(vals, d.calibrated_mae)}">${scorePill(d.calibrated_avg, "cal", "")} &rarr; ${fmt(d.calibrated_mae)}</td>
             <td class="${bestClass(vals, d.market_mae)}">${scorePill(d.market_avg, "mkt", "")} &rarr; ${fmt(d.market_mae)}</td>
             <td>${statusBadge(d.fundamentals_mae, d.calibrated_mae)}</td>
           </tr>
           <tr class="detail-row" id="${rid}">
-            <td colspan="7"><div class="detail-wrap" id="${rid}-content">Loading&hellip;</div></td>
+            <td colspan="9"><div class="detail-wrap" id="${rid}-content">Loading&hellip;</div></td>
           </tr>`;
           })
           .join("");

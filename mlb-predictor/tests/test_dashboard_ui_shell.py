@@ -106,7 +106,7 @@ def test_matchup_detail_page_has_matchup_splits_section():
     assert "function renderH2hCards(h2h)" in html
 
     # BvP table columns
-    assert "vs Pitcher" in html
+    assert "vs. Pitcher" in html
     assert "formatBattingAverage(r.ops)" in html
 
     # PvT table columns

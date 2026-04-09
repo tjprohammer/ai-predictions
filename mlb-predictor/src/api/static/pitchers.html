@@ -1178,7 +1178,7 @@
         const filterKey = getPitcherHistoryFilter(row);
         const shownHistory = filteredPitcherHistory(row, history);
         const marketLine = numberOr(row?.k_projection?.market?.consensus_line);
-        const projectedLine = numberOr(row?.k_projection?.projected_strikeouts);
+        const projectedLine = numberOr(row?.k_projection?.projected_strikeouts_fundamentals, numberOr(row?.k_projection?.projected_strikeouts));
         const recentAvg = numberOr(row?.recent_form?.avg_strikeouts);
         const referenceValue = marketLine ?? projectedLine ?? recentAvg ?? 0;
         const referenceLabel =
@@ -1338,8 +1338,8 @@
                 Math.abs(
                   numberOr(left.k_projection?.market?.projection_delta, -999),
                 ) ||
-              numberOr(right.k_projection?.projected_strikeouts, -1) -
-                numberOr(left.k_projection?.projected_strikeouts, -1),
+              numberOr(right.k_projection?.projected_strikeouts_fundamentals, numberOr(right.k_projection?.projected_strikeouts, -1)) -
+                numberOr(left.k_projection?.projected_strikeouts_fundamentals, numberOr(left.k_projection?.projected_strikeouts, -1)),
           );
         }
         if (sortMode === "delta") {
@@ -1351,8 +1351,8 @@
                 Math.abs(
                   numberOr(left.k_projection?.market?.projection_delta, -999),
                 ) ||
-              numberOr(right.k_projection?.projected_strikeouts, -1) -
-                numberOr(left.k_projection?.projected_strikeouts, -1),
+              numberOr(right.k_projection?.projected_strikeouts_fundamentals, numberOr(right.k_projection?.projected_strikeouts, -1)) -
+                numberOr(left.k_projection?.projected_strikeouts_fundamentals, numberOr(left.k_projection?.projected_strikeouts, -1)),
           );
         }
         if (sortMode === "under") {
@@ -1360,14 +1360,14 @@
             (left, right) =>
               numberOr(right.k_projection?.under_probability, -1) -
                 numberOr(left.k_projection?.under_probability, -1) ||
-              numberOr(right.k_projection?.projected_strikeouts, -1) -
-                numberOr(left.k_projection?.projected_strikeouts, -1),
+              numberOr(right.k_projection?.projected_strikeouts_fundamentals, numberOr(right.k_projection?.projected_strikeouts, -1)) -
+                numberOr(left.k_projection?.projected_strikeouts_fundamentals, numberOr(left.k_projection?.projected_strikeouts, -1)),
           );
         }
         return sorted.sort(
           (left, right) =>
-            numberOr(right.k_projection?.projected_strikeouts, -1) -
-              numberOr(left.k_projection?.projected_strikeouts, -1) ||
+            numberOr(right.k_projection?.projected_strikeouts_fundamentals, numberOr(right.k_projection?.projected_strikeouts, -1)) -
+              numberOr(left.k_projection?.projected_strikeouts_fundamentals, numberOr(left.k_projection?.projected_strikeouts, -1)) ||
             numberOr(right.k_projection?.market?.projection_delta, -999) -
               numberOr(left.k_projection?.market?.projection_delta, -999),
         );
@@ -1409,7 +1409,7 @@
         document.getElementById("marketCount").textContent =
           `${marketBackedCount}/${totalRows || 0}`;
         const projections = rows
-          .map((row) => numberOr(row.k_projection?.projected_strikeouts))
+          .map((row) => numberOr(row.k_projection?.projected_strikeouts_fundamentals, numberOr(row.k_projection?.projected_strikeouts)))
           .filter((value) => value != null);
         document.getElementById("avgProjection").textContent =
           projections.length
@@ -1421,7 +1421,7 @@
             : "-";
         const top = rows[0];
         document.getElementById("topProjection").textContent = top
-          ? formatNumber(top.k_projection?.projected_strikeouts, 2)
+          ? formatNumber(numberOr(top.k_projection?.projected_strikeouts_fundamentals, top.k_projection?.projected_strikeouts), 2)
           : "-";
         document.getElementById("topProjectionCopy").textContent = top
           ? `${top.pitcher_name} vs ${top.opponent}`
@@ -1560,13 +1560,13 @@
             <div class="metric-grid">
               <div class="metric-box">
                 <span class="metric-label">Projected Ks</span>
-                <span class="metric-value">${formatNumber(projection.projected_strikeouts, 2)}</span>
+                <span class="metric-value">${formatNumber(numberOr(projection.projected_strikeouts_fundamentals, projection.projected_strikeouts), 2)}</span>
               </div>
               ${
-                projection.projected_strikeouts_fundamentals != null
+                projection.projected_strikeouts_fundamentals != null && projection.projected_strikeouts != null
                   ? `<div class="metric-box">
-                <span class="metric-label" title="Fundamentals-only prediction (no market input)">Fund. Ks</span>
-                <span class="metric-value">${formatNumber(projection.projected_strikeouts_fundamentals, 2)}</span>
+                <span class="metric-label" title="Blended model (market-calibrated)">Blended Ks</span>
+                <span class="metric-value">${formatNumber(projection.projected_strikeouts, 2)}</span>
               </div>`
                   : ""
               }

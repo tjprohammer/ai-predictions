@@ -3425,10 +3425,14 @@
           `;
       }
 
+      function primaryTotalPrediction(totals) {
+        return numberOr(totals.predicted_total_fundamentals, numberOr(totals.predicted_total_runs));
+      }
+
       function historicalOutcomeInfo(game) {
         const totals = game.totals || {};
         const actual = game.actual_result || {};
-        const predictedTotal = numberOr(totals.predicted_total_runs);
+        const predictedTotal = primaryTotalPrediction(totals);
         const marketTotal = numberOr(totals.market_total);
         const actualTotal = numberOr(actual.total_runs);
         const modelError =
@@ -3575,7 +3579,7 @@
           </div>
           <div class="data-row">
             <span class="data-label">Model / Market / Actual</span>
-            <span class="data-value">${formatNumber(totals.predicted_total_runs, 2)} / ${formatNumber(totals.market_total, 1)} / ${formatNumber(actual.total_runs, 1)}</span>
+            <span class="data-value">${formatNumber(primaryTotalPrediction(totals), 2)} / ${formatNumber(totals.market_total, 1)} / ${formatNumber(actual.total_runs, 1)}</span>
           </div>
           <div class="data-row">
             <span class="data-label">Edge / Lean</span>
@@ -3711,7 +3715,7 @@
           return [];
         }
 
-        const predictedTotal = numberOr(totals.predicted_total_runs);
+        const predictedTotal = primaryTotalPrediction(totals);
         const marketTotal = numberOr(totals.market_total);
         const edgeDelta =
           predictedTotal == null || marketTotal == null
@@ -4235,7 +4239,7 @@
           return `${opponentTeam} opponent`;
         }
         const projection = starter.k_projection || {};
-        const projectedKs = projection.projected_strikeouts;
+        const projectedKs = numberOr(projection.projected_strikeouts_fundamentals, projection.projected_strikeouts);
         const opponentK = projection.opponent_k_pct_used;
         const handedness = handednessCountsLabel(projection.lineup_handedness);
         const market = projection.market || {};
@@ -4256,7 +4260,7 @@
 
       function renderStarterProjectionPill(label, starter, opponentTeam) {
         const projection = starter?.k_projection || {};
-        const projectedKs = projection.projected_strikeouts;
+        const projectedKs = numberOr(projection.projected_strikeouts_fundamentals, projection.projected_strikeouts);
         const baselineKs = projection.baseline_strikeouts;
         const market = projection.market || {};
         return renderCompactSummaryPill(
@@ -4649,7 +4653,7 @@
           </div>
           <div class="data-row">
             <span class="data-label">Projected Ks / Opp K%</span>
-            <span class="data-value">${formatNumber(projection.projected_strikeouts ?? projection.baseline_strikeouts, 1)} / ${formatPercent(projection.opponent_k_pct_used)}</span>
+            <span class="data-value">${formatNumber(numberOr(projection.projected_strikeouts_fundamentals, projection.projected_strikeouts) ?? projection.baseline_strikeouts, 1)} / ${formatPercent(projection.opponent_k_pct_used)}</span>
           </div>
           <div class="data-row">
             <span class="data-label">Opp Handedness Mix</span>
@@ -4808,7 +4812,7 @@
         <div class="summary-grid">
           <div class="summary-card">
             <div class="data-label">Model Total</div>
-            <div class="summary-value">${formatNumber(totals.predicted_total_runs, 2)}</div>
+            <div class="summary-value">${formatNumber(primaryTotalPrediction(totals), 2)}</div>
             <div class="summary-copy">Market ${formatNumber(totals.market_total, 1)} · Edge ${formatSigned(totals.edge)}</div>
           </div>
           <div class="summary-card">
@@ -4940,10 +4944,11 @@
         const awayPlayers = game.hit_targets?.[game.away_team] || [];
         const homePlayers = game.hit_targets?.[game.home_team] || [];
         const venue = game.venue || {};
+        const primaryPred = primaryTotalPrediction(totals);
         const predictedDelta =
-          totals.market_total == null || totals.predicted_total_runs == null
+          totals.market_total == null || primaryPred == null
             ? null
-            : Number(totals.predicted_total_runs) - Number(totals.market_total);
+            : primaryPred - Number(totals.market_total);
         const matchupHref = appUrl(
           `game?game_id=${encodeURIComponent(game.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`,
         );
@@ -4962,7 +4967,7 @@
               </div>
             </div>
             <div class="compact-summary-grid">
-              ${renderCompactSummaryPill("Model / Market", `${formatNumber(totals.predicted_total_runs, 2)} / ${formatNumber(totals.market_total, 1)}`, `Delta ${predictedDelta == null ? "-" : formatTrend(predictedDelta)}`)}
+              ${renderCompactSummaryPill("Model / Market", `${formatNumber(primaryPred, 2)} / ${formatNumber(totals.market_total, 1)}`, `Delta ${predictedDelta == null ? "-" : formatTrend(predictedDelta)}`)}
               ${renderCompactSummaryPill("Expected Runs", `${game.away_team} ${formatNumber(totals.away_expected_runs, 2)} / ${game.home_team} ${formatNumber(totals.home_expected_runs, 2)}`, `${leanLabel(totals)} ${totalsLeanValue(totals)} · ${totalsReasonSummary(game)}`)}
               ${renderFirst5Pill(first5)}
               ${renderStarterProjectionPill(`${game.away_team} SP Ks`, game.starters?.away, game.home_team)}

@@ -1511,7 +1511,7 @@
               <div class="data-row"><span class="data-label">Last Start</span><span class="data-value">${escapeHtml(formatShortDate(recent.last_start_date))}</span></div>
               <div class="data-row"><span class="data-label">xwOBA / CSW</span><span class="data-value">${formatNumber(starter.xwoba_against, 3)} / ${formatPercent(starter.csw_pct)}</span></div>
               <div class="data-row"><span class="data-label">Velo / Whiff</span><span class="data-value">${numberOr(starter.avg_fb_velo) == null ? "-" : formatNumber(starter.avg_fb_velo, 1) + " mph"} / ${formatPercent(starter.whiff_pct)}</span></div>
-              <div class="data-row"><span class="data-label">K Projection</span><span class="data-value">${formatNumber(starter.k_projection?.projected_strikeouts, 2)}${numberOr(market.consensus_line) == null ? "" : ` vs ${formatNumber(market.consensus_line, 1)}`}</span></div>
+              <div class="data-row"><span class="data-label">K Projection</span><span class="data-value">${formatNumber(numberOr(starter.k_projection?.projected_strikeouts_fundamentals, starter.k_projection?.projected_strikeouts), 2)}${numberOr(market.consensus_line) == null ? "" : ` vs ${formatNumber(market.consensus_line, 1)}`}</span></div>
             </div>
           </article>
         `;
@@ -1825,7 +1825,7 @@
         const awayLineup = detail.teams?.away?.lineup || [];
         const homeLineup = detail.teams?.home?.lineup || [];
 
-        const predicted = numberOr(totals.predicted_total_runs);
+        const predicted = numberOr(totals.predicted_total_fundamentals, numberOr(totals.predicted_total_runs));
         const market = numberOr(totals.market_total);
         const edge = numberOr(totals.edge);
 
@@ -2450,7 +2450,7 @@
         document.getElementById("venueCopy").textContent =
           `${formatDateTime(detail.game_start_ts)} · ${[venue.city, venue.state].filter(Boolean).join(", ") || "Location pending"}`;
         document.getElementById("summaryGrid").innerHTML = `
-          <article class="summary-card"><div class="data-label">Model / Market</div><div class="summary-value">${formatNumber(totals.predicted_total_runs, 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">Edge ${formatNumber(totals.edge, 3)} · ${escapeHtml(totals.model_name || "model")}</div></article>
+          <article class="summary-card"><div class="data-label">Model / Market</div><div class="summary-value">${formatNumber(numberOr(totals.predicted_total_fundamentals, totals.predicted_total_runs), 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">Edge ${formatNumber(totals.edge, 3)} · ${escapeHtml(totals.model_name || "model")}</div></article>
           <article class="summary-card"><div class="data-label">Expected Runs</div><div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="data-copy">Line move ${formatNumber(totals.line_movement, 2)}</div></article>
           <article class="summary-card"><div class="data-label">Weather (Game-Time Est.)</div><div class="summary-value">${formatNumber(weather.temperature_f, 0)}F</div><div class="data-copy">Wind ${formatNumber(weather.wind_speed_mph, 0)} mph ${windDirectionLabel(weather.wind_direction_deg)} · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</div></article>
           <article class="summary-card"><div class="data-label">Lineup Quality</div><div class="summary-value">${formatPercent(totals.away_lineup_k_pct)} / ${formatPercent(totals.home_lineup_k_pct)}</div><div class="data-copy">Away/Home lineup K% vs starters</div></article>

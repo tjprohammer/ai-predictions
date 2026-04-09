@@ -2687,7 +2687,10 @@ def _apply_market_freeze_payload(payload: dict[str, Any], freeze_row: dict[str, 
         payload["market_total"] = frozen_line_value
         payload["market_backed"] = True
 
-    predicted_total = _coerce_float(payload.get("predicted_total_runs"))
+    # Use stats-only (fundamentals) as primary; fall back to blended.
+    fundamentals_total = _coerce_float(payload.get("predicted_total_fundamentals"))
+    blended_total = _coerce_float(payload.get("predicted_total_runs"))
+    predicted_total = fundamentals_total if fundamentals_total is not None else blended_total
     market_total = _coerce_float(payload.get("market_total"))
     actual_total = _coerce_float(payload.get("actual_total_runs"))
     if "recommended_side" in payload:
@@ -3744,7 +3747,10 @@ def _fetch_totals_board(target_date: date) -> dict[str, Any]:
     for game in board_rows:
         totals = dict(game.get("totals") or {})
         market_total = _to_float(totals.get("market_total"))
-        predicted_total = _to_float(totals.get("predicted_total_runs"))
+        # Use stats-only (fundamentals) as primary; fall back to blended.
+        fundamentals_total = _to_float(totals.get("predicted_total_fundamentals"))
+        blended_total = _to_float(totals.get("predicted_total_runs"))
+        predicted_total = fundamentals_total if fundamentals_total is not None else blended_total
         actual = dict(game.get("actual_result") or {})
         actual_total = _to_float(actual.get("total_runs"))
         actual_side = _actual_side(actual_total, market_total) if actual.get("is_final") else None
@@ -5058,6 +5064,8 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
             rows = by_date[d]
             cal_errors, fund_errors, mkt_errors = [], [], []
             cal_preds, fund_preds, mkt_preds, actuals = [], [], [], []
+            fund_won, fund_lost, fund_push = 0, 0, 0
+            cal_won, cal_lost, cal_push = 0, 0, 0
             for r in rows:
                 actual = _to_float(r.get("actual"))
                 cal = _to_float(r.get("predicted_total_runs"))
@@ -5077,6 +5085,25 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
                     fund_errors.append(abs(actual - fund))
                 if actual is not None and mkt is not None:
                     mkt_errors.append(abs(actual - mkt))
+                # W-L record: did the model's predicted side match the actual side?
+                if actual is not None and mkt is not None:
+                    actual_side = "over" if actual > mkt else ("under" if actual < mkt else "push")
+                    if fund is not None:
+                        fund_side = "over" if fund >= mkt else "under"
+                        if actual_side == "push":
+                            fund_push += 1
+                        elif fund_side == actual_side:
+                            fund_won += 1
+                        else:
+                            fund_lost += 1
+                    if cal is not None:
+                        cal_side = "over" if cal >= mkt else "under"
+                        if actual_side == "push":
+                            cal_push += 1
+                        elif cal_side == actual_side:
+                            cal_won += 1
+                        else:
+                            cal_lost += 1
             totals_daily.append({
                 "date": d,
                 "games": len(rows),
@@ -5087,6 +5114,8 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
                 "calibrated_avg": round(sum(cal_preds) / len(cal_preds), 2) if cal_preds else None,
                 "fundamentals_avg": round(sum(fund_preds) / len(fund_preds), 2) if fund_preds else None,
                 "market_avg": round(sum(mkt_preds) / len(mkt_preds), 2) if mkt_preds else None,
+                "fund_won": fund_won, "fund_lost": fund_lost, "fund_push": fund_push,
+                "cal_won": cal_won, "cal_lost": cal_lost, "cal_push": cal_push,
             })
 
     if _table_exists("predictions_pitcher_strikeouts") and _table_exists("pitcher_starts"):
@@ -5122,6 +5151,8 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
             rows = by_date_k[d]
             cal_errors, fund_errors, mkt_errors = [], [], []
             cal_preds, fund_preds, mkt_preds, actuals = [], [], [], []
+            fund_won, fund_lost, fund_push = 0, 0, 0
+            cal_won, cal_lost, cal_push = 0, 0, 0
             for r in rows:
                 actual = _to_float(r.get("actual"))
                 cal = _to_float(r.get("predicted_strikeouts"))
@@ -5141,6 +5172,24 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
                     fund_errors.append(abs(actual - fund))
                 if actual is not None and mkt is not None:
                     mkt_errors.append(abs(actual - mkt))
+                if actual is not None and mkt is not None:
+                    actual_side = "over" if actual > mkt else ("under" if actual < mkt else "push")
+                    if fund is not None:
+                        fund_side = "over" if fund >= mkt else "under"
+                        if actual_side == "push":
+                            fund_push += 1
+                        elif fund_side == actual_side:
+                            fund_won += 1
+                        else:
+                            fund_lost += 1
+                    if cal is not None:
+                        cal_side = "over" if cal >= mkt else "under"
+                        if actual_side == "push":
+                            cal_push += 1
+                        elif cal_side == actual_side:
+                            cal_won += 1
+                        else:
+                            cal_lost += 1
             strikeouts_daily.append({
                 "date": d,
                 "pitchers": len(rows),
@@ -5151,6 +5200,8 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
                 "calibrated_avg": round(sum(cal_preds) / len(cal_preds), 2) if cal_preds else None,
                 "fundamentals_avg": round(sum(fund_preds) / len(fund_preds), 2) if fund_preds else None,
                 "market_avg": round(sum(mkt_preds) / len(mkt_preds), 2) if mkt_preds else None,
+                "fund_won": fund_won, "fund_lost": fund_lost, "fund_push": fund_push,
+                "cal_won": cal_won, "cal_lost": cal_lost, "cal_push": cal_push,
             })
 
     def _agg(daily: list[dict], count_key: str) -> dict[str, Any]:
@@ -5172,6 +5223,12 @@ def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[
             "calibrated_avg": round(sum(cal_avgs) / len(cal_avgs), 2) if cal_avgs else None,
             "fundamentals_avg": round(sum(fund_avgs) / len(fund_avgs), 2) if fund_avgs else None,
             "market_avg": round(sum(mkt_avgs) / len(mkt_avgs), 2) if mkt_avgs else None,
+            "fund_won": sum(d.get("fund_won", 0) for d in daily),
+            "fund_lost": sum(d.get("fund_lost", 0) for d in daily),
+            "fund_push": sum(d.get("fund_push", 0) for d in daily),
+            "cal_won": sum(d.get("cal_won", 0) for d in daily),
+            "cal_lost": sum(d.get("cal_lost", 0) for d in daily),
+            "cal_push": sum(d.get("cal_push", 0) for d in daily),
         }
 
     return {
@@ -5324,9 +5381,13 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
         )
         for row in _frame_records(totals_frame):
             is_final = _is_final_game_status(row.get("status"))
-            predicted_total = _to_float(row.get("predicted_total_runs"))
+            # Use stats-only (fundamentals) as the primary grading model; fall back
+            # to blended if fundamentals is unavailable.
+            fundamentals_total = _to_float(row.get("predicted_total_fundamentals"))
+            blended_total = _to_float(row.get("predicted_total_runs"))
+            primary_total = fundamentals_total if fundamentals_total is not None else blended_total
             market_total_val = _to_float(row.get("market_total"))
-            recommended_side = _recommended_side(predicted_total, market_total_val)
+            recommended_side = _recommended_side(primary_total, market_total_val)
             actual_side = _actual_side(row.get("actual_total_runs"), row.get("market_total")) if is_final else None
             totals_rows.append(
                 {
@@ -5498,7 +5559,12 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
         )
         for row in _frame_records(strikeout_frame):
             is_final = _is_final_game_status(row.get("game_status"))
-            recommended_side = _recommended_side(row.get("predicted_strikeouts"), row.get("market_line"))
+            # Use stats-only (fundamentals) as the primary grading model; fall back
+            # to blended if fundamentals is unavailable.
+            fund_ks = row.get("predicted_strikeouts_fundamentals")
+            blended_ks = row.get("predicted_strikeouts")
+            primary_ks = fund_ks if fund_ks is not None else blended_ks
+            recommended_side = _recommended_side(primary_ks, row.get("market_line"))
             actual_side = _actual_side(row.get("actual_strikeouts"), row.get("market_line")) if is_final else None
             strikeout_rows.append(
                 {
