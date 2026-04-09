@@ -399,6 +399,137 @@
         accent-color: var(--accent);
       }
 
+      /* ── Player search autocomplete ─────────────── */
+      .player-search-wrap {
+        position: relative;
+        max-width: 480px;
+      }
+      .player-search-wrap input {
+        width: 100%;
+        padding: 12px 16px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line);
+        font-size: 1rem;
+        background: rgba(255,255,255,0.86);
+        color: var(--ink);
+      }
+      .player-search-wrap input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      .autocomplete-list {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin-top: 4px;
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow);
+        max-height: 320px;
+        overflow-y: auto;
+        z-index: 10;
+        display: none;
+      }
+      .autocomplete-list.open { display: block; }
+      .autocomplete-item {
+        padding: 10px 16px;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.92rem;
+        border-bottom: 1px solid var(--line);
+      }
+      .autocomplete-item:last-child { border-bottom: none; }
+      .autocomplete-item:hover,
+      .autocomplete-item.active {
+        background: var(--accent-soft);
+      }
+      .autocomplete-item .player-pos {
+        font-size: 0.78rem;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .autocomplete-item .ac-name {
+        font-weight: 600;
+      }
+      .autocomplete-item .ac-meta {
+        font-size: 0.78rem;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .psc-game-log {
+        margin-top: 12px;
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.82rem;
+      }
+      .psc-game-log th,
+      .psc-game-log td {
+        padding: 4px 8px;
+        text-align: center;
+        border-bottom: 1px solid var(--line);
+      }
+      .psc-game-log th {
+        font-weight: 700;
+        color: var(--muted);
+        text-transform: uppercase;
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+      }
+      .player-search-card {
+        margin-top: 16px;
+        padding: 18px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+      }
+      .player-search-card .psc-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .player-search-card .psc-name {
+        font-size: 1.1rem;
+        font-weight: 800;
+      }
+      .player-search-card .psc-meta {
+        font-size: 0.82rem;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .player-search-card .psc-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+        gap: 8px;
+      }
+      .player-search-card .psc-stat {
+        text-align: center;
+        padding: 8px 4px;
+        background: rgba(255,255,255,0.6);
+        border-radius: var(--radius-md);
+      }
+      .player-search-card .psc-stat-val {
+        font-size: 1.1rem;
+        font-weight: 800;
+      }
+      .player-search-card .psc-stat-lbl {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .player-search-no-data {
+        color: var(--muted);
+        font-size: 0.9rem;
+        padding: 12px 0;
+      }
+
       .stat-grid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
         margin-bottom: 18px;
@@ -925,14 +1056,6 @@
               </select>
             </div>
             <div class="field">
-              <label for="searchQuery">Search player, team, or game</label>
-              <input
-                id="searchQuery"
-                type="search"
-                placeholder="Player, team, opponent, or matchup"
-              />
-            </div>
-            <div class="field">
               <label for="teamFilter">Team</label>
               <select id="teamFilter">
                 <option value="" selected>All teams</option>
@@ -1036,6 +1159,26 @@
         <div class="cards-grid" id="cardsGrid">
           <div class="empty-state">Loading hot hitters...</div>
         </div>
+      </section>
+
+      <section class="panel" id="playerSearchSection">
+        <div class="panel-head">
+          <div>
+            <div class="section-tag">Find a Hitter</div>
+            <h2>Player lookup</h2>
+          </div>
+          <span class="panel-subtitle">Search any hitter by name</span>
+        </div>
+        <div class="player-search-wrap">
+          <input
+            id="playerSearchInput"
+            type="search"
+            placeholder="Type a player name…"
+            autocomplete="off"
+          />
+          <div class="autocomplete-list" id="playerSearchResults"></div>
+        </div>
+        <div id="playerSearchCard"></div>
       </section>
     </main>
 
@@ -1339,7 +1482,6 @@
       const minProbabilityInput = document.getElementById("minProbability");
       const sortModeInput = document.getElementById("sortMode");
       const resultLimitInput = document.getElementById("resultLimit");
-      const searchQueryInput = document.getElementById("searchQuery");
       const teamFilterInput = document.getElementById("teamFilter");
       const confirmedOnlyInput = document.getElementById("confirmedOnly");
       const includeInferredInput = document.getElementById("includeInferred");
@@ -1707,9 +1849,6 @@
       function filteredRows() {
         return sortRows(
           (state.rows || []).filter((row) => {
-            const searchQuery = String(searchQueryInput.value || "")
-              .trim()
-              .toLowerCase();
             if (
               streakOnlyInput.checked &&
               numberOr(row.streak_len_capped, 0) < 2
@@ -1727,8 +1866,6 @@
             )
               return false;
             if (availableOnlyInput.checked && row.is_available === false)
-              return false;
-            if (searchQuery && !hotHitterSearchText(row).includes(searchQuery))
               return false;
             const teamValue = teamFilterInput.value;
             if (teamValue && row.team !== teamValue) return false;
@@ -2058,7 +2195,6 @@
       resultLimitInput.addEventListener("change", refreshPage);
       confirmedOnlyInput.addEventListener("change", refreshPage);
       includeInferredInput.addEventListener("change", refreshPage);
-      searchQueryInput.addEventListener("input", renderRows);
       teamFilterInput.addEventListener("change", renderRows);
       streakOnlyInput.addEventListener("change", renderRows);
       hideStartedOnlyInput.addEventListener("change", renderRows);
@@ -2092,6 +2228,187 @@
         includeInferredInput.checked = true;
         refreshPage();
       });
+
+      /* ── Player Search (autocomplete) ── */
+      const playerSearchInput = document.getElementById("playerSearchInput");
+      const playerSearchResults = document.getElementById(
+        "playerSearchResults",
+      );
+      const playerSearchCard = document.getElementById("playerSearchCard");
+      let psDebounce = null;
+      let psAbort = null;
+
+      function clearAutocomplete() {
+        playerSearchResults.innerHTML = "";
+        playerSearchResults.style.display = "none";
+      }
+
+      playerSearchInput.addEventListener("input", () => {
+        const q = playerSearchInput.value.trim();
+        clearAutocomplete();
+        if (psDebounce) clearTimeout(psDebounce);
+        if (psAbort) {
+          psAbort.abort();
+          psAbort = null;
+        }
+        if (q.length < 2) return;
+        psDebounce = setTimeout(async () => {
+          try {
+            psAbort = new AbortController();
+            const res = await fetch(
+              appUrl(
+                `api/players/search?q=${encodeURIComponent(q)}&limit=10`,
+              ),
+              { signal: psAbort.signal },
+            );
+            if (!res.ok) return;
+            const data = await res.json();
+            renderAutocomplete(data.players || []);
+          } catch (e) {
+            if (e.name !== "AbortError") console.error(e);
+          }
+        }, 250);
+      });
+
+      function renderAutocomplete(players) {
+        if (!players.length) {
+          playerSearchResults.innerHTML =
+            '<div class="autocomplete-item" style="opacity:.6">No results</div>';
+          playerSearchResults.style.display = "block";
+          return;
+        }
+        playerSearchResults.innerHTML = players
+          .map(
+            (p) =>
+              `<div class="autocomplete-item" data-player-id="${p.player_id}" data-player='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
+                <span class="ac-name">${esc(p.full_name)}</span>
+                <span class="ac-meta">${esc(p.position)} · ${esc(p.team_abbr)}</span>
+              </div>`,
+          )
+          .join("");
+        playerSearchResults.style.display = "block";
+      }
+
+      playerSearchResults.addEventListener("click", (e) => {
+        const item = e.target.closest(".autocomplete-item");
+        if (!item || !item.dataset.player) return;
+        const player = JSON.parse(item.dataset.player);
+        playerSearchInput.value = player.full_name;
+        clearAutocomplete();
+        showPlayerCard(player);
+      });
+
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest(".player-search-wrap")) clearAutocomplete();
+      });
+
+      async function showPlayerCard(player) {
+        playerSearchCard.innerHTML =
+          '<p style="opacity:.6;padding:1rem">Loading stats…</p>';
+        try {
+          const today = targetDateInput.value || localDateValue();
+          const frame = await fetchPlayerRecentStats(
+            player.player_id,
+            today,
+            10,
+          );
+          if (!frame.length) {
+            playerSearchCard.innerHTML =
+              '<p class="player-search-no-data">No recent game data found.</p>';
+            return;
+          }
+          const agg = aggregateStats(frame);
+          playerSearchCard.innerHTML = renderPlayerCardHTML(player, agg, frame);
+        } catch (err) {
+          console.error(err);
+          playerSearchCard.innerHTML =
+            '<p class="player-search-no-data">Failed to load stats.</p>';
+        }
+      }
+
+      async function fetchPlayerRecentStats(playerId, targetDate, limit) {
+        const params = new URLSearchParams({
+          player_id: playerId,
+          target_date: targetDate,
+          limit: limit,
+        });
+        const res = await fetch(
+          appUrl(`api/players/${playerId}/recent-stats?${params.toString()}`),
+        );
+        if (!res.ok) return [];
+        const data = await res.json();
+        return data.games || [];
+      }
+
+      function aggregateStats(games) {
+        let ab = 0,
+          h = 0,
+          hr = 0,
+          r = 0,
+          rbi = 0,
+          bb = 0,
+          sb = 0,
+          k = 0,
+          tb = 0;
+        for (const g of games) {
+          ab += g.at_bats || 0;
+          h += g.hits || 0;
+          hr += g.home_runs || 0;
+          r += g.runs || 0;
+          rbi += g.rbi || 0;
+          bb += g.walks || 0;
+          sb += g.stolen_bases || 0;
+          k += g.strikeouts || 0;
+          tb += g.total_bases || 0;
+        }
+        const avg = ab > 0 ? (h / ab).toFixed(3) : ".000";
+        const slg = ab > 0 ? (tb / ab).toFixed(3) : ".000";
+        const obp =
+          ab + bb > 0 ? ((h + bb) / (ab + bb)).toFixed(3) : ".000";
+        return { games: games.length, ab, h, hr, r, rbi, bb, sb, k, tb, avg, slg, obp };
+      }
+
+      function renderPlayerCardHTML(player, agg, games) {
+        const gameCols = games
+          .slice(0, 7)
+          .map(
+            (g) =>
+              `<td title="${esc(g.game_date)} vs ${esc(g.opponent)}">${g.hits}/${g.at_bats}</td>`,
+          )
+          .join("");
+        return `
+          <div class="player-search-card">
+            <div class="psc-header">
+              <div>
+                <div class="psc-name">${esc(player.full_name)}</div>
+                <div class="psc-meta">${esc(player.position)} · ${esc(player.team_abbr)} · Bats ${esc(player.bats)}</div>
+              </div>
+              <span class="psc-meta">Last ${agg.games} games</span>
+            </div>
+            <div class="psc-stats-grid">
+              <div class="psc-stat"><span class="psc-stat-val">${agg.avg}</span><span class="psc-stat-lbl">AVG</span></div>
+              <div class="psc-stat"><span class="psc-stat-val">${agg.obp}</span><span class="psc-stat-lbl">OBP</span></div>
+              <div class="psc-stat"><span class="psc-stat-val">${agg.slg}</span><span class="psc-stat-lbl">SLG</span></div>
+              <div class="psc-stat"><span class="psc-stat-val">${agg.h}</span><span class="psc-stat-lbl">H</span></div>
+              <div class="psc-stat"><span class="psc-stat-val">${agg.hr}</span><span class="psc-stat-lbl">HR</span></div>
+              <div class="psc-stat"><span class="psc-stat-val">${agg.r}</span><span class="psc-stat-lbl">R</span></div>
+              <div class="psc-stat"><span class="psc-stat-val">${agg.rbi}</span><span class="psc-stat-lbl">RBI</span></div>
+              <div class="psc-stat"><span class="psc-stat-val">${agg.bb}</span><span class="psc-stat-lbl">BB</span></div>
+              <div class="psc-stat"><span class="psc-stat-val">${agg.sb}</span><span class="psc-stat-lbl">SB</span></div>
+              <div class="psc-stat"><span class="psc-stat-val">${agg.k}</span><span class="psc-stat-lbl">K</span></div>
+            </div>
+            <table class="psc-game-log">
+              <tr><th>Recent</th>${gameCols}</tr>
+            </table>
+          </div>`;
+      }
+
+      function esc(s) {
+        if (!s) return "";
+        const d = document.createElement("div");
+        d.textContent = s;
+        return d.innerHTML;
+      }
 
       refreshPage();
     </script>

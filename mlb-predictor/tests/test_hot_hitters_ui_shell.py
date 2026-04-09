@@ -24,12 +24,12 @@ def test_hot_hitters_html_has_streak_sort_and_recent_history_chart():
     assert 'function filteredHistory(player, history)' in html
     assert 'function renderRecentHistory(row)' in html
     assert '<input id="hideStartedOnly" type="checkbox" />' in html
-    assert '<label for="searchQuery">Search player, team, or game</label>' in html
+    assert 'id="playerSearchInput"' in html
+    assert 'api/players/search' in html
     assert '<input id="strongHandOnly" type="checkbox" />' in html
     assert '<input id="availableOnly" type="checkbox" />' in html
     assert 'function hotHitterSearchText(row)' in html
     assert 'function availabilityMeta(row)' in html
-    assert 'searchQueryInput.addEventListener("input", renderRows);' in html
     assert 'strongHandOnlyInput.addEventListener("change", renderRows);' in html
     assert 'availableOnlyInput.addEventListener("change", renderRows);' in html
 

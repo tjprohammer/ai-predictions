@@ -6571,6 +6571,71 @@ def hot_hitters(
     return _json_response({"target_date": target_date.isoformat(), **payload})
 
 
+@app.get("/api/players/search")
+def player_search(
+    q: str = Query(min_length=2, max_length=100),
+    limit: int = Query(default=15, ge=1, le=50),
+) -> JSONResponse:
+    """Search non-pitcher players by name. Returns id, name, position, team."""
+    if not _table_exists("dim_players"):
+        return _json_response({"players": []})
+    safe_q = q.strip()
+    frame = _safe_frame(
+        """
+        SELECT dp.player_id, dp.full_name, dp.position, dp.team_abbr,
+               dp.bats, dp.throws
+        FROM dim_players dp
+        WHERE dp.position IS NOT NULL
+          AND dp.position != 'P'
+          AND dp.active = 1
+          AND dp.full_name LIKE :pattern
+        ORDER BY dp.full_name
+        LIMIT :limit
+        """,
+        {"pattern": f"%{safe_q}%", "limit": limit},
+    )
+    return _json_response({"players": _frame_records(frame)})
+
+
+@app.get("/api/players/{player_id}/recent-stats")
+def player_recent_stats(
+    player_id: int,
+    target_date: date = Query(default_factory=date.today),
+    limit: int = Query(default=10, ge=1, le=30),
+) -> JSONResponse:
+    """Return recent game batting lines for a single player."""
+    if not _table_exists("player_game_batting"):
+        return _json_response({"games": []})
+    frame = _safe_frame(
+        """
+        SELECT
+            b.game_date,
+            b.opponent,
+            b.hits,
+            b.at_bats,
+            b.home_runs,
+            b.runs,
+            b.rbi,
+            b.walks,
+            b.stolen_bases,
+            b.strikeouts,
+            (
+                COALESCE(b.singles, 0)
+                + 2 * COALESCE(b.doubles, 0)
+                + 3 * COALESCE(b.triples, 0)
+                + 4 * COALESCE(b.home_runs, 0)
+            ) AS total_bases
+        FROM player_game_batting b
+        WHERE b.player_id = :player_id
+          AND b.game_date <= :target_date
+        ORDER BY b.game_date DESC, b.game_id DESC
+        LIMIT :limit
+        """,
+        {"player_id": player_id, "target_date": target_date.isoformat(), "limit": limit},
+    )
+    return _json_response({"games": _frame_records(frame)})
+
+
 @app.get("/api/results/daily")
 def daily_results(
     target_date: date = Query(default_factory=date.today),
