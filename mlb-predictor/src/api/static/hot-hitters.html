@@ -1178,6 +1178,27 @@
         return `${parts.join(" · ")} in ${row.actual_at_bats ?? 0} AB, ${row.actual_plate_appearances ?? 0} PA`;
       }
 
+      function bvpSummary(row) {
+        const bvp = row.bvp;
+        if (!bvp || !bvp.at_bats) return null;
+        const ab = bvp.at_bats;
+        const h = bvp.hits ?? 0;
+        const hr = bvp.home_runs ?? 0;
+        const bb = bvp.walks ?? 0;
+        const k = bvp.strikeouts ?? 0;
+        const rbi = bvp.rbi ?? 0;
+        const avg = bvp.batting_avg != null ? formatBattingAverage(bvp.batting_avg) : formatBattingAverage(ab > 0 ? h / ab : null);
+        const parts = [`${h}-for-${ab}`];
+        if (hr > 0) parts.push(`${hr} HR`);
+        if (rbi > 0) parts.push(`${rbi} RBI`);
+        if (bb > 0) parts.push(`${bb} BB`);
+        if (k > 0) parts.push(`${k} K`);
+        parts.push(avg + " AVG");
+        if (bvp.ops != null) parts.push(formatBattingAverage(bvp.ops) + " OPS");
+        const source = bvp.source === "career" ? "career" : "recent";
+        return { line: parts.join(" · "), avg: numberOr(bvp.batting_avg), source };
+      }
+
       function pitcherHandMatchup(row) {
         const throwHand = String(row.opposing_pitcher_throws || "")
           .trim()
@@ -1880,6 +1901,10 @@
             <div class="data-row">
               <span class="data-label">Season BA / Last 7 BA</span>
               <span class="data-value"><span style="color: ${numberOr(row.batting_avg_season) >= 0.280 ? 'var(--good)' : numberOr(row.batting_avg_season) <= 0.220 ? 'var(--warn)' : 'inherit'}">${formatBattingAverage(row.batting_avg_season)}</span> / <span style="color: ${numberOr(row.batting_avg_last7) >= 0.300 ? 'var(--good)' : numberOr(row.batting_avg_last7) <= 0.200 ? 'var(--warn)' : 'inherit'}">${formatBattingAverage(row.batting_avg_last7)}</span></span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">Vs ${escapeHtml(row.opposing_pitcher_name ? row.opposing_pitcher_name.split(' ').pop() : 'Pitcher')}</span>
+              <span class="data-value">${(() => { const b = bvpSummary(row); return b ? `<span style="color: ${b.avg >= 0.280 ? 'var(--good)' : b.avg <= 0.180 ? 'var(--bad)' : 'inherit'}">${escapeHtml(b.line)}</span> <span style="opacity:0.5;font-size:0.75em">(${b.source})</span>` : 'No matchup data'; })()}</span>
             </div>
             <div class="data-row">
               <span class="data-label">Vs Pitcher Hand</span>

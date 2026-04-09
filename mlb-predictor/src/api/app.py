@@ -745,6 +745,123 @@ def _fetch_lineup_handedness_by_game(target_date: date) -> dict[int, dict[str, d
     }
 
 
+def _fetch_batter_vs_pitcher_map(
+    target_date: date,
+    matchups: list[tuple[int, int]],
+) -> dict[tuple[int, int], dict[str, Any]]:
+    """Return career BvP stats for each (batter_id, pitcher_id) pair.
+
+    First checks matchup_splits (StatMuse-sourced career data), then
+    computes from game logs as a fallback for any pairs not found.
+    """
+    if not matchups:
+        return {}
+
+    result: dict[tuple[int, int], dict[str, Any]] = {}
+
+    # ── Try matchup_splits first (career data) ───────────────────────
+    if _table_exists("matchup_splits"):
+        params: dict[str, Any] = {}
+        pair_clauses = []
+        for idx, (batter_id, pitcher_id) in enumerate(matchups):
+            params[f"b_{idx}"] = int(batter_id)
+            params[f"p_{idx}"] = int(pitcher_id)
+            pair_clauses.append(f"(ms.player_id = :b_{idx} AND ms.opponent_id = :p_{idx})")
+        if pair_clauses:
+            where_clause = " OR ".join(pair_clauses)
+            frame = _safe_frame(
+                f"""
+                SELECT ms.player_id AS batter_id,
+                       ms.opponent_id AS pitcher_id,
+                       ms.at_bats, ms.hits, ms.home_runs,
+                       ms.walks, ms.strikeouts, ms.rbi,
+                       ms.doubles, ms.triples,
+                       ms.batting_avg, ms.obp, ms.slg, ms.ops
+                FROM matchup_splits ms
+                WHERE ms.split_type = 'bvp'
+                  AND ms.season = 0
+                  AND ({where_clause})
+                """,
+                params,
+            )
+            if not frame.empty:
+                for row in _frame_records(frame):
+                    key = (int(row["batter_id"]), int(row["pitcher_id"]))
+                    result[key] = {
+                        "at_bats": int(row.get("at_bats") or 0),
+                        "hits": int(row.get("hits") or 0),
+                        "home_runs": int(row.get("home_runs") or 0),
+                        "walks": int(row.get("walks") or 0),
+                        "strikeouts": int(row.get("strikeouts") or 0),
+                        "rbi": int(row.get("rbi") or 0),
+                        "doubles": int(row.get("doubles") or 0),
+                        "triples": int(row.get("triples") or 0),
+                        "batting_avg": row.get("batting_avg"),
+                        "obp": row.get("obp"),
+                        "slg": row.get("slg"),
+                        "ops": row.get("ops"),
+                        "source": "career",
+                    }
+
+    # ── Fallback: compute from game logs ──────────────────────────────
+    missing = [pair for pair in matchups if pair not in result]
+    if missing and _table_exists("player_game_batting") and _table_exists("pitcher_starts"):
+        params2: dict[str, Any] = {"target_date": target_date}
+        pair_clauses2 = []
+        for idx, (batter_id, pitcher_id) in enumerate(missing):
+            params2[f"mb_{idx}"] = int(batter_id)
+            params2[f"mp_{idx}"] = int(pitcher_id)
+            pair_clauses2.append(f"(b.player_id = :mb_{idx} AND ps.pitcher_id = :mp_{idx})")
+        where_clause2 = " OR ".join(pair_clauses2)
+        frame2 = _safe_frame(
+            f"""
+            SELECT
+                b.player_id AS batter_id,
+                ps.pitcher_id,
+                SUM(b.hits) AS hits,
+                SUM(b.at_bats) AS at_bats,
+                SUM(b.home_runs) AS home_runs,
+                SUM(b.walks) AS walks,
+                SUM(b.strikeouts) AS strikeouts,
+                SUM(b.rbi) AS rbi,
+                SUM(b.doubles) AS doubles,
+                SUM(b.triples) AS triples,
+                CAST(SUM(b.hits) AS REAL) / NULLIF(SUM(b.at_bats), 0) AS batting_avg
+            FROM player_game_batting b
+            INNER JOIN pitcher_starts ps
+                ON ps.game_id = b.game_id
+               AND ps.team = b.opponent
+            WHERE b.game_date < :target_date
+              AND ({where_clause2})
+            GROUP BY b.player_id, ps.pitcher_id
+            """,
+            params2,
+        )
+        if not frame2.empty:
+            for row in _frame_records(frame2):
+                key = (int(row["batter_id"]), int(row["pitcher_id"]))
+                at_bats = int(row.get("at_bats") or 0)
+                if at_bats == 0:
+                    continue
+                result[key] = {
+                    "at_bats": at_bats,
+                    "hits": int(row.get("hits") or 0),
+                    "home_runs": int(row.get("home_runs") or 0),
+                    "walks": int(row.get("walks") or 0),
+                    "strikeouts": int(row.get("strikeouts") or 0),
+                    "rbi": int(row.get("rbi") or 0),
+                    "doubles": int(row.get("doubles") or 0),
+                    "triples": int(row.get("triples") or 0),
+                    "batting_avg": row.get("batting_avg"),
+                    "obp": None,
+                    "slg": None,
+                    "ops": None,
+                    "source": "game_logs",
+                }
+
+    return result
+
+
 def _fetch_hitter_pitch_hand_splits(
     target_date: date,
     player_ids: list[int] | set[int],
@@ -4775,6 +4892,12 @@ def _fetch_hot_hitters(
         target_date,
         [int(record["player_id"]) for record in records if record.get("player_id") is not None],
     )
+    bvp_matchups = [
+        (int(record["player_id"]), int(record["opposing_pitcher_id"]))
+        for record in records
+        if record.get("player_id") is not None and record.get("opposing_pitcher_id") is not None
+    ]
+    bvp_map = _fetch_batter_vs_pitcher_map(target_date, bvp_matchups)
     player_status_map = _fetch_player_status_map(target_date, records)
     hit_history_map = _fetch_recent_hit_history_map(
         target_date,
@@ -4785,11 +4908,13 @@ def _fetch_hot_hitters(
     all_hot_rows: list[dict[str, Any]] = []
     for record in records:
         player_id = int(record["player_id"]) if record.get("player_id") is not None else None
+        pitcher_id = int(record["opposing_pitcher_id"]) if record.get("opposing_pitcher_id") is not None else None
         live_history = [] if player_id is None else hit_history_map.get(player_id, [])
         _overlay_live_batting_stats(record, live_history)
         form = _classify_hitter_form(record)
         if form["label"] not in {"Hot", "Streaking", "Hitting well"}:
             continue
+        bvp_stats = bvp_map.get((player_id, pitcher_id)) if player_id and pitcher_id else None
         actual_meta = _build_hit_actual_meta(record.get("actual_hits"), _is_final_game_status(record.get("game_status")))
         enriched = _attach_hitter_matchup_context(
             _attach_player_status_context(
@@ -4798,6 +4923,7 @@ def _fetch_hot_hitters(
                 **actual_meta,
                 "form": form,
                 "recent_hit_history": live_history[:10],
+                "bvp": bvp_stats,
             },
                 player_status_map,
             ),
