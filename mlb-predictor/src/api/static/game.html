@@ -1747,8 +1747,8 @@
         }
         section.style.display = "";
         const predicted = numberOr(
-          first5.predicted_total_fundamentals,
-          numberOr(first5.predicted_total_runs),
+          first5.predicted_total_runs,
+          numberOr(first5.predicted_total_fundamentals),
         );
         const market = numberOr(first5.market_total);
         const edge = numberOr(first5.edge);
@@ -1918,8 +1918,8 @@
         const homeLineup = detail.teams?.home?.lineup || [];
 
         const predicted = numberOr(
-          totals.predicted_total_fundamentals,
-          numberOr(totals.predicted_total_runs),
+          totals.predicted_total_runs,
+          numberOr(totals.predicted_total_fundamentals),
         );
         const market = numberOr(totals.market_total);
         const edge = numberOr(totals.edge);
@@ -2159,8 +2159,8 @@
         // --- FIRST 5 ---
         if (first5.supported) {
           const f5predicted = numberOr(
-            first5.predicted_total_fundamentals,
-            numberOr(first5.predicted_total_runs),
+            first5.predicted_total_runs,
+            numberOr(first5.predicted_total_fundamentals),
           );
           const f5market = numberOr(first5.market_total);
           const f5edge = numberOr(first5.edge);
@@ -2590,7 +2590,7 @@
         document.getElementById("venueCopy").textContent =
           `${formatDateTime(detail.game_start_ts)} · ${[venue.city, venue.state].filter(Boolean).join(", ") || "Location pending"}`;
         document.getElementById("summaryGrid").innerHTML = `
-          <article class="summary-card"><div class="data-label">Model / Market</div><div class="summary-value">${formatNumber(numberOr(totals.predicted_total_fundamentals, totals.predicted_total_runs), 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">Edge ${formatNumber(totals.edge, 3)} · ${escapeHtml(totals.model_name || "model")}</div></article>
+          <article class="summary-card"><div class="data-label">Model / Market</div><div class="summary-value">${formatNumber(numberOr(totals.predicted_total_runs, totals.predicted_total_fundamentals), 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">Edge ${formatNumber(totals.edge, 3)} · ${escapeHtml(totals.model_name || "model")}${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` · F ${formatNumber(totals.predicted_total_fundamentals, 2)}` : ""}</div></article>
           <article class="summary-card"><div class="data-label">Expected Runs</div><div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="data-copy">Line move ${formatNumber(totals.line_movement, 2)}</div></article>
           <article class="summary-card"><div class="data-label">Weather (Game-Time Est.)</div><div class="summary-value">${formatNumber(weather.temperature_f, 0)}F</div><div class="data-copy">Wind ${formatNumber(weather.wind_speed_mph, 0)} mph ${windDirectionLabel(weather.wind_direction_deg)} · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</div></article>
           <article class="summary-card"><div class="data-label">Lineup Quality</div><div class="summary-value">${formatPercent(totals.away_lineup_k_pct)} / ${formatPercent(totals.home_lineup_k_pct)}</div><div class="data-copy">Away/Home lineup K% vs starters</div></article>

@@ -3691,8 +3691,8 @@
 
       function primaryTotalPrediction(totals) {
         return numberOr(
-          totals.predicted_total_fundamentals,
-          numberOr(totals.predicted_total_runs),
+          totals.predicted_total_runs,
+          numberOr(totals.predicted_total_fundamentals),
         );
       }
 
