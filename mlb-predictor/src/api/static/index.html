@@ -752,6 +752,57 @@
         margin-bottom: 18px;
       }
 
+      .leaders-grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        margin-top: 18px;
+      }
+
+      .leader-card {
+        padding: 18px;
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.75);
+        border: 1px solid var(--line);
+      }
+
+      .leader-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+        max-height: 600px;
+        overflow-y: auto;
+      }
+
+      .leader-row {
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: baseline;
+      }
+
+      .leader-rank {
+        color: var(--muted);
+        font-size: 0.76rem;
+        font-weight: 800;
+      }
+
+      .leader-name {
+        font-weight: 800;
+      }
+
+      .leader-meta {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        line-height: 1.4;
+      }
+
+      .leader-value {
+        font-weight: 800;
+        text-align: right;
+      }
+
       .stat-card {
         border-radius: var(--radius-lg);
         padding: 18px;
@@ -2040,6 +2091,19 @@
         </article>
       </section>
 
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="section-tag">Season Leaders</div>
+            <h2>League context entering today</h2>
+          </div>
+          <span class="panel-subtitle" id="leadersSubtitle">Loading season leaderboards</span>
+        </div>
+        <div class="leaders-grid" id="leadersGrid">
+          <div class="empty-state">Loading season leaders...</div>
+        </div>
+      </section>
+
       <section class="panel workspace-toggle-panel">
         <div class="panel-head">
           <div>
@@ -2306,6 +2370,8 @@
         "showProjectedHittersButton",
       );
       const gamesBoard = document.getElementById("gamesBoard");
+      const leadersGrid = document.getElementById("leadersGrid");
+      const leadersSubtitle = document.getElementById("leadersSubtitle");
       const logBox = document.getElementById("logBox");
       const updateJobStatus = document.getElementById("updateJobStatus");
       const activityBanner = document.getElementById("activityBanner");
@@ -3520,6 +3586,96 @@
               <div class="summary-copy">No graded totals review rows are available for ${targetDateInput.value} yet.</div>
             </div>
           `;
+      }
+
+      /* ── Season Leaders ─────────────────────────────────────── */
+
+      function renderLeaderCard(title, valueLabel, rows, formatter) {
+        if (!Array.isArray(rows) || !rows.length) {
+          return `
+            <article class="leader-card">
+              <div class="section-tag">${escapeHtml(title)}</div>
+              <div class="leader-list"><div class="small-copy">No season rows available yet.</div></div>
+            </article>
+          `;
+        }
+        return `
+          <article class="leader-card">
+            <div class="section-tag">${escapeHtml(title)}</div>
+            <div class="leader-list">
+              ${rows.map((row, index) => formatter(row, index + 1, valueLabel)).join("")}
+            </div>
+          </article>
+        `;
+      }
+
+      function renderLeaderboards() {
+        const leaders = state.leaders || {};
+        leadersSubtitle.textContent = leaders.season
+          ? `Season-to-date through ${leaders.through_date}`
+          : "Season leaderboards unavailable";
+        leadersGrid.innerHTML = [
+          renderLeaderCard(
+            "Pitcher Ks",
+            "Ks",
+            leaders.pitcher_strikeouts,
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.player_name)}</div>
+                  <div class="leader-meta">${escapeHtml(row.team || "-")} · ${formatNumber(row.strikeouts_per_start, 2)} K/start · ${formatPercent(row.strikeouts_per_batter, 1)} K/BF</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.strikeouts, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
+            "Hitter Hits",
+            "Hits",
+            leaders.hitter_hits,
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.player_name)}</div>
+                  <div class="leader-meta">${escapeHtml(row.team || "-")} · ${formatNumber(row.hits_per_game, 2)} hits/game</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.hits, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
+            "Team Runs",
+            "Runs",
+            leaders.team_runs,
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.team)}</div>
+                  <div class="leader-meta">${formatNumber(row.runs_per_game, 2)} runs/game</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.runs, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
+            "Team Strikeouts",
+            "Ks",
+            leaders.team_strikeouts,
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.team)}</div>
+                  <div class="leader-meta">${formatNumber(row.strikeouts_per_game, 2)} K/game</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.strikeouts, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+        ].join("");
       }
 
       function primaryTotalPrediction(totals) {
@@ -5163,6 +5319,7 @@
       function renderBoard() {
         updateHeroMetrics();
         updateStatusStrip();
+        renderLeaderboards();
         renderHitterDataWarning();
         renderReviewStrip();
         renderScorecards();
@@ -5239,11 +5396,25 @@
         state.clvReview = await response.json();
       }
 
+      async function loadLeaders() {
+        const params = new URLSearchParams({
+          target_date: targetDateInput.value,
+          limit: "30",
+        });
+        const response = await fetch(
+          appUrl(`api/leaders/season?${params.toString()}`),
+        );
+        if (!response.ok) {
+          throw new Error(`Season leaders request failed: ${response.status}`);
+        }
+        state.leaders = await response.json();
+      }
+
       async function refreshBoard(options = {}) {
         const preserveLog = Boolean(options.preserveLog);
         const filters = getHitFilters();
         const date = targetDateInput.value;
-        const totalLoads = 5;
+        const totalLoads = 6;
         let completedLoads = 0;
         const trackLoad = (label, loader) =>
           Promise.resolve()
@@ -5293,12 +5464,14 @@
             scorecardResult,
             pickReviewResult,
             clvReviewResult,
+            leadersResult,
           ] = await Promise.allSettled([
             trackLoad("status", () => loadStatus()),
             trackLoad("board games", () => loadBoard()),
             trackLoad("scorecards", () => loadScorecards()),
             trackLoad("pick review", () => loadPickReview()),
             trackLoad("CLV review", () => loadClvReview()),
+            trackLoad("season leaders", () => loadLeaders()),
           ]);
           const problems = [];
 
@@ -5326,6 +5499,12 @@
             state.clvReview = null;
             problems.push(
               `CLV review: ${describeError(clvReviewResult.reason)}`,
+            );
+          }
+          if (leadersResult.status === "rejected") {
+            state.leaders = null;
+            problems.push(
+              `Season leaders: ${describeError(leadersResult.reason)}`,
             );
           }
 

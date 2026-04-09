@@ -411,6 +411,8 @@
         display: grid;
         gap: 10px;
         margin-top: 14px;
+        max-height: 600px;
+        overflow-y: auto;
       }
 
       .leader-row {
@@ -1666,7 +1668,7 @@
       async function loadLeaders() {
         const params = new URLSearchParams({
           target_date: targetDateInput.value,
-          limit: "8",
+          limit: "30",
         });
         const response = await fetch(
           appUrl(`api/leaders/season?${params.toString()}`),

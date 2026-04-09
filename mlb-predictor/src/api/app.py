@@ -2024,6 +2024,7 @@ def _fetch_game_board(
             p.model_version,
             p.prediction_ts,
             p.predicted_total_runs,
+            p.predicted_total_fundamentals,
             p.market_total,
             p.over_probability,
             p.under_probability,
@@ -3930,6 +3931,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             p.model_version,
             p.prediction_ts,
             p.predicted_total_runs,
+            p.predicted_total_fundamentals,
             p.market_total,
             p.over_probability,
             p.under_probability,
@@ -6459,7 +6461,7 @@ def model_scorecards(target_date: date = Query(default_factory=date.today), wind
 
 
 @app.get("/api/leaders/season")
-def season_leaderboards(target_date: date = Query(default_factory=date.today), limit: int = Query(default=10, ge=3, le=25)) -> JSONResponse:
+def season_leaderboards(target_date: date = Query(default_factory=date.today), limit: int = Query(default=10, ge=3, le=30)) -> JSONResponse:
     return _json_response({"target_date": target_date.isoformat(), **_fetch_season_leaderboards(target_date, limit)})
 
 
