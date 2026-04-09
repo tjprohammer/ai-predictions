@@ -461,69 +461,6 @@
         color: var(--muted);
         font-weight: 700;
       }
-      .psc-game-log {
-        margin-top: 12px;
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.82rem;
-      }
-      .psc-game-log th,
-      .psc-game-log td {
-        padding: 4px 8px;
-        text-align: center;
-        border-bottom: 1px solid var(--line);
-      }
-      .psc-game-log th {
-        font-weight: 700;
-        color: var(--muted);
-        text-transform: uppercase;
-        font-size: 0.72rem;
-        letter-spacing: 0.05em;
-      }
-      .player-search-card {
-        margin-top: 16px;
-        padding: 18px;
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-      }
-      .player-search-card .psc-header {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 12px;
-      }
-      .player-search-card .psc-name {
-        font-size: 1.1rem;
-        font-weight: 800;
-      }
-      .player-search-card .psc-meta {
-        font-size: 0.82rem;
-        color: var(--muted);
-        font-weight: 700;
-      }
-      .player-search-card .psc-stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-        gap: 8px;
-      }
-      .player-search-card .psc-stat {
-        text-align: center;
-        padding: 8px 4px;
-        background: rgba(255,255,255,0.6);
-        border-radius: var(--radius-md);
-      }
-      .player-search-card .psc-stat-val {
-        font-size: 1.1rem;
-        font-weight: 800;
-      }
-      .player-search-card .psc-stat-lbl {
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--muted);
-        font-weight: 700;
-      }
       .player-search-no-data {
         color: var(--muted);
         font-size: 0.9rem;
@@ -2367,30 +2304,63 @@
           )
           .join("");
         return `
-          <div class="player-search-card">
-            <div class="psc-header">
-              <div>
-                <div class="psc-name">${esc(player.full_name)}</div>
-                <div class="psc-meta">${esc(player.position)} · ${esc(player.team_abbr)} · Bats ${esc(player.bats)}</div>
-              </div>
-              <span class="psc-meta">Last ${agg.games} games</span>
+        <article class="player-card">
+          <div class="player-head">
+            <div>
+              <div class="section-tag">Player Lookup</div>
+              <div class="player-name">${esc(player.full_name)}</div>
+              <div class="player-context">${esc(player.position)} | ${esc(player.team_abbr)} | Bats ${esc(player.bats)} | Last ${agg.games} games</div>
             </div>
-            <div class="psc-stats-grid">
-              <div class="psc-stat"><span class="psc-stat-val">${agg.avg}</span><span class="psc-stat-lbl">AVG</span></div>
-              <div class="psc-stat"><span class="psc-stat-val">${agg.obp}</span><span class="psc-stat-lbl">OBP</span></div>
-              <div class="psc-stat"><span class="psc-stat-val">${agg.slg}</span><span class="psc-stat-lbl">SLG</span></div>
-              <div class="psc-stat"><span class="psc-stat-val">${agg.h}</span><span class="psc-stat-lbl">H</span></div>
-              <div class="psc-stat"><span class="psc-stat-val">${agg.hr}</span><span class="psc-stat-lbl">HR</span></div>
-              <div class="psc-stat"><span class="psc-stat-val">${agg.r}</span><span class="psc-stat-lbl">R</span></div>
-              <div class="psc-stat"><span class="psc-stat-val">${agg.rbi}</span><span class="psc-stat-lbl">RBI</span></div>
-              <div class="psc-stat"><span class="psc-stat-val">${agg.bb}</span><span class="psc-stat-lbl">BB</span></div>
-              <div class="psc-stat"><span class="psc-stat-val">${agg.sb}</span><span class="psc-stat-lbl">SB</span></div>
-              <div class="psc-stat"><span class="psc-stat-val">${agg.k}</span><span class="psc-stat-lbl">K</span></div>
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric-box">
+              <span class="metric-label">AVG</span>
+              <span class="metric-value" style="color: ${Number(agg.avg) >= 0.280 ? "var(--good)" : Number(agg.avg) <= 0.200 ? "var(--warn)" : "inherit"}">${agg.avg}</span>
             </div>
-            <table class="psc-game-log">
-              <tr><th>Recent</th>${gameCols}</tr>
+            <div class="metric-box">
+              <span class="metric-label">OBP</span>
+              <span class="metric-value" style="color: ${Number(agg.obp) >= 0.350 ? "var(--good)" : Number(agg.obp) <= 0.280 ? "var(--warn)" : "inherit"}">${agg.obp}</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">SLG</span>
+              <span class="metric-value" style="color: ${Number(agg.slg) >= 0.450 ? "var(--good)" : Number(agg.slg) <= 0.320 ? "var(--warn)" : "inherit"}">${agg.slg}</span>
+            </div>
+          </div>
+
+          <div class="data-stack">
+            <div class="data-row">
+              <span class="data-label">H</span>
+              <span class="data-value">${agg.h}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">HR</span>
+              <span class="data-value">${agg.hr}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">R / RBI</span>
+              <span class="data-value">${agg.r} / ${agg.rbi}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">BB / K</span>
+              <span class="data-value">${agg.bb} / ${agg.k}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">SB</span>
+              <span class="data-value">${agg.sb}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">AB</span>
+              <span class="data-value">${agg.ab}</span>
+            </div>
+          </div>
+
+          <div class="history-block" style="padding:12px 14px">
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;color:rgba(255,255,255,.85)">
+              <tr><th style="padding:4px 6px;text-align:left;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(255,255,255,.5)">Recent</th>${gameCols}</tr>
             </table>
-          </div>`;
+          </div>
+        </article>`;
       }
 
       function esc(s) {
