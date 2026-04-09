@@ -932,6 +932,12 @@
                 placeholder="Player, team, opponent, or matchup"
               />
             </div>
+            <div class="field">
+              <label for="teamFilter">Team</label>
+              <select id="teamFilter">
+                <option value="" selected>All teams</option>
+              </select>
+            </div>
           </div>
 
           <div class="control-row" style="margin-top: 16px">
@@ -1302,6 +1308,7 @@
       const sortModeInput = document.getElementById("sortMode");
       const resultLimitInput = document.getElementById("resultLimit");
       const searchQueryInput = document.getElementById("searchQuery");
+      const teamFilterInput = document.getElementById("teamFilter");
       const confirmedOnlyInput = document.getElementById("confirmedOnly");
       const includeInferredInput = document.getElementById("includeInferred");
       const streakOnlyInput = document.getElementById("streakOnly");
@@ -1686,6 +1693,8 @@
               return false;
             if (searchQuery && !hotHitterSearchText(row).includes(searchQuery))
               return false;
+            const teamValue = teamFilterInput.value;
+            if (teamValue && row.team !== teamValue) return false;
             return true;
           }),
         );
@@ -1962,6 +1971,13 @@
         const payload = await response.json();
         state.rows = payload.rows || [];
         state.summary = payload.summary || null;
+        populateTeamFilter();
+      }
+
+      function populateTeamFilter() {
+        const current = teamFilterInput.value;
+        const teams = [...new Set((state.rows || []).map((r) => r.team).filter(Boolean))].sort();
+        teamFilterInput.innerHTML = '<option value="">All teams</option>' + teams.map((t) => `<option value="${escapeHtml(t)}"${t === current ? ' selected' : ''}>${escapeHtml(t)}</option>`).join('');
       }
 
       async function refreshPage() {
@@ -1988,6 +2004,7 @@
       confirmedOnlyInput.addEventListener("change", refreshPage);
       includeInferredInput.addEventListener("change", refreshPage);
       searchQueryInput.addEventListener("input", renderRows);
+      teamFilterInput.addEventListener("change", renderRows);
       streakOnlyInput.addEventListener("change", renderRows);
       hideStartedOnlyInput.addEventListener("change", renderRows);
       strongHandOnlyInput.addEventListener("change", renderRows);
