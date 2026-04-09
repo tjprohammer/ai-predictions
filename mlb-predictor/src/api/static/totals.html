@@ -1091,17 +1091,24 @@
       }
 
       function leanSide(totals) {
-        const over = numberOr(totals?.over_probability);
-        const under = numberOr(totals?.under_probability);
-        if (over == null || under == null) return "No lean";
-        return over >= under ? "Over lean" : "Under lean";
+        const pred = numberOr(totals?.predicted_total_fundamentals, numberOr(totals?.predicted_total_runs));
+        const market = numberOr(totals?.market_total);
+        if (pred == null || market == null) return "No lean";
+        return pred >= market ? "Over lean" : "Under lean";
       }
 
-      function leanProbability(totals) {
-        const over = numberOr(totals?.over_probability);
-        const under = numberOr(totals?.under_probability);
-        if (over == null || under == null) return null;
-        return Math.max(over, under);
+      function leanDelta(totals) {
+        const pred = numberOr(totals?.predicted_total_fundamentals, numberOr(totals?.predicted_total_runs));
+        const market = numberOr(totals?.market_total);
+        if (pred == null || market == null) return null;
+        return pred - market;
+      }
+
+      function fundamentalsEdge(totals) {
+        const pred = numberOr(totals?.predicted_total_fundamentals, numberOr(totals?.predicted_total_runs));
+        const market = numberOr(totals?.market_total);
+        if (pred == null || market == null) return null;
+        return pred - market;
       }
 
       function edgeTone(edge) {
@@ -1526,7 +1533,7 @@
           home: bullpenSnapshot(game.home_team, totals, "home"),
         };
         const lean = leanSide(totals);
-        const leanProb = leanProbability(totals);
+        const leanEdge = leanDelta(totals);
         const matchupHref = appUrl(
           `game?game_id=${encodeURIComponent(game.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=true`,
         );
@@ -1550,14 +1557,14 @@
               </div>
               <div class="big-metric">
                 <span class="tiny-label">Totals Edge</span>
-                <span class="value ${edgeTone(totals.edge)}">${formatSigned(totals.edge)}</span>
+                <span class="value ${edgeTone(fundamentalsEdge(totals))}">${formatSigned(fundamentalsEdge(totals))}</span>
               </div>
             </div>
 
             <div class="game-card-body">
               <div class="game-card-glance">
-                <div class="data-row"><span class="data-label">Model / Market</span><span class="data-value">${formatNumber(numberOr(totals.predicted_total_runs, totals.predicted_total_fundamentals), 2)} / ${formatNumber(totals.market_total, 1)}${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` <span class="tiny-label" title="Stats-only fundamentals model">F ${formatNumber(totals.predicted_total_fundamentals, 2)}</span>` : ""}</span></div>
-                <div class="data-row"><span class="data-label">Lean</span><span class="data-value">${leanProb == null ? escapeHtml(lean) : `${escapeHtml(lean)} · ${formatPercent(leanProb, 1)}`}</span></div>
+                <div class="data-row"><span class="data-label">Model / Market</span><span class="data-value">${formatNumber(numberOr(totals.predicted_total_fundamentals, totals.predicted_total_runs), 2)} / ${formatNumber(totals.market_total, 1)}${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` <span class="tiny-label" title="Blended calibrated model (experimental)">Blended (exp.) ${formatNumber(totals.predicted_total_runs, 2)}</span>` : ""}</span></div>
+                <div class="data-row"><span class="data-label">Lean</span><span class="data-value">${leanEdge == null ? escapeHtml(lean) : `${escapeHtml(lean)} · ${formatTrend(leanEdge)}`}</span></div>
                 <div class="data-row"><span class="data-label">Expected Runs</span><span class="data-value">${escapeHtml(game.away_team)} ${formatNumber(totals.away_expected_runs, 1)} / ${escapeHtml(game.home_team)} ${formatNumber(totals.home_expected_runs, 1)}</span></div>
                 <div class="data-row"><span class="data-label">Weather / Park</span><span class="data-value">${formatNumber(weather.temperature_f, 0)}F · Wind ${formatNumber(weather.wind_speed_mph, 0)} mph · Park ${formatNumber(totals.venue_run_factor, 2)}</span></div>
                 <div class="data-row"><span class="data-label">Bullpen Load</span><span class="data-value">${escapeHtml(game.away_team)} ${escapeHtml(awayLoad.label)} / ${escapeHtml(game.home_team)} ${escapeHtml(homeLoad.label)}</span></div>
@@ -1652,8 +1659,8 @@
         if (mode === "lean") {
           return sorted.sort(
             (left, right) =>
-              numberOr(leanProbability(right.totals), -1) -
-              numberOr(leanProbability(left.totals), -1),
+              numberOr(leanDelta(right.totals), -1) -
+              numberOr(leanDelta(left.totals), -1),
           );
         }
         if (mode === "latebullpen") {
@@ -1661,14 +1668,14 @@
             (left, right) =>
               gameLateBullpenRisk(right).score -
                 gameLateBullpenRisk(left).score ||
-              Math.abs(numberOr((right.totals || {}).edge, -999)) -
-                Math.abs(numberOr((left.totals || {}).edge, -999)),
+              Math.abs(numberOr(fundamentalsEdge(right.totals || {}), -999)) -
+                Math.abs(numberOr(fundamentalsEdge(left.totals || {}), -999)),
           );
         }
         return sorted.sort(
           (left, right) =>
-            Math.abs(numberOr((right.totals || {}).edge, -999)) -
-            Math.abs(numberOr((left.totals || {}).edge, -999)),
+            Math.abs(numberOr(fundamentalsEdge(right.totals || {}), -999)) -
+            Math.abs(numberOr(fundamentalsEdge(left.totals || {}), -999)),
         );
       }
 
@@ -1693,7 +1700,7 @@
       function updateSummary(games) {
         const summary = state.summary || {};
         const edges = games
-          .map((game) => numberOr((game.totals || {}).edge))
+          .map((game) => fundamentalsEdge(game.totals || {}))
           .filter((value) => value != null);
         const marketGames = games.filter(
           (game) => numberOr((game.totals || {}).market_total) != null,

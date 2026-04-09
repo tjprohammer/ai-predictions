@@ -3090,10 +3090,10 @@
 
       function bestGame(games) {
         return [...games]
-          .filter((game) => game.totals?.edge != null)
+          .filter((game) => statsEdge(game.totals || {}) != null)
           .sort(
             (left, right) =>
-              Number(right.totals.edge) - Number(left.totals.edge),
+              statsEdge(right.totals || {}) - statsEdge(left.totals || {}),
           )[0];
       }
 
@@ -3161,7 +3161,7 @@
         document.getElementById("gamesCount").textContent = games.length;
         const best = bestGame(games);
         document.getElementById("gamesFoot").textContent = best
-          ? `Best edge: ${best.away_team} @ ${best.home_team} ${formatSigned(best.totals.edge)}`
+          ? `Best edge: ${best.away_team} @ ${best.home_team} ${formatSigned(statsEdge(best.totals || {}))}`
           : "Compact slate board";
 
         const marketBacked = games.filter(
@@ -3691,9 +3691,16 @@
 
       function primaryTotalPrediction(totals) {
         return numberOr(
-          totals.predicted_total_runs,
-          numberOr(totals.predicted_total_fundamentals),
+          totals.predicted_total_fundamentals,
+          numberOr(totals.predicted_total_runs),
         );
+      }
+
+      function statsEdge(totals) {
+        const pred = primaryTotalPrediction(totals);
+        const market = numberOr(totals?.market_total);
+        if (pred == null || market == null) return null;
+        return pred - market;
       }
 
       function historicalOutcomeInfo(game) {
@@ -3714,7 +3721,7 @@
           modelError == null || marketError == null
             ? null
             : modelError < marketError;
-        const edgeAbs = Math.abs(numberOr(totals.edge, 0));
+        const edgeAbs = Math.abs(numberOr(statsEdge(totals), 0));
 
         let label = "Final posted";
         let tone = "";
@@ -3850,7 +3857,7 @@
           </div>
           <div class="data-row">
             <span class="data-label">Edge / Lean</span>
-            <span class="data-value">${formatSigned(totals.edge, 3)} · ${leanLabel(totals)}</span>
+            <span class="data-value">${formatSigned(statsEdge(totals), 3)} · ${leanLabel(totals)}</span>
           </div>
           <div class="data-row">
             <span class="data-label">Model Error / Market Error</span>
@@ -3925,45 +3932,21 @@
       }
 
       function leanLabel(totals) {
-        if (
-          !totals ||
-          totals.over_probability == null ||
-          totals.under_probability == null
-        ) {
-          return "No totals lean";
-        }
-        return Number(totals.over_probability) >=
-          Number(totals.under_probability)
-          ? "Over lean"
-          : "Under lean";
+        const edge = statsEdge(totals);
+        if (edge == null) return "No totals lean";
+        return edge >= 0 ? "Over lean" : "Under lean";
       }
 
       function totalsLeanValue(totals) {
-        if (
-          !totals ||
-          totals.over_probability == null ||
-          totals.under_probability == null
-        ) {
-          return "-";
-        }
-        return Number(totals.over_probability) >=
-          Number(totals.under_probability)
-          ? formatPercent(totals.over_probability)
-          : formatPercent(totals.under_probability);
+        const edge = statsEdge(totals);
+        if (edge == null) return "-";
+        return formatTrend(edge);
       }
 
       function totalsLeanDirection(totals) {
-        if (
-          !totals ||
-          totals.over_probability == null ||
-          totals.under_probability == null
-        ) {
-          return null;
-        }
-        return Number(totals.over_probability) >=
-          Number(totals.under_probability)
-          ? "over"
-          : "under";
+        const edge = statsEdge(totals);
+        if (edge == null) return null;
+        return edge >= 0 ? "over" : "under";
       }
 
       function joinTeamNames(teams) {
@@ -5089,7 +5072,7 @@
           <div class="summary-card">
             <div class="data-label">Model Total</div>
             <div class="summary-value">${formatNumber(primaryTotalPrediction(totals), 2)}</div>
-            <div class="summary-copy">Market ${formatNumber(totals.market_total, 1)} · Edge ${formatSigned(totals.edge)}</div>
+            <div class="summary-copy">Market ${formatNumber(totals.market_total, 1)} · Edge ${formatSigned(statsEdge(totals))}${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` · <span class="tiny-label" title="Blended calibrated model (experimental)">Blended (exp.) ${formatNumber(totals.predicted_total_runs, 2)}</span>` : ""}</div>
           </div>
           <div class="summary-card">
             <div class="data-label">Expected Runs</div>
@@ -5239,11 +5222,11 @@
               </div>
               <div class="big-metric">
                 <span class="tiny-label">Totals Edge</span>
-                <span class="value ${edgeTone(totals.edge)}">${formatSigned(totals.edge)}</span>
+                <span class="value ${edgeTone(statsEdge(totals))}">${formatSigned(statsEdge(totals))}</span>
               </div>
             </div>
             <div class="compact-summary-grid">
-              ${renderCompactSummaryPill("Model / Market", `${formatNumber(primaryPred, 2)} / ${formatNumber(totals.market_total, 1)}`, `Delta <span class="${deltaTone(predictedDelta)}">${predictedDelta == null ? "-" : formatTrend(predictedDelta)}</span>`)}
+              ${renderCompactSummaryPill("Model / Market", `${formatNumber(primaryPred, 2)} / ${formatNumber(totals.market_total, 1)}`, `Delta <span class="${deltaTone(predictedDelta)}">${predictedDelta == null ? "-" : formatTrend(predictedDelta)}</span>${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` · <span class="tiny-label" title="Blended calibrated model (experimental)">Blended (exp.) ${formatNumber(totals.predicted_total_runs, 2)}</span>` : ""}`)}
               ${renderCompactSummaryPill("Expected Runs", `${game.away_team} ${formatNumber(totals.away_expected_runs, 2)} / ${game.home_team} ${formatNumber(totals.home_expected_runs, 2)}`, `${leanLabel(totals)} ${totalsLeanValue(totals)} · ${totalsReasonSummary(game)}`)}
               ${renderFirst5Pill(first5)}
               ${renderStarterProjectionPill(`${game.away_team} SP Ks`, game.starters?.away, game.home_team)}

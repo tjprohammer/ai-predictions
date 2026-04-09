@@ -1747,11 +1747,11 @@
         }
         section.style.display = "";
         const predicted = numberOr(
-          first5.predicted_total_runs,
-          numberOr(first5.predicted_total_fundamentals),
+          first5.predicted_total_fundamentals,
+          numberOr(first5.predicted_total_runs),
         );
         const market = numberOr(first5.market_total);
-        const edge = numberOr(first5.edge);
+        const edge = predicted != null && market != null ? predicted - market : null;
         const awayExp = numberOr(first5.away_expected_runs);
         const homeExp = numberOr(first5.home_expected_runs);
         const side = first5.recommended_side || "-";
@@ -1918,17 +1918,17 @@
         const homeLineup = detail.teams?.home?.lineup || [];
 
         const predicted = numberOr(
-          totals.predicted_total_runs,
-          numberOr(totals.predicted_total_fundamentals),
+          totals.predicted_total_fundamentals,
+          numberOr(totals.predicted_total_runs),
         );
         const market = numberOr(totals.market_total);
-        const edge = numberOr(totals.edge);
+        const edge = predicted != null && market != null ? predicted - market : null;
 
         // --- TOTALS LEAN ---
         if (predicted != null && market != null && edge != null) {
           const side = edge > 0 ? "over" : edge < 0 ? "under" : "neutral";
           const strength =
-            Math.abs(edge) >= 0.8 ? 3 : Math.abs(edge) >= 0.4 ? 2 : 1;
+            Math.abs(edge) >= 1.5 ? 3 : Math.abs(edge) >= 0.5 ? 2 : 1;
           signals.push({
             direction: side,
             strength,
@@ -2159,11 +2159,11 @@
         // --- FIRST 5 ---
         if (first5.supported) {
           const f5predicted = numberOr(
-            first5.predicted_total_runs,
-            numberOr(first5.predicted_total_fundamentals),
+            first5.predicted_total_fundamentals,
+            numberOr(first5.predicted_total_runs),
           );
           const f5market = numberOr(first5.market_total);
-          const f5edge = numberOr(first5.edge);
+          const f5edge = f5predicted != null && f5market != null ? f5predicted - f5market : null;
           const awayExp = numberOr(first5.away_expected_runs);
           const homeExp = numberOr(first5.home_expected_runs);
           if (
@@ -2175,7 +2175,7 @@
             const f5side = f5edge > 0 ? "over" : "under";
             signals.push({
               direction: f5side,
-              strength: Math.abs(f5edge) >= 0.7 ? 3 : 2,
+              strength: Math.abs(f5edge) >= 1.0 ? 3 : 2,
               category: "First 5 Edge",
               icon: "\u{1F551}",
               copy: `First 5 model projects ${formatNumber(f5predicted, 2)} vs market ${formatNumber(f5market, 1)}. Starter matchup drives a ${f5side} lean before bullpens enter.`,
@@ -2589,8 +2589,10 @@
         );
         document.getElementById("venueCopy").textContent =
           `${formatDateTime(detail.game_start_ts)} · ${[venue.city, venue.state].filter(Boolean).join(", ") || "Location pending"}`;
+        const statsPred = numberOr(totals.predicted_total_fundamentals, numberOr(totals.predicted_total_runs));
+        const statsEdgeVal = statsPred != null && numberOr(totals.market_total) != null ? statsPred - numberOr(totals.market_total) : null;
         document.getElementById("summaryGrid").innerHTML = `
-          <article class="summary-card"><div class="data-label">Model / Market</div><div class="summary-value">${formatNumber(numberOr(totals.predicted_total_runs, totals.predicted_total_fundamentals), 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">Edge ${formatNumber(totals.edge, 3)} · ${escapeHtml(totals.model_name || "model")}${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` · F ${formatNumber(totals.predicted_total_fundamentals, 2)}` : ""}</div></article>
+          <article class="summary-card"><div class="data-label">Model / Market</div><div class="summary-value">${formatNumber(statsPred, 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">Edge ${formatNumber(statsEdgeVal, 3)}${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` · <span class="tiny-label" title="Blended calibrated model (experimental)">Blended (exp.) ${formatNumber(totals.predicted_total_runs, 2)}</span>` : ""}</div></article>
           <article class="summary-card"><div class="data-label">Expected Runs</div><div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="data-copy">Line move ${formatNumber(totals.line_movement, 2)}</div></article>
           <article class="summary-card"><div class="data-label">Weather (Game-Time Est.)</div><div class="summary-value">${formatNumber(weather.temperature_f, 0)}F</div><div class="data-copy">Wind ${formatNumber(weather.wind_speed_mph, 0)} mph ${windDirectionLabel(weather.wind_direction_deg)} · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</div></article>
           <article class="summary-card"><div class="data-label">Lineup Quality</div><div class="summary-value">${formatPercent(totals.away_lineup_k_pct)} / ${formatPercent(totals.home_lineup_k_pct)}</div><div class="data-copy">Away/Home lineup K% vs starters</div></article>
