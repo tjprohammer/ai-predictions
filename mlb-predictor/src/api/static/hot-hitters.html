@@ -1156,29 +1156,19 @@
             >Loading hot hitters</span
           >
         </div>
-        <div class="cards-grid" id="cardsGrid">
-          <div class="empty-state">Loading hot hitters...</div>
-        </div>
-      </section>
-
-      <section class="panel" id="playerSearchSection">
-        <div class="panel-head">
-          <div>
-            <div class="section-tag">Find a Hitter</div>
-            <h2>Player lookup</h2>
-          </div>
-          <span class="panel-subtitle">Search any hitter by name</span>
-        </div>
-        <div class="player-search-wrap">
+        <div class="player-search-wrap" style="margin-bottom:16px">
           <input
             id="playerSearchInput"
             type="search"
-            placeholder="Type a player name…"
+            placeholder="Search any hitter by name…"
             autocomplete="off"
           />
           <div class="autocomplete-list" id="playerSearchResults"></div>
         </div>
         <div id="playerSearchCard"></div>
+        <div class="cards-grid" id="cardsGrid">
+          <div class="empty-state">Loading hot hitters...</div>
+        </div>
       </section>
     </main>
 
