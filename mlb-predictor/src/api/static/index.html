@@ -21,6 +21,7 @@
         --gold-soft: rgba(183, 121, 31, 0.12);
         --good: #166534;
         --warn: #92400e;
+        --bad: #991b1b;
         --shadow: 0 22px 64px rgba(20, 33, 25, 0.09);
         --radius-xl: 28px;
         --radius-lg: 22px;
@@ -1435,9 +1436,18 @@
         font-weight: 800;
       }
 
+      .edge-negative {
+        color: var(--bad);
+        font-weight: 800;
+      }
+
       .edge-flat {
         color: var(--muted);
       }
+
+      .stat-good { color: var(--good); font-weight: 700; }
+      .stat-warn { color: var(--warn); font-weight: 700; }
+      .stat-bad { color: var(--bad); font-weight: 700; }
 
       .team-panel {
         display: grid;
@@ -2687,6 +2697,93 @@
         if (value == null) return "-";
         const number = Number(value);
         return `${number >= 0 ? "+" : ""}${number.toFixed(2)}`;
+      }
+
+      function edgeTone(edge) {
+        const n = numberOr(edge);
+        if (n == null) return "edge-flat";
+        if (n > 0) return "edge-positive";
+        if (n < 0) return "edge-negative";
+        return "edge-flat";
+      }
+
+      function deltaTone(delta, threshold = 0.5) {
+        const n = numberOr(delta);
+        if (n == null) return "";
+        if (Math.abs(n) < threshold) return "";
+        return n > 0 ? "stat-good" : "stat-warn";
+      }
+
+      function parkTone(factor) {
+        const n = numberOr(factor);
+        if (n == null) return "";
+        if (n >= 1.05) return "stat-good";
+        if (n <= 0.95) return "stat-warn";
+        return "";
+      }
+
+      function tempTone(f) {
+        const n = numberOr(f);
+        if (n == null) return "";
+        if (n >= 80) return "stat-good";
+        if (n <= 50) return "stat-warn";
+        return "";
+      }
+
+      function xwobaTone(val) {
+        const n = numberOr(val);
+        if (n == null) return "";
+        if (n >= 0.340) return "stat-good";
+        if (n <= 0.290) return "stat-warn";
+        return "";
+      }
+
+      function xwobaAgainstTone(val) {
+        const n = numberOr(val);
+        if (n == null) return "";
+        if (n >= 0.340) return "stat-warn";
+        if (n <= 0.290) return "stat-good";
+        return "";
+      }
+
+      function kPctTone(val) {
+        const n = numberOr(val);
+        if (n == null) return "";
+        if (n >= 0.25) return "stat-warn";
+        if (n <= 0.18) return "stat-good";
+        return "";
+      }
+
+      function whiffTone(val) {
+        const n = numberOr(val);
+        if (n == null) return "";
+        if (n >= 0.28) return "stat-good";
+        if (n <= 0.20) return "stat-warn";
+        return "";
+      }
+
+      function cswTone(val) {
+        const n = numberOr(val);
+        if (n == null) return "";
+        if (n >= 0.30) return "stat-good";
+        if (n <= 0.25) return "stat-warn";
+        return "";
+      }
+
+      function hitRateTone(val) {
+        const n = numberOr(val);
+        if (n == null) return "";
+        if (n >= 0.35) return "stat-good";
+        if (n <= 0.20) return "stat-warn";
+        return "";
+      }
+
+      function confidenceTone(val) {
+        const n = numberOr(val);
+        if (n == null) return "";
+        if (n >= 0.70) return "stat-good";
+        if (n <= 0.40) return "stat-warn";
+        return "";
       }
 
       function numberOr(value, fallback = null) {
@@ -4305,7 +4402,7 @@
           gradeLabel = push
             ? `${lean.toUpperCase()} lean pushed`
             : `${lean.toUpperCase()} lean ${leanWon ? "cashed" : "missed"}`;
-          gradeTone = push ? "warn" : leanWon ? "good" : "warn";
+          gradeTone = push ? "" : leanWon ? "good" : "warn";
         }
         return `
         <div class="compact-grade-strip">
@@ -4493,11 +4590,11 @@
           </div>
           <div class="data-row">
             <span class="data-label">xwOBA / ISO</span>
-            <span class="data-value">${formatNumber(recent.xwoba, 3)} / ${formatNumber(recent.iso, 3)}</span>
+            <span class="data-value"><span class="${xwobaTone(recent.xwoba)}">${formatNumber(recent.xwoba, 3)}</span> / ${formatNumber(recent.iso, 3)}</span>
           </div>
           <div class="data-row">
             <span class="data-label">BB% / K%</span>
-            <span class="data-value">${formatPercent(recent.bb_pct)} / ${formatPercent(recent.k_pct)}</span>
+            <span class="data-value">${formatPercent(recent.bb_pct)} / <span class="${kPctTone(recent.k_pct)}">${formatPercent(recent.k_pct)}</span></span>
           </div>
           <div class="small-note">${last ? `Last game: ${last.result || "-"} ${teamDetail.team} ${last.team_runs}-${last.opponent_runs} vs ${last.opponent}` : "No prior result available yet."}</div>
         </article>
@@ -4517,7 +4614,7 @@
           </div>
           <div class="data-row">
             <span class="data-label">Temp</span>
-            <span class="data-value">${formatNumber(weather.temperature_f, 0)}°F</span>
+            <span class="data-value ${tempTone(weather.temperature_f)}">${formatNumber(weather.temperature_f, 0)}°F</span>
           </div>
           <div class="data-row">
             <span class="data-label">Wind</span>
@@ -4529,7 +4626,7 @@
           </div>
           <div class="data-row">
             <span class="data-label">Run / HR Factor</span>
-            <span class="data-value">${formatNumber(totals.venue_run_factor, 2)} / ${formatNumber(totals.venue_hr_factor, 2)}</span>
+            <span class="data-value"><span class="${parkTone(totals.venue_run_factor)}">${formatNumber(totals.venue_run_factor, 2)}</span> / <span class="${parkTone(totals.venue_hr_factor)}">${formatNumber(totals.venue_hr_factor, 2)}</span></span>
           </div>
         </article>
       `;
@@ -4572,7 +4669,7 @@
           </div>
           <div class="data-row">
             <span class="data-label">Confidence</span>
-            <span class="data-value">${confidence}</span>
+            <span class="data-value ${confidenceTone(rationale.confidence)}">${confidence}</span>
           </div>
           <div class="data-row">
             <span class="data-label">Signals</span>
@@ -4641,7 +4738,7 @@
           </header>
           <div class="data-row">
             <span class="data-label">Current xwOBA / CSW</span>
-            <span class="data-value">${formatNumber(starter.xwoba_against, 3)} / ${formatPercent(starter.csw_pct)}</span>
+            <span class="data-value"><span class="${xwobaAgainstTone(starter.xwoba_against)}">${formatNumber(starter.xwoba_against, 3)}</span> / <span class="${cswTone(starter.csw_pct)}">${formatPercent(starter.csw_pct)}</span></span>
           </div>
           <div class="data-row">
             <span class="data-label">Recent Sample</span>
@@ -4661,11 +4758,11 @@
           </div>
           <div class="data-row">
             <span class="data-label">Market K Line / Delta</span>
-            <span class="data-value">${market.consensus_line == null ? "Awaiting market line" : `${formatNumber(market.consensus_line, 1)} / ${formatSigned(market.projection_delta, 1)}`}</span>
+            <span class="data-value">${market.consensus_line == null ? "Awaiting market line" : `${formatNumber(market.consensus_line, 1)} / <span class="${deltaTone(market.projection_delta, 0.3)}">${formatSigned(market.projection_delta, 1)}</span>`}</span>
           </div>
           <div class="data-row">
             <span class="data-label">Whiff / Velo</span>
-            <span class="data-value">${formatPercent(recent.whiff_pct)} / ${formatNumber(recent.avg_fb_velo, 1)}</span>
+            <span class="data-value"><span class="${whiffTone(recent.whiff_pct)}">${formatPercent(recent.whiff_pct)}</span> / ${formatNumber(recent.avg_fb_velo, 1)}</span>
           </div>
         </article>
       `;
@@ -4751,7 +4848,7 @@
           </div>
           <div class="data-row">
             <span class="data-label">Hit Rate 7 / 30</span>
-            <span class="data-value">${formatPercent(player.hit_rate_7)} / ${formatPercent(player.hit_rate_30)}</span>
+            <span class="data-value"><span class="${hitRateTone(player.hit_rate_7)}">${formatPercent(player.hit_rate_7)}</span> / <span class="${hitRateTone(player.hit_rate_30)}">${formatPercent(player.hit_rate_30)}</span></span>
           </div>
           <div class="data-row">
             <span class="data-label">Form Signal</span>
@@ -4963,11 +5060,11 @@
               </div>
               <div class="big-metric">
                 <span class="tiny-label">Totals Edge</span>
-                <span class="value ${totals.edge == null ? "edge-flat" : "edge-positive"}">${formatSigned(totals.edge)}</span>
+                <span class="value ${edgeTone(totals.edge)}">${formatSigned(totals.edge)}</span>
               </div>
             </div>
             <div class="compact-summary-grid">
-              ${renderCompactSummaryPill("Model / Market", `${formatNumber(primaryPred, 2)} / ${formatNumber(totals.market_total, 1)}`, `Delta ${predictedDelta == null ? "-" : formatTrend(predictedDelta)}`)}
+              ${renderCompactSummaryPill("Model / Market", `${formatNumber(primaryPred, 2)} / ${formatNumber(totals.market_total, 1)}`, `Delta <span class="${deltaTone(predictedDelta)}">${predictedDelta == null ? "-" : formatTrend(predictedDelta)}</span>`)}
               ${renderCompactSummaryPill("Expected Runs", `${game.away_team} ${formatNumber(totals.away_expected_runs, 2)} / ${game.home_team} ${formatNumber(totals.home_expected_runs, 2)}`, `${leanLabel(totals)} ${totalsLeanValue(totals)} · ${totalsReasonSummary(game)}`)}
               ${renderFirst5Pill(first5)}
               ${renderStarterProjectionPill(`${game.away_team} SP Ks`, game.starters?.away, game.home_team)}

@@ -6622,7 +6622,7 @@ def game_matchups(game_id: int) -> JSONResponse:
                    g.home_team, g.away_team,
                    g.home_runs, g.away_runs,
                    (g.home_runs + g.away_runs) AS total_runs,
-                   gm.market_total
+                   gm.line_value AS market_total
             FROM games g
             JOIN this_game tg
               ON ((g.home_team = tg.home_team AND g.away_team = tg.away_team)

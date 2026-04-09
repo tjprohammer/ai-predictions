@@ -821,6 +821,18 @@
     </main>
 
     <script>
+      function detectAppBase() {
+        const { pathname } = window.location;
+        if (pathname.endsWith("/experiments/")) return pathname.slice(0, -"/experiments/".length) || "/";
+        if (pathname.endsWith("/experiments")) return pathname.slice(0, -"/experiments".length) || "/";
+        return pathname.endsWith("/") ? pathname : `${pathname}/`;
+      }
+      const appBase = detectAppBase();
+      function appUrl(path = "") {
+        const normalizedBase = appBase.endsWith("/") ? appBase : `${appBase}/`;
+        return new URL(path, `${window.location.origin}${normalizedBase}`).toString();
+      }
+
       const appEl = document.getElementById("app");
       const windowSelect = document.getElementById("window-select");
       const dateInput = document.getElementById("date-input");
@@ -1026,7 +1038,7 @@
       async function loadDailyDetail(dateStr) {
         if (detailCache[dateStr]) return detailCache[dateStr];
         const resp = await fetch(
-          `/api/experiments/daily-detail?target_date=${dateStr}`,
+          appUrl(`api/experiments/daily-detail?target_date=${dateStr}`),
         );
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
@@ -1129,7 +1141,7 @@
         appEl.innerHTML = `<div class="empty-state">Loading&hellip;</div>`;
         try {
           const resp = await fetch(
-            `/api/experiments/summary?window_days=${window_days}&target_date=${target_date}`,
+            appUrl(`api/experiments/summary?window_days=${window_days}&target_date=${target_date}`),
           );
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();

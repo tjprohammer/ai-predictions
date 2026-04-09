@@ -20,6 +20,7 @@
         --gold-soft: rgba(183, 121, 31, 0.12);
         --good: #166534;
         --warn: #92400e;
+        --bad: #991b1b;
         --shadow: 0 22px 64px rgba(20, 33, 25, 0.09);
         --radius-xl: 28px;
         --radius-lg: 22px;
@@ -1766,15 +1767,15 @@
           <div class="metric-grid">
             <div class="metric-box">
               <span class="metric-label">Hit Probability</span>
-              <span class="metric-value">${formatPercent(row.predicted_hit_probability, 0)}</span>
+              <span class="metric-value" style="color: ${numberOr(row.predicted_hit_probability) >= 0.55 ? 'var(--good)' : numberOr(row.predicted_hit_probability) < 0.45 ? 'var(--warn)' : 'inherit'}">${formatPercent(row.predicted_hit_probability, 0)}</span>
             </div>
             <div class="metric-box gold">
               <span class="metric-label">${hasMarket ? "Edge" : "Market"}</span>
-              <span class="metric-value">${hasMarket ? formatSigned(row.edge, 3) : "Pending"}</span>
+              <span class="metric-value" style="color: ${numberOr(row.edge) > 0.03 ? 'var(--good)' : numberOr(row.edge) < -0.03 ? 'var(--bad)' : 'inherit'}">${hasMarket ? formatSigned(row.edge, 3) : "Pending"}</span>
             </div>
             <div class="metric-box">
               <span class="metric-label">Heat Score</span>
-              <span class="metric-value">${formatNumber(form.heat_score, 2)}</span>
+              <span class="metric-value" style="color: ${numberOr(form.heat_score) >= 3.0 ? 'var(--good)' : numberOr(form.heat_score) <= 1.5 ? 'var(--warn)' : 'inherit'}">${formatNumber(form.heat_score, 2)}</span>
             </div>
           </div>
 
@@ -1791,11 +1792,15 @@
             </div>
             <div class="data-row">
               <span class="data-label">7G / 30G Hit Rate</span>
-              <span class="data-value">${formatPercent(row.hit_rate_7)} / ${formatPercent(row.hit_rate_30)}</span>
+              <span class="data-value"><span style="color: ${numberOr(row.hit_rate_7) >= 0.35 ? 'var(--good)' : numberOr(row.hit_rate_7) <= 0.20 ? 'var(--warn)' : 'inherit'}">${formatPercent(row.hit_rate_7)}</span> / <span style="color: ${numberOr(row.hit_rate_30) >= 0.35 ? 'var(--good)' : numberOr(row.hit_rate_30) <= 0.20 ? 'var(--warn)' : 'inherit'}">${formatPercent(row.hit_rate_30)}</span></span>
             </div>
             <div class="data-row">
               <span class="data-label">xwOBA14 / HH14</span>
-              <span class="data-value">${formatNumber(row.xwoba_14, 3)} / ${formatPercent(row.hard_hit_pct_14)}</span>
+              <span class="data-value"><span style="color: ${numberOr(row.xwoba_14) >= 0.340 ? 'var(--good)' : numberOr(row.xwoba_14) <= 0.290 ? 'var(--warn)' : 'inherit'}">${formatNumber(row.xwoba_14, 3)}</span> / <span style="color: ${numberOr(row.hard_hit_pct_14) >= 0.40 ? 'var(--good)' : numberOr(row.hard_hit_pct_14) <= 0.25 ? 'var(--warn)' : 'inherit'}">${formatPercent(row.hard_hit_pct_14)}</span></span>
+            </div>
+            <div class="data-row">
+              <span class="data-label">xBA14 / K%14</span>
+              <span class="data-value"><span style="color: ${numberOr(row.xba_14) >= 0.280 ? 'var(--good)' : numberOr(row.xba_14) <= 0.220 ? 'var(--warn)' : 'inherit'}">${formatNumber(row.xba_14, 3)}</span> / <span style="color: ${numberOr(row.k_pct_14) >= 0.25 ? 'var(--warn)' : numberOr(row.k_pct_14) <= 0.15 ? 'var(--good)' : 'inherit'}">${formatPercent(row.k_pct_14)}</span></span>
             </div>
             <div class="data-row">
               <span class="data-label">Streak / Last 7</span>
@@ -1807,7 +1812,7 @@
             </div>
             <div class="data-row">
               <span class="data-label">Season BA / Last 7 BA</span>
-              <span class="data-value">${formatBattingAverage(row.batting_avg_season)} / ${formatBattingAverage(row.batting_avg_last7)}</span>
+              <span class="data-value"><span style="color: ${numberOr(row.batting_avg_season) >= 0.280 ? 'var(--good)' : numberOr(row.batting_avg_season) <= 0.220 ? 'var(--warn)' : 'inherit'}">${formatBattingAverage(row.batting_avg_season)}</span> / <span style="color: ${numberOr(row.batting_avg_last7) >= 0.300 ? 'var(--good)' : numberOr(row.batting_avg_last7) <= 0.200 ? 'var(--warn)' : 'inherit'}">${formatBattingAverage(row.batting_avg_last7)}</span></span>
             </div>
             <div class="data-row">
               <span class="data-label">Vs Pitcher Hand</span>
