@@ -787,8 +787,11 @@ def _fetch_batter_vs_pitcher_map(
             if not frame.empty:
                 for row in _frame_records(frame):
                     key = (int(row["batter_id"]), int(row["pitcher_id"]))
+                    at_bats = int(row.get("at_bats") or 0)
+                    if at_bats == 0:
+                        continue  # 0-AB career entries → let game-log fallback try
                     result[key] = {
-                        "at_bats": int(row.get("at_bats") or 0),
+                        "at_bats": at_bats,
                         "hits": int(row.get("hits") or 0),
                         "home_runs": int(row.get("home_runs") or 0),
                         "walks": int(row.get("walks") or 0),
@@ -6660,11 +6663,10 @@ def game_detail(
 @app.get("/api/games/{game_id}/matchups")
 def game_matchups(game_id: int) -> JSONResponse:
     """Return batter-vs-pitcher and pitcher-vs-team matchup splits for a game."""
-    if not _table_exists("matchup_splits"):
-        return _json_response({"matchups": []})
 
-    # ── BvP: only the opposing starter each batter faces today ──────
-    bvp_frame = _safe_frame(
+    # ── BvP: career + game-log fallback ─────────────────────────────
+    # 1. Get lineup batters & opposing starters for this game
+    roster_frame = _safe_frame(
         """
         WITH latest_lineup AS (
             SELECT player_id, team,
@@ -6673,31 +6675,65 @@ def game_matchups(game_id: int) -> JSONResponse:
             WHERE game_id = :game_id
             GROUP BY player_id, team
         )
-        SELECT ms.player_id     AS batter_id,
-               dp.full_name     AS batter_name,
-               ms.opponent_id   AS pitcher_id,
-               dp2.full_name    AS pitcher_name,
+        SELECT l.player_id  AS batter_id,
+               dp.full_name AS batter_name,
                l.lineup_slot,
-               l.team           AS batter_team,
-               ms.games, ms.plate_appearances, ms.at_bats,
-               ms.hits, ms.home_runs, ms.walks, ms.strikeouts,
-               ms.rbi, ms.runs, ms.doubles, ms.triples,
-               ms.batting_avg, ms.obp, ms.slg, ms.ops
-        FROM matchup_splits ms
-        JOIN latest_lineup l ON l.player_id = ms.player_id
-        /* Only include the opposing starter – not every pitcher the batter
-           has ever faced.  Each lineup batter's team != the opposing starter's
-           team for that same game_id. */
+               l.team       AS batter_team,
+               ps.pitcher_id,
+               dp2.full_name AS pitcher_name
+        FROM latest_lineup l
         JOIN pitcher_starts ps ON ps.game_id = :game_id
-                               AND ps.pitcher_id = ms.opponent_id
                                AND ps.team != l.team
-        LEFT JOIN dim_players dp  ON dp.player_id = ms.player_id
-        LEFT JOIN dim_players dp2 ON dp2.player_id = ms.opponent_id
-        WHERE ms.split_type = 'bvp'
+        LEFT JOIN dim_players dp  ON dp.player_id = l.player_id
+        LEFT JOIN dim_players dp2 ON dp2.player_id = ps.pitcher_id
         ORDER BY l.team, l.lineup_slot
         """,
         {"game_id": game_id},
     )
+    roster_rows = _frame_records(roster_frame)
+
+    # 2. Look up game_date for the fallback function
+    game_date_frame = _safe_frame(
+        "SELECT game_date FROM games WHERE game_id = :game_id",
+        {"game_id": game_id},
+    )
+    game_date_rows = _frame_records(game_date_frame)
+    target_date = date.fromisoformat(str(game_date_rows[0]["game_date"])) if game_date_rows else date.today()
+
+    # 3. Use _fetch_batter_vs_pitcher_map for career data + game-log fallback
+    matchup_pairs = [(int(r["batter_id"]), int(r["pitcher_id"])) for r in roster_rows]
+    bvp_map = _fetch_batter_vs_pitcher_map(target_date, matchup_pairs) if matchup_pairs else {}
+
+    # 4. Merge BvP stats with roster metadata
+    bvp_records: list[dict[str, Any]] = []
+    for r in roster_rows:
+        key = (int(r["batter_id"]), int(r["pitcher_id"]))
+        stats = bvp_map.get(key, {})
+        ab = stats.get("at_bats", 0)
+        bvp_records.append({
+            "batter_id": r["batter_id"],
+            "batter_name": r["batter_name"],
+            "pitcher_id": r["pitcher_id"],
+            "pitcher_name": r["pitcher_name"],
+            "lineup_slot": r["lineup_slot"],
+            "batter_team": r["batter_team"],
+            "games": stats.get("games"),
+            "plate_appearances": ab + stats.get("walks", 0) if ab else 0,
+            "at_bats": ab,
+            "hits": stats.get("hits", 0) if ab else None,
+            "home_runs": stats.get("home_runs", 0) if ab else None,
+            "walks": stats.get("walks", 0) if ab else None,
+            "strikeouts": stats.get("strikeouts", 0) if ab else None,
+            "rbi": stats.get("rbi", 0) if ab else None,
+            "runs": stats.get("runs"),
+            "doubles": stats.get("doubles", 0) if ab else None,
+            "triples": stats.get("triples", 0) if ab else None,
+            "batting_avg": stats.get("batting_avg") if ab else None,
+            "obp": stats.get("obp") if ab else None,
+            "slg": stats.get("slg") if ab else None,
+            "ops": stats.get("ops") if ab else None,
+            "source": stats.get("source", "none"),
+        })
 
     pvt_frame = _safe_frame(
         """
@@ -6797,7 +6833,7 @@ def game_matchups(game_id: int) -> JSONResponse:
 
     return _json_response({
         "game_id": game_id,
-        "batter_vs_pitcher": _frame_records(bvp_frame),
+        "batter_vs_pitcher": bvp_records,
         "pitcher_vs_team": _frame_records(pvt_frame),
         "platoon_splits": _frame_records(platoon_frame),
         "head_to_head": h2h,
