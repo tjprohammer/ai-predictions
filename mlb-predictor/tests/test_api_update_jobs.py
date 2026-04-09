@@ -564,6 +564,39 @@ def test_run_module_uses_in_process_runner_when_frozen(monkeypatch):
     assert events == [("argv", ["fake.module", "--target-date", "2026-04-02"])]
 
 
+def test_background_update_job_failure_does_not_deadlock(monkeypatch):
+    """Regression: _persist_update_jobs inside UPDATE_JOB_LOCK caused deadlock on failure."""
+    _reset_update_jobs()
+
+    def fake_run_module(module_name: str, *args: str):
+        return {
+            "module": module_name,
+            "command": ["python", "-m", module_name, *args],
+            "returncode": 1,
+            "stdout": "",
+            "stderr": "simulated crash",
+        }
+
+    monkeypatch.setattr(app_module, "_run_module", fake_run_module)
+    monkeypatch.setattr(
+        app_module,
+        "_fetch_status",
+        lambda target_date: {"target_date": target_date.isoformat(), "ok": True},
+    )
+
+    job = app_module._create_update_job("prepare_slate", "2026-04-02")
+    app_module._run_update_job_background(job["job_id"])
+
+    # If we reach here the lock was released (no deadlock)
+    stored_job = app_module._get_update_job(job["job_id"])
+    assert stored_job is not None
+    assert stored_job["status"] == "failed"
+    assert stored_job["completed_steps"] == 1
+    # Lock must be free — acquire/release proves no deadlock
+    assert app_module.UPDATE_JOB_LOCK.acquire(timeout=1)
+    app_module.UPDATE_JOB_LOCK.release()
+
+
 def test_run_module_in_process_reports_exceptions(monkeypatch):
     def fake_main():
         raise RuntimeError("boom")

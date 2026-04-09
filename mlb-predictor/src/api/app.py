@@ -5822,10 +5822,11 @@ def _run_update_job_background(job_id: str) -> None:
                 job["status_snapshot"] = _safe_fetch_status(target_date)
                 _trim_finished_jobs_locked()
                 _persist_pipeline_run(job)
-                _persist_update_jobs()
-                return
-            _persist_pipeline_run(job)
+            else:
+                _persist_pipeline_run(job)
         _persist_update_jobs()
+        if step["returncode"] != 0:
+            return
 
     with UPDATE_JOB_LOCK:
         job = UPDATE_JOBS.get(job_id)
