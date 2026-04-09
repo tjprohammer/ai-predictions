@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MLB Predictor Hot Hitters</title>
+    <title>MLB Predictor Hitter Analysis</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <style>
       :root {
@@ -874,7 +874,7 @@
                 <path
                   d="M13.5 2.5c.3 2.7-1 4.6-2.6 6.2-1.1 1.1-1.7 2.3-1.7 3.7 0 1.9 1.3 3.4 3.2 3.4 2.3 0 3.8-2 3.8-4.5 0-.8-.1-1.6-.5-2.5 2.3 1.3 4.3 4 4.3 7.1 0 4.1-3.3 7.1-8 7.1-4.6 0-8-2.9-8-7.4 0-3.3 1.7-5.5 4.1-7.5 2.4-1.9 4.8-3.8 5.4-5.6z"
                 /></svg></span
-            ><span>Hot Hitters</span></a
+            ><span>Hitter Analysis</span></a
           >
           <a class="nav-link" data-app-link="totals" href="totals"
             ><span class="nav-icon" aria-hidden="true"
@@ -921,13 +921,13 @@
 
       <section class="hero-grid">
         <article class="hero-card">
-          <div class="eyebrow">Hot Hitters</div>
-          <h1>Streak bats and recent-form leaders, with receipts.</h1>
+          <div class="eyebrow">Hitter Analysis</div>
+          <h1>Search any hitter. Spot the hot streaks.</h1>
           <p class="hero-copy">
-            This page strips away the full game board and shows hitters on
-            active streaks, plus bats that are materially heating up. Every card
-            spells out why the hitter qualified, then shows the matchup and
-            model context next to it.
+            Look up any position player for recent splits, platoon data,
+            lineup status, and matchup context. The streak board below
+            surfaces hitters on active hit streaks and bats that are
+            materially heating up, with model receipts on every card.
           </p>
           <div class="hero-actions">
             <a class="button-link secondary" data-app-link="" href="."
@@ -1030,7 +1030,7 @@
               Available roster only
             </label>
             <button class="primary" id="refreshButton">
-              Refresh hot hitters
+              Refresh hitter board
             </button>
           </div>
         </aside>
@@ -1041,7 +1041,7 @@
           <div class="section-tag">Qualified</div>
           <div class="stat-value" id="hotCount">0</div>
           <div class="small-copy" id="hotCountCopy">
-            Streak and hot hitters matching this filter
+            Streak and form hitters matching this filter
           </div>
         </article>
         <article class="stat-card">
@@ -1090,12 +1090,10 @@
       <section class="panel">
         <div class="panel-head">
           <div>
-            <div class="section-tag">Why Now</div>
-            <h2>Slate-wide streak board</h2>
+            <div class="section-tag">Player Lookup</div>
+            <h2>Search any hitter</h2>
           </div>
-          <span class="panel-subtitle" id="resultsSubtitle"
-            >Loading hot hitters</span
-          >
+          <span class="panel-subtitle">Filter by team, position, or today's starters</span>
         </div>
         <div class="player-search-wrap" style="margin-bottom: 16px">
           <div
@@ -1157,8 +1155,20 @@
           <div class="autocomplete-list" id="playerSearchResults"></div>
         </div>
         <div id="playerSearchCard"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="section-tag">Streak Board</div>
+            <h2>Hot hitters &amp; active streaks</h2>
+          </div>
+          <span class="panel-subtitle" id="resultsSubtitle"
+            >Loading hitter board</span
+          >
+        </div>
         <div class="cards-grid" id="cardsGrid">
-          <div class="empty-state">Loading hot hitters...</div>
+          <div class="empty-state">Loading hitter board...</div>
         </div>
       </section>
     </main>
@@ -1888,8 +1898,8 @@
             : "Latest prediction snapshot pending";
         hotCountCopy.textContent =
           totalHotCount > filteredCount
-            ? `${filteredCount} shown of ${totalHotCount} streak and hot hitters on this slate`
-            : "Streak and hot hitters matching this filter";
+            ? `${filteredCount} shown of ${totalHotCount} streak and form hitters on this slate`
+            : "Streak and form hitters matching this filter";
         const suppressed = Number(summary.suppressed_inferred_count || 0);
         const hiddenByStreak = streakOnlyInput.checked
           ? (state.rows || []).filter(
@@ -1904,8 +1914,8 @@
         const confirmedFallback = Boolean(summary.confirmed_fallback_active);
         pageStatus.textContent =
           totalHotCount > filteredCount
-            ? `${filteredCount} of ${totalHotCount} streak and hot hitters shown for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}${confirmedFallback ? " | confirmed filter fell back to latest projected order" : ""}`
-            : `${filteredCount} streak and hot hitters for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}${confirmedFallback ? " | confirmed filter fell back to latest projected order" : ""}`;
+            ? `${filteredCount} of ${totalHotCount} streak and form hitters shown for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}${confirmedFallback ? " | confirmed filter fell back to latest projected order" : ""}`
+            : `${filteredCount} streak and form hitters for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}${confirmedFallback ? " | confirmed filter fell back to latest projected order" : ""}`;
       }
 
       function updateDataWarning() {
@@ -2072,12 +2082,12 @@
         if (!rows.length) {
           cardsGrid.innerHTML = `
           <div class="empty-state">
-            No streak or hot hitters matched this date and filter. ${confirmedOnlyInput.checked ? "Confirmed lineups are not loaded yet for this date." : "Try turning off streak-only, showing started games, or removing the model probability floor."}
+            No streak or form hitters matched this date and filter. ${confirmedOnlyInput.checked ? "Confirmed lineups are not loaded yet for this date." : "Try turning off streak-only, showing started games, or removing the model probability floor."}
           </div>
         `;
           resultsSubtitle.textContent = totalHotCount
             ? `No hitters cleared the current probability filter. ${totalHotCount} still qualified on form.`
-            : "No streak or hot hitters qualified";
+            : "No streak or form hitters qualified";
           cardsGrid.classList.remove("team-sections");
           return;
         }
@@ -2087,8 +2097,8 @@
         );
         resultsSubtitle.textContent =
           totalHotCount > rows.length
-            ? `${rows.length} of ${totalHotCount} streak and hot hitters cleared the ${Math.round(probabilityFloor * 100)}% model floor for ${targetDateInput.value}.${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`
-            : `${rows.length} streak and hot hitters qualified for ${targetDateInput.value}.${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`;
+            ? `${rows.length} of ${totalHotCount} streak and form hitters cleared the ${Math.round(probabilityFloor * 100)}% model floor for ${targetDateInput.value}.${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`
+            : `${rows.length} streak and form hitters qualified for ${targetDateInput.value}.${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`;
         if (sortModeInput.value === "team") {
           const groups = new Map();
           rows.forEach((row) => {
@@ -2130,7 +2140,7 @@
           appUrl(`api/hot-hitters?${params.toString()}`),
         );
         if (!response.ok) {
-          throw new Error(`Hot hitters request failed: ${response.status}`);
+          throw new Error(`Hitter board request failed: ${response.status}`);
         }
         const payload = await response.json();
         state.rows = payload.rows || [];
@@ -2155,7 +2165,7 @@
 
       async function refreshPage() {
         refreshButton.disabled = true;
-        cardsGrid.innerHTML = `<div class="empty-state">Refreshing hot hitters...</div>`;
+        cardsGrid.innerHTML = `<div class="empty-state">Refreshing hitter board...</div>`;
         resultsSubtitle.textContent = "Refreshing";
         pageStatus.textContent = `Loading ${targetDateInput.value}`;
         try {
@@ -2163,7 +2173,7 @@
           renderRows();
         } catch (error) {
           cardsGrid.innerHTML = `<div class="empty-state">${escapeHtml(String(error))}</div>`;
-          resultsSubtitle.textContent = "Hot hitters request failed";
+          resultsSubtitle.textContent = "Hitter board request failed";
           pageStatus.textContent = "Load failed";
         } finally {
           refreshButton.disabled = false;
@@ -2498,7 +2508,7 @@
 
         /* Opposing pitcher context */
         const oppPitcher = player.opposing_pitcher_name
-          ? `vs ${escapeHtml(player.opposing_pitcher_throws || ""}HP ${escapeHtml(player.opposing_pitcher_name)}`
+          ? `vs ${escapeHtml(player.opposing_pitcher_throws || "")}HP ${escapeHtml(player.opposing_pitcher_name)}`
           : (hotRow && hotRow.opposing_pitcher_name
             ? `vs ${escapeHtml(hotRow.opposing_pitcher_name)}`
             : "");
