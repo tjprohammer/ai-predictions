@@ -43,9 +43,28 @@ PLAYER_PROP_MARKET_TYPES = {"pitcher_strikeouts", "player_hits"}
 ODDS_API_PLAYER_PROP_MARKETS = {
     "batter_hits": "player_hits",
     "pitcher_strikeouts": "pitcher_strikeouts",
+    # New batter props
+    "batter_total_bases": "batter_total_bases",
+    "batter_runs_scored": "batter_runs_scored",
+    "batter_rbis": "batter_rbis",
+    # New pitcher props
+    "pitcher_hits_allowed": "pitcher_hits_allowed",
+    "pitcher_earned_runs": "pitcher_earned_runs",
+    "pitcher_walks": "pitcher_walks",
 }
 ODDS_API_GAME_PERIOD_MARKETS = {
+    "totals_1st_1_innings": "first_inning_total",
     "totals_1st_5_innings": "first_five_total",
+    # Team-level run totals (maps directly to model's expected-runs split)
+    "team_totals": "team_total",
+    "team_totals_1st_5_innings": "first_five_team_total",
+    # Run line / moneylines
+    "spreads": "run_line",
+    "spreads_1st_5_innings": "first_five_spread",
+    "h2h": "moneyline",
+    "h2h_1st_5_innings": "first_five_moneyline",
+    # Alternate totals at different thresholds
+    "alternate_totals": "alt_game_total",
 }
 COVERS_PLAYER_PROP_MARKETS = {
     "MLB_GAME_PLAYER_HITS": "player_hits",
@@ -707,6 +726,31 @@ def _fetch_covers_rows(start_date, end_date) -> list[dict[str, object]]:
     return rows
 
 
+def _is_rate_limit_error(exc: requests.RequestException) -> bool:
+    """Return True if the exception is a 429 Too Many Requests (quota exhausted)."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return False
+    return int(getattr(response, "status_code", 0)) == 429
+
+
+def _fetch_odds_api_with_key_fallback(fetch_fn, start_date, end_date, primary_key: str, fallback_key: str | None):
+    """Try `fetch_fn` with `primary_key`.  On a 429 quota error, retry with `fallback_key`.
+
+    Raises the original exception if both keys fail (or no fallback key is configured).
+    """
+    try:
+        return fetch_fn(start_date, end_date, primary_key)
+    except requests.RequestException as primary_exc:
+        if not _is_rate_limit_error(primary_exc) or not fallback_key:
+            raise
+        log.warning(
+            "Odds API primary key hit request limit (429) — retrying with fallback key: %s",
+            primary_exc,
+        )
+        return fetch_fn(start_date, end_date, fallback_key)
+
+
 def _build_team_lookup(games: pd.DataFrame) -> dict[str, str]:
     lookup: dict[str, str] = {}
     for row in games.itertuples(index=False):
@@ -955,46 +999,151 @@ def _extract_odds_api_event_first5_rows(
     event_payload: dict[str, object],
     matched_game: dict[str, object],
 ) -> list[dict[str, object]]:
-    """Extract first-5 inning totals from an Odds API per-event response."""
+    """Extract game-level markets from an Odds API per-event response.
+
+    Handles 4 distinct Odds API outcome shapes:
+    - First-inning totals (totals_1st_1_innings):
+        outcomes have name="Over"/"Under", point=0.5, price=juice
+        -> stored as separate `yrfi` and `nrfi` market rows for the experimental carousel
+    - Over/Under markets (totals_1st_5_innings, alternate_totals):
+        outcomes have name="Over"/"Under", point=line, price=juice
+    - Team-total markets (team_totals, team_totals_1st_5_innings):
+        outcomes have name="Over"/"Under", description=<team_name>, point=line, price=juice
+        → stored as separate home/away market rows
+    - Moneyline/Spread markets (h2h, spreads, spreads_1st_5_innings, h2h_1st_5_innings):
+        outcomes have name=<team_name>, price=ml, point=spread (spreads only)
+        → stored as one row, home price → over_price, away price → under_price
+    """
     rows: list[dict[str, object]] = []
     game_id = int(matched_game["game_id"])
     game_date = matched_game["game_date"]
 
+    # The event payload contains home_team/away_team as full names (Odds API format)
+    event_home_key = _normalize_name(str(event_payload.get("home_team") or matched_game.get("home_team_name") or ""))
+    event_away_key = _normalize_name(str(event_payload.get("away_team") or matched_game.get("away_team_name") or ""))
+
     for bookmaker in event_payload.get("bookmakers", []) or []:
         sportsbook = bookmaker.get("key") or bookmaker.get("title") or "odds_api"
+        bk_last_update = bookmaker.get("last_update")
+
         for market in bookmaker.get("markets", []) or []:
             market_key = str(market.get("key") or "").strip().lower()
             internal_type = ODDS_API_GAME_PERIOD_MARKETS.get(market_key)
             if not internal_type:
                 continue
             outcomes = market.get("outcomes", []) or []
-            over = next((o for o in outcomes if str(o.get("name", "")).lower() == "over"), None)
-            under = next((o for o in outcomes if str(o.get("name", "")).lower() == "under"), None)
-            point = None
-            if over and over.get("point") is not None:
-                point = over.get("point")
-            elif under and under.get("point") is not None:
-                point = under.get("point")
             last_update = pd.to_datetime(
-                market.get("last_update") or bookmaker.get("last_update") or datetime.now(timezone.utc),
+                market.get("last_update") or bk_last_update or datetime.now(timezone.utc),
                 utc=True,
                 errors="coerce",
             )
-            rows.append(
-                {
-                    "game_id": game_id,
-                    "game_date": game_date,
-                    "sportsbook": sportsbook,
+            snapshot_ts = last_update.to_pydatetime() if pd.notna(last_update) else datetime.now(timezone.utc)
+            base = {
+                "game_id": game_id,
+                "game_date": game_date,
+                "sportsbook": sportsbook,
+                "snapshot_ts": snapshot_ts,
+                "is_opening": False,
+                "is_closing": False,
+                "source_name": "the_odds_api",
+            }
+
+            if market_key == "totals_1st_1_innings":
+                over = next((o for o in outcomes if str(o.get("name", "")).lower() == "over"), None)
+                under = next((o for o in outcomes if str(o.get("name", "")).lower() == "under"), None)
+                point = (over or under or {}).get("point")
+                if over is not None or under is not None:
+                    rows.extend(
+                        [
+                            {
+                                **base,
+                                "market_type": "yrfi",
+                                "line_value": point,
+                                "over_price": over.get("price") if over else None,
+                                "under_price": under.get("price") if under else None,
+                            },
+                            {
+                                **base,
+                                "market_type": "nrfi",
+                                "line_value": point,
+                                "over_price": over.get("price") if over else None,
+                                "under_price": under.get("price") if under else None,
+                            },
+                        ]
+                    )
+
+            if market_key in ("totals_1st_5_innings", "alternate_totals"):
+                # Standard over/under outcomes
+                over = next((o for o in outcomes if str(o.get("name", "")).lower() == "over"), None)
+                under = next((o for o in outcomes if str(o.get("name", "")).lower() == "under"), None)
+                point = (over or under or {}).get("point")
+                rows.append({
+                    **base,
                     "market_type": internal_type,
                     "line_value": point,
-                    "over_price": None if not over else over.get("price"),
-                    "under_price": None if not under else under.get("price"),
-                    "snapshot_ts": last_update.to_pydatetime() if pd.notna(last_update) else datetime.now(timezone.utc),
-                    "is_opening": False,
-                    "is_closing": False,
-                    "source_name": "the_odds_api",
-                }
-            )
+                    "over_price": over.get("price") if over else None,
+                    "under_price": under.get("price") if under else None,
+                })
+
+            elif market_key in ("team_totals", "team_totals_1st_5_innings"):
+                # Outcomes shape: {"name": "Over"/"Under", "description": <team_full_name>, ...}
+                # Group by team description, emit a separate row per team
+                by_team: dict[str, dict[str, object]] = {}
+                for outcome in outcomes:
+                    desc_key = _normalize_name(str(outcome.get("description") or ""))
+                    side = str(outcome.get("name", "")).lower()
+                    if side in ("over", "under") and desc_key:
+                        by_team.setdefault(desc_key, {})[side] = outcome
+                for team_key, sides in by_team.items():
+                    prefix = "first_five_" if market_key == "team_totals_1st_5_innings" else ""
+                    if team_key == event_home_key:
+                        sub_type = f"{prefix}team_total_home" if prefix else "home_team_total"
+                    elif team_key == event_away_key:
+                        sub_type = f"{prefix}team_total_away" if prefix else "away_team_total"
+                    else:
+                        continue
+                    over_o = sides.get("over")
+                    under_o = sides.get("under")
+                    point = (over_o or under_o or {}).get("point")
+                    rows.append({
+                        **base,
+                        "market_type": sub_type,
+                        "line_value": point,
+                        "over_price": over_o.get("price") if over_o else None,
+                        "under_price": under_o.get("price") if under_o else None,
+                    })
+
+            elif market_key in ("h2h", "h2h_1st_5_innings", "spreads", "spreads_1st_5_innings"):
+                # Outcomes shape: {"name": <team_full_name>, "price": ml, "point": spread (spreads only)}
+                home_out: dict[str, object] | None = None
+                away_out: dict[str, object] | None = None
+                for outcome in outcomes:
+                    name_key = _normalize_name(str(outcome.get("name") or ""))
+                    if name_key == event_home_key:
+                        home_out = outcome
+                    elif name_key == event_away_key:
+                        away_out = outcome
+                # Fallback when team name normalization doesn't match
+                if home_out is None and away_out is None and len(outcomes) == 2:
+                    if market_key in ("spreads", "spreads_1st_5_innings"):
+                        pt0 = outcomes[0].get("point")
+                        pt1 = outcomes[1].get("point")
+                        if pt0 is not None and pt1 is not None:
+                            if float(pt0) <= 0:
+                                home_out, away_out = outcomes[0], outcomes[1]
+                            else:
+                                home_out, away_out = outcomes[1], outcomes[0]
+                    else:
+                        home_out, away_out = outcomes[0], outcomes[1]
+                line_value = home_out.get("point") if (home_out and market_key in ("spreads", "spreads_1st_5_innings")) else None
+                rows.append({
+                    **base,
+                    "market_type": internal_type,
+                    "line_value": line_value,
+                    "over_price": home_out.get("price") if home_out else None,
+                    "under_price": away_out.get("price") if away_out else None,
+                })
+
     return rows
 
 
@@ -1209,10 +1358,18 @@ def main() -> int:
     odds_api_game_ok = False
     odds_api_props_ok = False
 
-    # --- Game totals: try Odds API first, fall back to Covers ---
+    # --- Game totals: try Odds API (primary key, fall back to secondary on 429), then Covers ---
     if settings.odds_api_key:
         try:
-            odds_rows = _timed_fetch("odds_api", _fetch_odds_api_rows, start_date, end_date, settings.odds_api_key)
+            odds_rows = _timed_fetch(
+                "odds_api",
+                _fetch_odds_api_with_key_fallback,
+                _fetch_odds_api_rows,
+                start_date,
+                end_date,
+                settings.odds_api_key,
+                settings.odds_api_key_fallback,
+            )
         except requests.RequestException as exc:
             log.warning("Odds API market pull failed: %s — falling back to Covers", exc)
         else:
@@ -1233,15 +1390,17 @@ def main() -> int:
             if covers_rows:
                 log.info("Imported %s market rows from Covers totals HTML (fallback)", len(covers_rows))
 
-    # --- Player props + first-5: try Odds API first, fall back to Covers + Rotowire ---
+    # --- Player props + first-5: try Odds API (primary key, fall back to secondary on 429), then Covers + Rotowire ---
     if settings.odds_api_key:
         try:
             odds_prop_rows, odds_first5_rows = _timed_fetch(
                 "odds_api_player_props",
+                _fetch_odds_api_with_key_fallback,
                 _fetch_odds_api_player_prop_rows,
                 start_date,
                 end_date,
                 settings.odds_api_key,
+                settings.odds_api_key_fallback,
             )
         except requests.RequestException as exc:
             log.warning("Odds API player prop pull failed: %s — falling back to Covers + Rotowire", exc)

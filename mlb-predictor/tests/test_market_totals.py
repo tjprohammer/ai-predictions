@@ -7,6 +7,7 @@ from src.ingestors.market_totals import (
     _build_game_lookup_by_team_opponent,
     _extract_covers_player_prop_matchup_ids,
     _extract_covers_player_prop_rows,
+    _extract_odds_api_event_first5_rows,
     _extract_odds_api_event_prop_rows,
     _extract_rotowire_strikeout_rows,
     _format_required_player_prop_gap_summary,
@@ -205,6 +206,153 @@ def test_extract_odds_api_event_prop_rows_skips_unresolved_players():
     rows = _extract_odds_api_event_prop_rows(event_payload, matched_game, {})
 
     assert rows == []
+
+
+def test_extract_odds_api_event_first5_rows_maps_distinct_first_five_spread_and_team_totals():
+    event_payload = {
+        "home_team": "New York Mets",
+        "away_team": "Atlanta Braves",
+        "bookmakers": [
+            {
+                "key": "fanduel",
+                "last_update": "2026-04-01T18:30:00Z",
+                "markets": [
+                    {
+                        "key": "spreads_1st_5_innings",
+                        "last_update": "2026-04-01T18:30:00Z",
+                        "outcomes": [
+                            {"name": "New York Mets", "price": -110, "point": -0.5},
+                            {"name": "Atlanta Braves", "price": -110, "point": 0.5},
+                        ],
+                    },
+                    {
+                        "key": "team_totals_1st_5_innings",
+                        "last_update": "2026-04-01T18:30:00Z",
+                        "outcomes": [
+                            {"name": "Over", "description": "New York Mets", "price": -120, "point": 2.5},
+                            {"name": "Under", "description": "New York Mets", "price": 100, "point": 2.5},
+                            {"name": "Over", "description": "Atlanta Braves", "price": -105, "point": 2.0},
+                            {"name": "Under", "description": "Atlanta Braves", "price": -115, "point": 2.0},
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+    matched_game = {
+        "game_id": 824940,
+        "game_date": date(2026, 4, 1),
+        "home_team": "NYM",
+        "away_team": "ATL",
+        "home_team_name": "New York Mets",
+        "away_team_name": "Atlanta Braves",
+    }
+
+    rows = _extract_odds_api_event_first5_rows(event_payload, matched_game)
+
+    assert rows == [
+        {
+            "game_id": 824940,
+            "game_date": date(2026, 4, 1),
+            "sportsbook": "fanduel",
+            "snapshot_ts": pd.Timestamp("2026-04-01T18:30:00Z").to_pydatetime(),
+            "is_opening": False,
+            "is_closing": False,
+            "source_name": "the_odds_api",
+            "market_type": "first_five_spread",
+            "line_value": -0.5,
+            "over_price": -110,
+            "under_price": -110,
+        },
+        {
+            "game_id": 824940,
+            "game_date": date(2026, 4, 1),
+            "sportsbook": "fanduel",
+            "snapshot_ts": pd.Timestamp("2026-04-01T18:30:00Z").to_pydatetime(),
+            "is_opening": False,
+            "is_closing": False,
+            "source_name": "the_odds_api",
+            "market_type": "first_five_team_total_home",
+            "line_value": 2.5,
+            "over_price": -120,
+            "under_price": 100,
+        },
+        {
+            "game_id": 824940,
+            "game_date": date(2026, 4, 1),
+            "sportsbook": "fanduel",
+            "snapshot_ts": pd.Timestamp("2026-04-01T18:30:00Z").to_pydatetime(),
+            "is_opening": False,
+            "is_closing": False,
+            "source_name": "the_odds_api",
+            "market_type": "first_five_team_total_away",
+            "line_value": 2.0,
+            "over_price": -105,
+            "under_price": -115,
+        },
+    ]
+
+
+def test_extract_odds_api_event_first5_rows_maps_first_inning_totals_to_nrfi_and_yrfi():
+    event_payload = {
+        "home_team": "New York Mets",
+        "away_team": "Atlanta Braves",
+        "bookmakers": [
+            {
+                "key": "fanduel",
+                "last_update": "2026-04-01T18:30:00Z",
+                "markets": [
+                    {
+                        "key": "totals_1st_1_innings",
+                        "last_update": "2026-04-01T18:30:00Z",
+                        "outcomes": [
+                            {"name": "Over", "price": 105, "point": 0.5},
+                            {"name": "Under", "price": -125, "point": 0.5},
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+    matched_game = {
+        "game_id": 824940,
+        "game_date": date(2026, 4, 1),
+        "home_team": "NYM",
+        "away_team": "ATL",
+        "home_team_name": "New York Mets",
+        "away_team_name": "Atlanta Braves",
+    }
+
+    rows = _extract_odds_api_event_first5_rows(event_payload, matched_game)
+
+    assert rows == [
+        {
+            "game_id": 824940,
+            "game_date": date(2026, 4, 1),
+            "sportsbook": "fanduel",
+            "snapshot_ts": pd.Timestamp("2026-04-01T18:30:00Z").to_pydatetime(),
+            "is_opening": False,
+            "is_closing": False,
+            "source_name": "the_odds_api",
+            "market_type": "yrfi",
+            "line_value": 0.5,
+            "over_price": 105,
+            "under_price": -125,
+        },
+        {
+            "game_id": 824940,
+            "game_date": date(2026, 4, 1),
+            "sportsbook": "fanduel",
+            "snapshot_ts": pd.Timestamp("2026-04-01T18:30:00Z").to_pydatetime(),
+            "is_opening": False,
+            "is_closing": False,
+            "source_name": "the_odds_api",
+            "market_type": "nrfi",
+            "line_value": 0.5,
+            "over_price": 105,
+            "under_price": -125,
+        },
+    ]
 
 
 def test_match_event_to_game_handles_utc_next_day_for_late_west_coast_games():

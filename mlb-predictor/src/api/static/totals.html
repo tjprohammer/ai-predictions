@@ -1090,22 +1090,33 @@
         return side === "home" ? "vs" : "at";
       }
 
+      function displayedTotalPrediction(totals) {
+        return numberOr(
+          totals?.predicted_total_runs,
+          numberOr(totals?.predicted_total_fundamentals),
+        );
+      }
+
+      function rawTotalPrediction(totals) {
+        return numberOr(totals?.predicted_total_fundamentals);
+      }
+
       function leanSide(totals) {
-        const pred = numberOr(totals?.predicted_total_fundamentals, numberOr(totals?.predicted_total_runs));
+        const pred = displayedTotalPrediction(totals);
         const market = numberOr(totals?.market_total);
         if (pred == null || market == null) return "No lean";
         return pred >= market ? "Over lean" : "Under lean";
       }
 
       function leanDelta(totals) {
-        const pred = numberOr(totals?.predicted_total_fundamentals, numberOr(totals?.predicted_total_runs));
+        const pred = displayedTotalPrediction(totals);
         const market = numberOr(totals?.market_total);
         if (pred == null || market == null) return null;
         return pred - market;
       }
 
       function fundamentalsEdge(totals) {
-        const pred = numberOr(totals?.predicted_total_fundamentals, numberOr(totals?.predicted_total_runs));
+        const pred = displayedTotalPrediction(totals);
         const market = numberOr(totals?.market_total);
         if (pred == null || market == null) return null;
         return pred - market;
@@ -1563,9 +1574,9 @@
 
             <div class="game-card-body">
               <div class="game-card-glance">
-                <div class="data-row"><span class="data-label">Model / Market</span><span class="data-value">${formatNumber(numberOr(totals.predicted_total_fundamentals, totals.predicted_total_runs), 2)} / ${formatNumber(totals.market_total, 1)}${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` <span class="tiny-label" title="Blended calibrated model (experimental)">Blended (exp.) ${formatNumber(totals.predicted_total_runs, 2)}</span>` : ""}</span></div>
+                <div class="data-row"><span class="data-label">Decision / Market</span><span class="data-value">${formatNumber(displayedTotalPrediction(totals), 2)} / ${formatNumber(totals.market_total, 1)}${rawTotalPrediction(totals) != null && displayedTotalPrediction(totals) != null && Math.abs(rawTotalPrediction(totals) - displayedTotalPrediction(totals)) >= 0.05 ? ` <span class="tiny-label" title="Raw fundamentals total">Raw ${formatNumber(rawTotalPrediction(totals), 2)}</span>` : ""}</span></div>
                 <div class="data-row"><span class="data-label">Lean</span><span class="data-value">${leanEdge == null ? escapeHtml(lean) : `${escapeHtml(lean)} · ${formatSigned(leanEdge, 2)}`}</span></div>
-                <div class="data-row"><span class="data-label">Expected Runs</span><span class="data-value">${escapeHtml(game.away_team)} ${formatNumber(totals.away_expected_runs, 1)} / ${escapeHtml(game.home_team)} ${formatNumber(totals.home_expected_runs, 1)}</span></div>
+                <div class="data-row"><span class="data-label">Run Context</span><span class="data-value">${escapeHtml(game.away_team)} ${formatNumber(totals.away_expected_runs, 1)} / ${escapeHtml(game.home_team)} ${formatNumber(totals.home_expected_runs, 1)}</span></div>
                 <div class="data-row"><span class="data-label">Weather / Park</span><span class="data-value">${formatNumber(weather.temperature_f, 0)}F · Wind ${formatNumber(weather.wind_speed_mph, 0)} mph · Park ${formatNumber(totals.venue_run_factor, 2)}</span></div>
                 <div class="data-row"><span class="data-label">Bullpen Load</span><span class="data-value">${escapeHtml(game.away_team)} ${escapeHtml(awayLoad.label)} / ${escapeHtml(game.home_team)} ${escapeHtml(homeLoad.label)}</span></div>
                 <div class="data-row"><span class="data-label">Late Bullpen Risk</span><span class="data-value">${escapeHtml(lateBullpenRisk.summary)}</span></div>
@@ -1646,14 +1657,8 @@
         if (mode === "total") {
           return sorted.sort(
             (left, right) =>
-              numberOr(
-                (right.totals || {}).predicted_total_fundamentals,
-                numberOr((right.totals || {}).predicted_total_runs, -1),
-              ) -
-              numberOr(
-                (left.totals || {}).predicted_total_fundamentals,
-                numberOr((left.totals || {}).predicted_total_runs, -1),
-              ),
+              numberOr(displayedTotalPrediction(right.totals || {}), -1) -
+              numberOr(displayedTotalPrediction(left.totals || {}), -1),
           );
         }
         if (mode === "lean") {

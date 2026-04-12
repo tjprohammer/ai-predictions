@@ -1003,6 +1003,101 @@
         opacity: 0.25;
       }
 
+      .term-grid,
+      .market-grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .term-grid {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      .term-card,
+      .market-card {
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.74);
+        padding: 16px 18px;
+      }
+
+      .term-card {
+        display: grid;
+        gap: 6px;
+      }
+
+      .term-card-title {
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent-deep);
+      }
+
+      .term-card-copy,
+      .market-card-copy,
+      .market-card-meta {
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.5;
+      }
+
+      .market-grid {
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      }
+
+      .market-card {
+        display: grid;
+        gap: 8px;
+      }
+
+      .market-card.positive {
+        border-color: rgba(22, 101, 52, 0.2);
+        background: linear-gradient(
+          180deg,
+          rgba(22, 101, 52, 0.12),
+          rgba(255, 255, 255, 0.8)
+        );
+      }
+
+      .market-card-head,
+      .market-chip-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .market-chip-row {
+        margin-top: 12px;
+      }
+
+      .market-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(20, 33, 25, 0.06);
+        color: var(--muted);
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .market-badge.good {
+        background: rgba(22, 101, 52, 0.12);
+        color: var(--good);
+      }
+
+      .market-card-title {
+        font-size: 0.96rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+      }
+
       @media (max-width: 1100px) {
         .hero-grid,
         .summary-grid,
@@ -1015,6 +1110,244 @@
         .signals-grid {
           grid-template-columns: 1fr;
         }
+      }
+
+      /* ── Modern game hero scoreboard ────────────────────── */
+      .game-hero-sb {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 16px;
+        align-items: center;
+        padding: 4px 0 18px;
+      }
+      .ghs-team {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        text-align: center;
+      }
+      .ghs-logo {
+        width: 72px;
+        height: 72px;
+        object-fit: contain;
+        filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.1));
+      }
+      .ghs-abbr {
+        font-size: 2rem;
+        font-weight: 900;
+        letter-spacing: -0.03em;
+        line-height: 1;
+      }
+      .ghs-score {
+        font-size: 2.8rem;
+        font-weight: 900;
+        letter-spacing: -0.04em;
+        line-height: 1;
+        color: var(--accent);
+        min-height: 1.1em;
+      }
+      .ghs-side-lbl {
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .ghs-center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        text-align: center;
+        min-width: 120px;
+      }
+      .ghs-status-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 12px;
+        border-radius: 999px;
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: rgba(11, 106, 88, 0.12);
+        color: var(--accent-deep);
+        border: 1px solid rgba(11, 106, 88, 0.14);
+      }
+      .ghs-status-chip.final {
+        background: rgba(22, 101, 52, 0.12);
+        color: var(--good);
+        border-color: rgba(22, 101, 52, 0.14);
+      }
+      .ghs-time {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: var(--ink);
+      }
+      .ghs-venue {
+        font-size: 0.74rem;
+        color: var(--muted);
+        max-width: 160px;
+        line-height: 1.35;
+      }
+      .ghs-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 10px;
+        justify-content: center;
+      }
+      @media (max-width: 680px) {
+        .game-hero-sb {
+          grid-template-columns: 1fr;
+          justify-items: center;
+        }
+        .ghs-logo {
+          width: 52px;
+          height: 52px;
+        }
+        .ghs-abbr {
+          font-size: 1.5rem;
+        }
+        .ghs-score {
+          font-size: 2rem;
+        }
+      }
+
+      /* ── Baseball card player rows ───────────────────────── */
+      .baseball-card-row {
+        display: grid;
+        gap: 14px;
+        padding: 16px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.78);
+      }
+      .card-top {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+      }
+      .player-photo-wrap {
+        position: relative;
+        flex-shrink: 0;
+      }
+      .player-photo-circle {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        overflow: hidden;
+        border: 2.5px solid var(--line);
+        background: linear-gradient(
+          135deg,
+          rgba(20, 33, 25, 0.06),
+          rgba(20, 33, 25, 0.12)
+        );
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .player-photo-circle img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: top center;
+      }
+      .player-slot-badge {
+        position: absolute;
+        bottom: -4px;
+        right: -4px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: white;
+        font-size: 0.6rem;
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid white;
+      }
+      .card-identity {
+        flex: 1;
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+      }
+      .card-name-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .card-player-name {
+        font-size: 1.05rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+      .card-team-logo {
+        width: 20px;
+        height: 20px;
+        object-fit: contain;
+        flex-shrink: 0;
+      }
+      .card-pos-line {
+        font-size: 0.78rem;
+        color: var(--muted);
+        font-weight: 600;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .card-pos-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 7px;
+        border-radius: 6px;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .card-bio-line {
+        font-size: 0.76rem;
+        color: var(--muted);
+        min-height: 1em;
+      }
+      .card-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 4px;
+      }
+      .card-stat-pill {
+        padding: 8px 10px;
+        border-radius: 12px;
+        background: rgba(11, 106, 88, 0.06);
+        border: 1px solid rgba(11, 106, 88, 0.08);
+        text-align: center;
+      }
+      .card-stat-pill.gold {
+        background: rgba(183, 121, 31, 0.07);
+        border-color: rgba(183, 121, 31, 0.1);
+      }
+      .card-stat-value {
+        font-size: 0.98rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+      .card-stat-label {
+        font-size: 0.64rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-top: 2px;
       }
     </style>
   </head>
@@ -1086,37 +1419,119 @@
       </nav>
 
       <section class="hero-card">
-        <div class="hero-grid">
-          <div>
-            <div class="eyebrow" id="heroEyebrow">Matchup detail</div>
-            <h1 id="heroTitle">Loading matchup…</h1>
-            <p class="hero-copy" id="heroCopy">
-              Fetching lineups, starters, totals context, and matchup detail.
-            </p>
-            <div class="hero-actions">
-              <a class="button-link" id="backToBoardLink" href="#"
-                >Back To Board</a
-              >
-              <label class="button-link" for="targetDate">Slate Date</label>
-              <input id="targetDate" type="date" />
+        <div class="game-hero-sb">
+          <div class="ghs-team">
+            <img
+              class="ghs-logo"
+              id="ghsAwayLogo"
+              src=""
+              alt=""
+              onerror="this.style.display = 'none'"
+            />
+            <div class="ghs-abbr" id="ghsAwayAbbr">—</div>
+            <div class="ghs-score" id="ghsAwayScore"></div>
+            <div class="ghs-side-lbl">Away</div>
+          </div>
+          <div class="ghs-center">
+            <span class="ghs-status-chip" id="ghsStatusChip">Loading…</span>
+            <div class="ghs-time" id="ghsTime">—</div>
+            <div class="ghs-venue" id="ghsVenue">—</div>
+            <div
+              id="ghsUmpire"
+              style="
+                font-size: 0.7rem;
+                color: var(--muted);
+                margin-top: 2px;
+                display: none;
+              "
+            >
+              ⚾ <span id="ghsUmpireName"></span>
+            </div>
+            <div
+              id="ghsSupMarkets"
+              style="
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                justify-content: center;
+                margin-top: 6px;
+              "
+            ></div>
+            <div class="ghs-actions">
+              <a class="button-link" id="backToBoardLink" href="#">← Board</a>
+              <label class="button-link" for="targetDate">Date</label>
+              <input
+                id="targetDate"
+                type="date"
+                style="min-height: 0; padding: 8px 12px; border-radius: 999px"
+              />
             </div>
           </div>
-          <div class="meta-grid">
-            <article class="summary-card">
-              <div class="data-label">Status</div>
-              <div class="big-value" id="statusValue">-</div>
-              <div class="data-copy" id="statusCopy">Game status pending</div>
-            </article>
-            <article class="summary-card">
-              <div class="data-label">Venue / Start</div>
-              <div class="big-value" id="venueValue">-</div>
-              <div class="data-copy" id="venueCopy">Venue detail pending</div>
-            </article>
+          <div class="ghs-team">
+            <img
+              class="ghs-logo"
+              id="ghsHomeLogo"
+              src=""
+              alt=""
+              onerror="this.style.display = 'none'"
+            />
+            <div class="ghs-abbr" id="ghsHomeAbbr">—</div>
+            <div class="ghs-score" id="ghsHomeScore"></div>
+            <div class="ghs-side-lbl">Home</div>
           </div>
         </div>
       </section>
 
       <section class="summary-grid" id="summaryGrid"></section>
+      <section class="panel">
+        <div class="lineup-head">
+          <div>
+            <div class="section-tag">Legend</div>
+            <h2>What the decision terms mean</h2>
+          </div>
+        </div>
+        <div class="term-grid">
+          <article class="term-card">
+            <div class="term-card-title">Decision Total</div>
+            <div class="term-card-copy">
+              The surfaced total the app is actually using for the displayed
+              lean.
+            </div>
+          </article>
+          <article class="term-card">
+            <div class="term-card-title">Raw Model</div>
+            <div class="term-card-copy">
+              The pre-calibration fundamentals output, shown only when it
+              materially differs.
+            </div>
+          </article>
+          <article class="term-card">
+            <div class="term-card-title">Run Context</div>
+            <div class="term-card-copy">
+              Away and home scoring context from lineup, starter, bullpen,
+              weather, and park inputs.
+            </div>
+          </article>
+          <article class="term-card">
+            <div class="term-card-title">Pick Score</div>
+            <div class="term-card-copy">
+              Coming next: a single ranking score built from no-vig edge, EV,
+              and certainty weighting.
+            </div>
+          </article>
+        </div>
+      </section>
+      <section class="panel" id="marketsSection" style="display: none">
+        <div class="lineup-head">
+          <div>
+            <div class="section-tag">Markets</div>
+            <h2>Best price plus model edge</h2>
+          </div>
+          <span class="muted" id="marketsSummary">Waiting for market data</span>
+        </div>
+        <div class="market-chip-row" id="marketsLead"></div>
+        <div class="market-grid" id="marketsGrid"></div>
+      </section>
       <section
         class="signals-section panel"
         id="signalsSection"
@@ -1204,8 +1619,10 @@
       }
 
       const appBase = detectAppBase();
+      const MAX_PICK_SIGNAL_CARDS = 8;
       const pageState = {
         detail: null,
+        pitcherVsTeam: {},
         historyFilters: {},
         statFilters: {},
       };
@@ -1247,6 +1664,34 @@
       function formatNumber(value, digits = 2) {
         const number = numberOr(value);
         return number == null ? "-" : number.toFixed(digits);
+      }
+
+      function formatSigned(value, digits = 2) {
+        const number = numberOr(value);
+        if (number == null) return "-";
+        const fixed = number.toFixed(digits);
+        return number > 0 ? `+${fixed}` : fixed;
+      }
+
+      function formatPrice(value) {
+        const number = numberOr(value);
+        if (number == null) return "-";
+        const rounded = Math.round(number);
+        return rounded > 0 ? `+${rounded}` : String(rounded);
+      }
+
+      // Compute the active hit streak from the recent_hit_history array
+      // (newest-first ordering) so it always matches the chart display.
+      function computeActiveStreak(player) {
+        const history = Array.isArray(player?.recent_hit_history)
+          ? player.recent_hit_history
+          : [];
+        let streak = 0;
+        for (const g of history) {
+          if (g.had_hit) streak++;
+          else break;
+        }
+        return streak;
       }
 
       function formatInteger(value) {
@@ -1293,6 +1738,17 @@
           hour: "numeric",
           minute: "2-digit",
         });
+      }
+
+      function displayedTotalPrediction(totals) {
+        return numberOr(
+          totals?.predicted_total_runs,
+          numberOr(totals?.predicted_total_fundamentals),
+        );
+      }
+
+      function rawTotalPrediction(totals) {
+        return numberOr(totals?.predicted_total_fundamentals);
       }
 
       function lineupStatusChip(player) {
@@ -1551,9 +2007,14 @@
                   const kValue = numberOr(entry.strikeouts, 0) ?? 0;
                   const tipParts = [
                     `${formatShortDate(entry.game_date)} vs ${entry.opponent || "TBD"}`,
-                    `${hits} H`, `${runsValue} R`, `${rbiValue} RBI`,
-                    `${homeRunsValue} HR`, `${totalBasesValue} TB`,
-                    `${walksValue} BB`, `${sbValue} SB`, `${kValue} K`,
+                    `${hits} H`,
+                    `${runsValue} R`,
+                    `${rbiValue} RBI`,
+                    `${homeRunsValue} HR`,
+                    `${totalBasesValue} TB`,
+                    `${walksValue} BB`,
+                    `${sbValue} SB`,
+                    `${kValue} K`,
                   ];
                   const title = tipParts.join(" · ");
                   return `
@@ -1578,12 +2039,109 @@
         `;
       }
 
-      function starterCard(starter, fallbackTeam, opponentTeam) {
+      function starterPitcherVsTeamContext(starter) {
+        const pitcherId = String(starter?.pitcher_id || "");
+        if (!pitcherId) {
+          return "Pitcher-vs-team history pending";
+        }
+        const row = pageState.pitcherVsTeam[pitcherId];
+        if (!row) {
+          return "Pitcher-vs-team history pending";
+        }
+        const parts = [];
+        if (numberOr(row.games) != null) {
+          parts.push(`${formatInteger(row.games)} G`);
+        }
+        if (numberOr(row.innings_pitched) != null) {
+          parts.push(`${formatNumber(row.innings_pitched, 1)} IP`);
+        }
+        if (numberOr(row.era) != null) {
+          parts.push(`${formatNumber(row.era, 2)} ERA`);
+        }
+        if (numberOr(row.whip) != null) {
+          parts.push(`${formatNumber(row.whip, 3)} WHIP`);
+        }
+        if (numberOr(row.k_per_9) != null) {
+          parts.push(`${formatNumber(row.k_per_9, 1)} K/9`);
+        }
+        return parts.join(" · ") || "Pitcher-vs-team history pending";
+      }
+
+      function starterOpponentContextCopy(opponentTeam, opponentContext) {
+        const kPct = numberOr(opponentContext?.kPct);
+        const xwoba = numberOr(opponentContext?.top5Xwoba);
+        const parts = [];
+        if (kPct != null) {
+          parts.push(`K% ${formatPercent(kPct, 0)}`);
+        }
+        if (xwoba != null) {
+          parts.push(`top-5 xwOBA ${formatNumber(xwoba, 3)}`);
+        }
+        if (!parts.length) {
+          return `${opponentTeam} lineup context pending`;
+        }
+        return `${opponentTeam} ${parts.join(" · ")}`;
+      }
+
+      function starterCard(
+        starter,
+        fallbackTeam,
+        opponentTeam,
+        opponentContext = {},
+      ) {
         if (!starter) {
           return `<article class="starter-card"><div class="section-tag">${escapeHtml(fallbackTeam)}</div><h3>Starter pending</h3><p class="data-copy">No starter detail is loaded yet.</p></article>`;
         }
         const recent = starter.recent_form || {};
-        const market = starter.k_projection?.market || {};
+        const projection = starter.k_projection || {};
+        const market = projection.market || {};
+        const projectedKs = numberOr(
+          projection.projected_strikeouts_fundamentals,
+          projection.projected_strikeouts,
+        );
+        const marketLine = numberOr(market.consensus_line);
+        const overProbability = numberOr(projection.over_probability);
+        const underProbability = numberOr(projection.under_probability);
+        const marketDelta =
+          projectedKs != null && marketLine != null
+            ? projectedKs - marketLine
+            : null;
+        const avgPitchCount = numberOr(recent.avg_pitch_count);
+        const avgWalks = numberOr(recent.avg_walks);
+        const avgEarnedRuns = numberOr(recent.avg_earned_runs);
+        const sampleStarts = numberOr(recent.sample_starts);
+        const seasonStarts = numberOr(recent.season_starts);
+        const seasonContext = projection.season_context || {};
+        const seasonKsPerStart = numberOr(seasonContext.strikeouts_per_start);
+        const opponentKUsed = numberOr(projection.opponent_k_pct_used);
+        const xwobaAgainst = numberOr(starter.xwoba_against);
+        const cswPct = numberOr(starter.csw_pct);
+        const avgFbVelo = numberOr(starter.avg_fb_velo);
+        const whiffPct = numberOr(starter.whiff_pct);
+        const advancedStatSource = starter.advanced_stats_source || {};
+        const sourceLabel = (value) =>
+          value === "current_start_row"
+            ? "current starter row"
+            : value === "recent_average"
+              ? `recent-start average${sampleStarts != null ? ` (${formatNumber(sampleStarts, 0)} starts)` : ""}`
+              : "not loaded";
+        const advancedSourcesText =
+          `xwOBA ${sourceLabel(advancedStatSource.xwoba_against)} · ` +
+          `called+whiff ${sourceLabel(advancedStatSource.csw_pct)} · ` +
+          `velo ${sourceLabel(advancedStatSource.avg_fb_velo)} · ` +
+          `whiff ${sourceLabel(advancedStatSource.whiff_pct)}`;
+        const statcastProfileText =
+          xwobaAgainst != null || cswPct != null
+            ? `${xwobaAgainst == null ? "xwOBA allowed not loaded" : `xwOBA allowed ${formatNumber(xwobaAgainst, 3)}`}${cswPct == null ? "" : ` · called+whiff ${formatPercent(cswPct)}`}`
+            : sampleStarts != null && sampleStarts > 0
+              ? `No recent Statcast contact profile loaded across the last ${formatNumber(sampleStarts, 0)} starts`
+              : "No previous start profile loaded yet";
+        const pitchTraitsText =
+          avgFbVelo != null || whiffPct != null
+            ? `${avgFbVelo == null ? "fastball velo not loaded" : `${formatNumber(avgFbVelo, 1)} mph fastball`}${whiffPct == null ? "" : ` · ${formatPercent(whiffPct)} whiff`}`
+            : sampleStarts != null && sampleStarts > 0
+              ? `No recent whiff or velocity profile loaded across the last ${formatNumber(sampleStarts, 0)} starts`
+              : "No previous pitch-trait profile loaded yet";
         return `
           <article class="starter-card">
             <div class="starter-head">
@@ -1595,15 +2153,73 @@
             </div>
             <div class="data-stack">
               <div class="data-row"><span class="data-label">Opponent</span><span class="data-value">${escapeHtml(opponentTeam)}</span></div>
-              <div class="data-row"><span class="data-label">Recent IP / K</span><span class="data-value">${formatNumber(recent.avg_ip, 1)} / ${formatNumber(recent.avg_strikeouts, 1)}</span></div>
-              <div class="data-row"><span class="data-label">Season ERA / L3 / L5</span><span class="data-value">${formatNumber(recent.season_era, 2)} / ${formatNumber(recent.era_last3, 2)} / ${formatNumber(recent.era_last5, 2)}</span></div>
-              <div class="data-row"><span class="data-label">Last Start</span><span class="data-value">${escapeHtml(formatShortDate(recent.last_start_date))}</span></div>
-              <div class="data-row"><span class="data-label">xwOBA / CSW</span><span class="data-value">${formatNumber(starter.xwoba_against, 3)} / ${formatPercent(starter.csw_pct)}</span></div>
-              <div class="data-row"><span class="data-label">Velo / Whiff</span><span class="data-value">${numberOr(starter.avg_fb_velo) == null ? "-" : formatNumber(starter.avg_fb_velo, 1) + " mph"} / ${formatPercent(starter.whiff_pct)}</span></div>
-              <div class="data-row"><span class="data-label">K Projection</span><span class="data-value">${formatNumber(numberOr(starter.k_projection?.projected_strikeouts_fundamentals, starter.k_projection?.projected_strikeouts), 2)}${numberOr(market.consensus_line) == null ? "" : ` vs ${formatNumber(market.consensus_line, 1)}`}</span></div>
+              <div class="data-row"><span class="data-label">Recent Sample / Season Starts</span><span class="data-value">${sampleStarts == null ? "-" : formatNumber(sampleStarts, 0)} / ${seasonStarts == null ? "-" : formatNumber(seasonStarts, 0)}</span></div>
+              <div class="data-row"><span class="data-label">Recent IP / K / PC</span><span class="data-value">${formatNumber(recent.avg_ip, 1)} / ${formatNumber(recent.avg_strikeouts, 1)} / ${avgPitchCount == null ? "-" : formatNumber(avgPitchCount, 0)}</span></div>
+              <div class="data-row"><span class="data-label">Recent BB / ER</span><span class="data-value">${formatNumber(avgWalks, 1)} / ${formatNumber(avgEarnedRuns, 1)}</span></div>
+              <div class="data-row"><span class="data-label">ERA Season / Last 3 / Last 5</span><span class="data-value">${formatNumber(recent.season_era, 2)} / ${formatNumber(recent.era_last3, 2)} / ${formatNumber(recent.era_last5, 2)}</span></div>
+              <div class="data-row"><span class="data-label">Last Start / Season K</span><span class="data-value">${escapeHtml(formatShortDate(recent.last_start_date))} / ${seasonKsPerStart == null ? "-" : formatNumber(seasonKsPerStart, 2) + " K/start"}</span></div>
+              <div class="data-row"><span class="data-label">Opponent K / Contact</span><span class="data-value">${escapeHtml(starterOpponentContextCopy(opponentTeam, opponentContext))}${opponentKUsed != null ? ` · model used ${formatPercent(opponentKUsed, 0)}` : ""}</span></div>
+              <div class="data-row"><span class="data-label">Contact Quality / Called+Whiff</span><span class="data-value">${escapeHtml(statcastProfileText)}</span></div>
+              <div class="data-row"><span class="data-label">Fastball Velo / Whiff</span><span class="data-value">${escapeHtml(pitchTraitsText)}</span></div>
+              <div class="data-row"><span class="data-label">Advanced Stat Source</span><span class="data-value">${escapeHtml(advancedSourcesText)}</span></div>
+              <div class="data-row"><span class="data-label">K Projection / Delta</span><span class="data-value">${formatNumber(projectedKs, 2)}${marketLine == null ? "" : ` vs ${formatNumber(marketLine, 1)}`} ${marketDelta == null ? "" : `· ${formatSigned(marketDelta, 2)}`}</span></div>
+              <div class="data-row"><span class="data-label">K Over / Under</span><span class="data-value">${overProbability == null && underProbability == null ? "Awaiting market context" : `${formatPercent(overProbability, 0)} / ${formatPercent(underProbability, 0)}`}</span></div>
+              <div class="data-row"><span class="data-label">Pitcher vs Team</span><span class="data-value">${escapeHtml(starterPitcherVsTeamContext(starter))}</span></div>
+              ${(() => {
+                const pp = starter.pitcher_props || {};
+                const ha = pp["pitcher_hits_allowed"];
+                const er = pp["pitcher_earned_runs"];
+                const bb = pp["pitcher_walks"];
+                const parts = [];
+                if (ha && ha.line != null)
+                  parts.push(
+                    `H Allow ${formatNumber(ha.line, 1)} (${formatPrice(ha.over_price) || "–"} o)`,
+                  );
+                if (er && er.line != null)
+                  parts.push(
+                    `ER ${formatNumber(er.line, 1)} (${formatPrice(er.over_price) || "–"} o)`,
+                  );
+                if (bb && bb.line != null)
+                  parts.push(
+                    `BB ${formatNumber(bb.line, 1)} (${formatPrice(bb.over_price) || "–"} o)`,
+                  );
+                return parts.length
+                  ? `<div class="data-row"><span class="data-label">Prop Lines</span><span class="data-value" style="font-size:0.78rem">${parts.join(" · ")}</span></div>`
+                  : "";
+              })()}
             </div>
           </article>
         `;
+      }
+
+      function renderStarterCards(detail) {
+        const totals = detail?.totals || {};
+        document.getElementById("starterGrid").innerHTML = [
+          starterCard(
+            detail.starters?.away,
+            detail.away_team,
+            detail.home_team,
+            {
+              kPct: numberOr(
+                totals.home_lineup_k_pct,
+                totals.home_k_pct_blended,
+              ),
+              top5Xwoba: totals.home_lineup_top5_xwoba,
+            },
+          ),
+          starterCard(
+            detail.starters?.home,
+            detail.home_team,
+            detail.away_team,
+            {
+              kPct: numberOr(
+                totals.away_lineup_k_pct,
+                totals.away_k_pct_blended,
+              ),
+              top5Xwoba: totals.away_lineup_top5_xwoba,
+            },
+          ),
+        ].join("");
       }
 
       function batterHandMatchup(player) {
@@ -1657,20 +2273,245 @@
         };
       }
 
+      // ── MLB Static CDN helpers ────────────────────────────
+      const MLB_TEAM_IDS = {
+        ARI: 109,
+        AZ: 109,
+        ATL: 144,
+        BAL: 110,
+        BOS: 111,
+        CHC: 112,
+        CWS: 145,
+        CIN: 113,
+        CLE: 114,
+        COL: 115,
+        DET: 116,
+        HOU: 117,
+        KC: 118,
+        LAA: 108,
+        LAD: 119,
+        MIA: 146,
+        MIL: 158,
+        MIN: 142,
+        NYM: 121,
+        NYY: 147,
+        OAK: 133,
+        ATH: 133,
+        PHI: 143,
+        PIT: 134,
+        SD: 135,
+        SF: 137,
+        SEA: 136,
+        STL: 138,
+        TB: 139,
+        TEX: 140,
+        TOR: 141,
+        WSH: 120,
+        WAS: 120,
+        CHW: 145,
+      };
+
+      function mlbPlayerPhotoUrl(playerId) {
+        if (!playerId) return "";
+        return `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/${playerId}/headshot/67/current`;
+      }
+
+      function mlbTeamLogoUrl(teamAbbr) {
+        if (!teamAbbr) return "";
+        const teamId = MLB_TEAM_IDS[String(teamAbbr).trim().toUpperCase()];
+        if (!teamId) return "";
+        return `https://www.mlbstatic.com/team-logos/${teamId}.svg`;
+      }
+
+      const _playerBioCache = {};
+
+      async function fetchAndPopulatePlayerBios(playerIds) {
+        const unique = [...new Set(playerIds.map(String).filter(Boolean))];
+        await Promise.allSettled(
+          unique.map(async (id) => {
+            if (_playerBioCache[id] !== undefined) return;
+            _playerBioCache[id] = null;
+            try {
+              const res = await fetch(
+                `https://statsapi.mlb.com/api/v1/people/${id}?fields=people,id,primaryPosition,abbreviation,height,weight`,
+              );
+              if (!res.ok) return;
+              const data = await res.json();
+              const p = data?.people?.[0];
+              if (!p) return;
+              _playerBioCache[id] = {
+                position: p.primaryPosition?.abbreviation || null,
+                height: p.height || null,
+                weight: p.weight ? `${p.weight} lbs` : null,
+              };
+            } catch {
+              /* ignore */
+            }
+          }),
+        );
+        // Populate placeholders already in the DOM
+        unique.forEach((id) => {
+          const el = document.getElementById(`player-bio-${id}`);
+          if (!el) return;
+          const bio = _playerBioCache[id];
+          if (!bio) {
+            el.textContent = "";
+            return;
+          }
+          const parts = [bio.position, bio.height, bio.weight].filter(Boolean);
+          el.textContent = parts.join(" · ");
+        });
+      }
+
+      // ── Baseball-card player row (full hot-hitter stats) ──
       function lineupPlayerRow(player) {
         const handMatchup = batterHandMatchup(player);
+        const playerId = String(player.player_id || "");
+        const photoUrl = mlbPlayerPhotoUrl(playerId);
+        const teamLogoUrl = mlbTeamLogoUrl(player.team || "");
+        const slot = player.lineup_slot ?? "-";
+        const genericSvg = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;fill:var(--muted);padding:10px"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-5.33 0-8 2.67-8 4v1h16v-1c0-1.33-2.67-4-8-4z"/></svg>`;
+        const pitcherName =
+          player._opposing_pitcher_name || player.opponent || null;
+        const throwHand = String(player.opposing_pitcher_throws || "")
+          .trim()
+          .toUpperCase()
+          .slice(0, 1);
+
+        // Stat colour helpers
+        const col = (v, good, bad) =>
+          numberOr(v) == null
+            ? ""
+            : numberOr(v) >= good
+              ? "color:var(--good)"
+              : numberOr(v) <= bad
+                ? "color:var(--warn)"
+                : "";
+        const colHi = (v, warn, bad) =>
+          numberOr(v) == null
+            ? ""
+            : numberOr(v) >= warn
+              ? "color:var(--warn)"
+              : "";
+
+        // Market / price display
+        const hasMarket = numberOr(player.market_price) != null;
+        const hasEdge = numberOr(player.edge) != null;
+        const edgeColor = hasEdge
+          ? numberOr(player.edge) > 0.03
+            ? "color:var(--good)"
+            : numberOr(player.edge) < -0.03
+              ? "color:var(--bad)"
+              : ""
+          : "";
+
+        // vs Pitcher Hand
+        const vsAB = numberOr(player.vs_pitcher_hand_at_bats, 0);
+        const vsBA = numberOr(player.vs_pitcher_hand_batting_avg);
+        const vsXwoba = numberOr(player.vs_pitcher_hand_xwoba);
+        const vsHH = numberOr(player.vs_pitcher_hand_hard_hit_pct);
+        const hasVsSplit = vsAB > 0 && vsBA != null;
+        const vsHandLabel = throwHand ? `${throwHand}HP` : "Opp Pitcher";
+        const vsColor = hasVsSplit
+          ? vsBA >= 0.28
+            ? "color:var(--good)"
+            : vsBA <= 0.2
+              ? "color:var(--bad)"
+              : ""
+          : "";
+
+        // Outcome
+        const hasOutcome = player.actual_hits != null;
+        const outcomeLine = hasOutcome
+          ? `${player.actual_hits}H · ${player.actual_at_bats ?? "-"}AB · ${player.actual_runs ?? 0}R · ${player.actual_rbi ?? 0}RBI · ${player.actual_home_runs ?? 0}HR · ${player.actual_total_bases ?? 0}TB`
+          : "Pending";
+
+        const pill = (val, lbl, style = "") =>
+          `<div class="card-stat-pill"><div class="card-stat-value" style="${style}">${val}</div><div class="card-stat-label">${lbl}</div></div>`;
+
         return `
-                <div class="lineup-row">
-                  <div class="lineup-main">
-                    <div class="lineup-title">${escapeHtml(player.lineup_slot ?? "-")} · ${escapeHtml(player.player_name || "Player")}</div>
-                    <div class="lineup-meta">${escapeHtml([player.position || "-", player.bats ? `${player.bats}HB` : "Bats -", player.opponent ? `vs ${player.opponent}` : "Opp TBD"].join(" | "))}</div>
-                    <div class="lineup-meta">${escapeHtml(`${playerLineupStateMeta(player).label} row · Hit prob ${formatPercent(player.predicted_hit_probability)} · Season BA ${formatBattingAverage(player.batting_avg_season)} · Last 7 BA ${formatBattingAverage(player.batting_avg_last7)}`)}</div>
-                    <div class="lineup-meta">${escapeHtml(`${handMatchup.label} · ${handMatchup.detail}`)}</div>
-                    ${recentHistoryStrip(player)}
-                  </div>
+          <div class="baseball-card-row">
+            <div class="card-top">
+              <div class="player-photo-wrap">
+                <div class="player-photo-circle">
+                  ${photoUrl ? `<img src="${photoUrl}" alt="${escapeHtml(player.player_name || "")}" onerror="this.style.display='none';this.parentElement.innerHTML='${genericSvg.replace(/"/g, "&quot;")}'">` : genericSvg}
+                </div>
+                <span class="player-slot-badge">${escapeHtml(String(slot))}</span>
+              </div>
+              <div class="card-identity">
+                <div class="card-name-row">
+                  <span class="card-player-name">${escapeHtml(player.player_name || "Player")}</span>
+                  ${teamLogoUrl ? `<img class="card-team-logo" src="${teamLogoUrl}" alt="${escapeHtml(player.team || "")}" onerror="this.style.display='none'">` : ""}
                   ${lineupStatusChip(player)}
                 </div>
-              `;
+                <div class="card-pos-line">
+                  ${player.position ? `<span class="card-pos-badge">${escapeHtml(player.position)}</span>` : ""}
+                  ${player.bats ? `<span>${player.bats}HB</span>` : ""}
+                  ${pitcherName ? `<span>vs ${escapeHtml(pitcherName)}</span>` : ""}
+                </div>
+                <div class="card-bio-line" id="player-bio-${playerId}">Loading…</div>
+              </div>
+            </div>
+
+            <div class="card-stats-grid">
+              ${pill(formatPercent(player.predicted_hit_probability, 0), "Hit Prob", col(player.predicted_hit_probability, 0.55, 0.44))}
+              ${pill(formatBattingAverage(player.batting_avg_season), "Season BA", col(player.batting_avg_season, 0.28, 0.22))}
+              ${pill(formatBattingAverage(player.batting_avg_last7), "Last 7 BA", col(player.batting_avg_last7, 0.3, 0.2))}
+              ${pill(formatPercent(player.hit_rate_7), "7G Hit Rate", col(player.hit_rate_7, 0.35, 0.2))}
+              ${pill(formatPercent(player.hit_rate_30), "30G Hit Rate", col(player.hit_rate_30, 0.35, 0.2))}
+              ${pill(`${computeActiveStreak(player)}G · ${player.hit_games_last7 ?? "-"}/7`, "Streak / L7", "")}
+              ${pill(formatNumber(player.xwoba_14, 3), "xwOBA 14G", col(player.xwoba_14, 0.34, 0.29))}
+              ${pill(formatNumber(player.xba_14, 3), "xBA 14G", col(player.xba_14, 0.28, 0.22))}
+              ${pill(formatPercent(player.k_pct_14, 0), "K% 14G", colHi(player.k_pct_14, 0.25))}
+              ${pill(formatPercent(player.hard_hit_pct_14, 0), "Hard Hit%", col(player.hard_hit_pct_14, 0.4, 0.25))}
+              ${pill(hasMarket ? formatPrice(player.market_price) : player.fair_price != null ? `Fair ${formatPrice(player.fair_price)}` : "—", hasMarket ? "Market" : "Fair Price", "")}
+              ${pill(hasEdge ? formatSigned(player.edge, 3) : "—", "Edge", edgeColor)}
+              ${(() => {
+                const tb = player.total_bases;
+                if (!tb) return "";
+                const parts = [
+                  pill(
+                    formatNumber(tb.predicted_tb, 2),
+                    "Proj TB",
+                    tb.predicted_tb >= 1.8 ? "color:var(--good)" : "",
+                  ),
+                ];
+                if (tb.market_line != null)
+                  parts.push(
+                    pill(formatNumber(tb.market_line, 1), "TB Line", ""),
+                  );
+                if (tb.edge != null)
+                  parts.push(
+                    pill(
+                      formatSigned(tb.edge, 2),
+                      "TB Edge",
+                      tb.edge >= 0.3
+                        ? "color:var(--good)"
+                        : tb.edge <= -0.3
+                          ? "color:var(--bad)"
+                          : "",
+                    ),
+                  );
+                if (tb.over_probability != null)
+                  parts.push(
+                    pill(
+                      formatPercent(tb.over_probability, 0),
+                      "TB Over%",
+                      tb.over_probability >= 0.55 ? "color:var(--good)" : "",
+                    ),
+                  );
+                return parts.join("");
+              })()}
+            </div>
+
+            <div class="lineup-main">
+              <div class="lineup-meta" style="font-weight:600">${escapeHtml(`${handMatchup.label} · ${handMatchup.detail}`)}</div>
+              ${hasVsSplit ? `<div class="lineup-meta">vs ${escapeHtml(vsHandLabel)}: <span style="${vsColor}">${formatBattingAverage(vsBA)}</span> AVG in ${vsAB} AB${vsXwoba != null ? ` · ${formatNumber(vsXwoba, 3)} xwOBA` : ""}${vsHH != null ? ` · ${formatPercent(vsHH, 0)} HH%` : ""}</div>` : ""}
+              <div class="lineup-meta">Outcome: ${hasOutcome ? escapeHtml(outcomeLine) : "Pending"}</div>
+              ${recentHistoryStrip(player)}
+            </div>
+          </div>
+        `;
       }
 
       function lineupPanel(teamDetail) {
@@ -1708,10 +2549,28 @@
       }
 
       function renderLineupPanels(detail) {
+        const awayStarter = detail.starters?.away;
+        const homeStarter = detail.starters?.home;
+        // Inject opposing pitcher name so lineupPlayerRow can display it
+        (detail.teams?.away?.lineup || []).forEach((p) => {
+          p._opposing_pitcher_name = homeStarter?.pitcher_name || null;
+        });
+        (detail.teams?.home?.lineup || []).forEach((p) => {
+          p._opposing_pitcher_name = awayStarter?.pitcher_name || null;
+        });
         document.getElementById("lineupGrid").innerHTML = [
           lineupPanel(detail.teams?.away || {}),
           lineupPanel(detail.teams?.home || {}),
         ].join("");
+        // Fetch player bios (position, height, weight) after rendering
+        const awayLineup = detail.teams?.away?.lineup || [];
+        const homeLineup = detail.teams?.home?.lineup || [];
+        const playerIds = [...awayLineup, ...homeLineup]
+          .map((p) => String(p.player_id || ""))
+          .filter(Boolean);
+        if (playerIds.length) {
+          fetchAndPopulatePlayerBios(playerIds);
+        }
       }
 
       function windDirectionLabel(degrees) {
@@ -1751,7 +2610,8 @@
           numberOr(first5.predicted_total_runs),
         );
         const market = numberOr(first5.market_total);
-        const edge = predicted != null && market != null ? predicted - market : null;
+        const edge =
+          predicted != null && market != null ? predicted - market : null;
         const awayExp = numberOr(first5.away_expected_runs);
         const homeExp = numberOr(first5.home_expected_runs);
         const side = first5.recommended_side || "-";
@@ -1772,6 +2632,77 @@
             <div class="data-copy">${numberOr(first5.actual_total_runs) != null ? `Actual: ${formatNumber(first5.actual_total_runs, 0)} runs` : "Waiting for game result"}</div>
           </article>
         `;
+      }
+
+      function renderMarketsSection(detail) {
+        const section = document.getElementById("marketsSection");
+        const grid = document.getElementById("marketsGrid");
+        const summary = document.getElementById("marketsSummary");
+        const lead = document.getElementById("marketsLead");
+        const cards = Array.isArray(detail?.market_cards)
+          ? detail.market_cards
+          : [];
+        const bestBets = Array.isArray(detail?.best_bets)
+          ? detail.best_bets
+          : [];
+        if (!cards.length) {
+          section.style.display = "none";
+          grid.innerHTML = "";
+          summary.textContent =
+            "No market cards are available for this matchup.";
+          lead.innerHTML = "";
+          return;
+        }
+        section.style.display = "";
+        summary.textContent = `${bestBets.length} positive EV market${bestBets.length === 1 ? "" : "s"} after no-vig and certainty weighting`;
+        lead.innerHTML = bestBets.length
+          ? bestBets
+              .slice(0, 3)
+              .map(
+                (bet) =>
+                  `<span class="market-badge good">${escapeHtml(bet.selection_label || bet.market_label || "Best Bet")}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""}</span>`,
+              )
+              .join("")
+          : `<span class="market-badge">No positive EV picks yet</span>`;
+        grid.innerHTML = cards
+          .map((card) => {
+            const toneClass = card.positive ? "positive" : "";
+            const badge = card.positive
+              ? `<span class="market-badge good">Positive EV</span>`
+              : `<span class="market-badge">Watchlist</span>`;
+            const selectionText = card.selection_label
+              ? `${escapeHtml(card.selection_label)}${card.price != null ? ` ${formatPrice(card.price)}` : ""}`
+              : "No positive edge yet";
+            const metricParts = [];
+            if (card.weighted_ev != null) {
+              metricParts.push(
+                `EV ${formatSigned(card.weighted_ev * 100, 1)}%`,
+              );
+            }
+            if (card.probability_edge != null) {
+              metricParts.push(
+                `No-vig ${formatSigned(card.probability_edge * 100, 1)} pts`,
+              );
+            }
+            if (card.certainty_weight != null) {
+              metricParts.push(
+                `Cert ${formatPercent(card.certainty_weight, 0)}`,
+              );
+            }
+            return `
+              <article class="market-card ${toneClass}">
+                <div class="market-card-head">
+                  <div class="data-label">${escapeHtml(card.market_label || "Market")}</div>
+                  ${badge}
+                </div>
+                <div class="market-card-title">${selectionText}</div>
+                <div class="market-card-copy">${escapeHtml(card.market_summary || "Market snapshot pending")}</div>
+                <div class="market-card-copy">${escapeHtml(card.model_summary || "Model context pending")}</div>
+                <div class="market-card-meta">${metricParts.join(" · ") || "Model edge unavailable"}${card.sportsbook ? ` · ${escapeHtml(card.sportsbook)}` : ""}</div>
+              </article>
+            `;
+          })
+          .join("");
       }
 
       function renderPitcherChart(starter, teamName) {
@@ -1917,19 +2848,131 @@
         const awayLineup = detail.teams?.away?.lineup || [];
         const homeLineup = detail.teams?.home?.lineup || [];
 
-        const predicted = numberOr(
-          totals.predicted_total_fundamentals,
-          numberOr(totals.predicted_total_runs),
-        );
+        const predicted = displayedTotalPrediction(totals);
+        const rawPredicted = rawTotalPrediction(totals);
         const market = numberOr(totals.market_total);
-        const edge = predicted != null && market != null ? predicted - market : null;
+        const awayExpected = numberOr(totals.away_expected_runs);
+        const homeExpected = numberOr(totals.home_expected_runs);
+        const edge =
+          predicted != null && market != null ? predicted - market : null;
+
+        function addSignal(signal) {
+          if (!signal?.category || !signal?.copy) return;
+          signals.push({
+            ...signal,
+            theme: signal.theme || inferSignalTheme(signal),
+          });
+        }
+
+        function inferSignalTheme(signal) {
+          const category = String(signal?.category || "").toLowerCase();
+          if (
+            category.includes("dominance") ||
+            category.includes("vulnerability") ||
+            category.includes("k upside") ||
+            category.includes("workload") ||
+            category.includes("short outings") ||
+            category.includes("matchup fit") ||
+            category.includes("contact test")
+          ) {
+            return "pitching";
+          }
+          if (category.includes("bullpen")) return "bullpen";
+          if (
+            category.includes("offense") ||
+            category.includes("top order") ||
+            category.includes("hitters")
+          ) {
+            return "hitters";
+          }
+          if (
+            category.includes("weather") ||
+            category.includes("wind") ||
+            category.includes("park")
+          ) {
+            return "environment";
+          }
+          if (category.includes("line movement")) return "market";
+          if (category.includes("first 5")) return "first5";
+          return "totals";
+        }
+
+        function selectDiverseSignals(signalList, limit) {
+          const preferredThemes = [
+            "pitching",
+            "hitters",
+            "bullpen",
+            "totals",
+            "market",
+            "environment",
+            "first5",
+          ];
+          const chosen = [];
+          const used = new Set();
+
+          for (const theme of preferredThemes) {
+            const match = signalList.find(
+              (signal, index) => !used.has(index) && signal.theme === theme,
+            );
+            if (!match) continue;
+            const matchIndex = signalList.indexOf(match);
+            used.add(matchIndex);
+            chosen.push(match);
+            if (chosen.length >= limit) return chosen;
+          }
+
+          signalList.forEach((signal, index) => {
+            if (chosen.length >= limit || used.has(index)) return;
+            used.add(index);
+            chosen.push(signal);
+          });
+
+          return chosen;
+        }
+
+        function signalPlayerNames(lineup, tone, limit = 2) {
+          return lineup
+            .filter((player) => playerFormTone(player) === tone)
+            .sort((left, right) => {
+              const leftSlot = numberOr(left.lineup_slot, 99) ?? 99;
+              const rightSlot = numberOr(right.lineup_slot, 99) ?? 99;
+              return leftSlot - rightSlot;
+            })
+            .slice(0, limit)
+            .map((player) => {
+              const name = String(
+                player.player_name || player.name || "",
+              ).trim();
+              if (!name) return null;
+              const parts = name.split(/\s+/);
+              return parts[parts.length - 1] || name;
+            })
+            .filter(Boolean)
+            .join(" / ");
+        }
 
         // --- TOTALS LEAN ---
         if (predicted != null && market != null && edge != null) {
           const side = edge > 0 ? "over" : edge < 0 ? "under" : "neutral";
           const strength =
             Math.abs(edge) >= 1.5 ? 3 : Math.abs(edge) >= 0.5 ? 2 : 1;
-          signals.push({
+          const contextBits = [];
+          if (awayExpected != null && homeExpected != null) {
+            contextBits.push(
+              `${detail.away_team} ${formatNumber(awayExpected, 1)} / ${detail.home_team} ${formatNumber(homeExpected, 1)} expected runs`,
+            );
+          }
+          if (
+            rawPredicted != null &&
+            Math.abs(rawPredicted - predicted) >= 0.05
+          ) {
+            contextBits.push(`raw model ${formatNumber(rawPredicted, 2)}`);
+          }
+          const edgeLead =
+            Math.abs(edge) < 0.35
+              ? `Decision total is ${formatNumber(predicted, 2)} vs market line ${formatNumber(market, 1)}. This is a thinner ${side.toUpperCase()} lean, so it should read more like a nudge from the current inputs than a hard call.`
+              : `Decision total is ${formatNumber(predicted, 2)} vs market line ${formatNumber(market, 1)}. Current inputs put the model ${formatNumber(Math.abs(edge), 2)} runs ${side === "over" ? "above" : "below"} the number.`;
+          addSignal({
             direction: side,
             strength,
             category: "Totals Edge",
@@ -1939,8 +2982,38 @@
                 : side === "under"
                   ? "\u2B07"
                   : "\u2194",
-            copy: `Model projects ${formatNumber(predicted, 2)} total runs vs market line of ${formatNumber(market, 1)}. Edge of ${formatNumber(Math.abs(edge), 2)} leans ${side.toUpperCase()}.`,
+            copy: `${edgeLead}${contextBits.length ? ` ${contextBits.join(" · ")}.` : ""} It is a summary of the current data, not proof the prediction will be right.`,
           });
+          if (Math.abs(edge) <= 0.35) {
+            addSignal({
+              direction: "neutral",
+              strength: 2,
+              category: "Fragile Lean",
+              icon: "\u26A1",
+              copy: `Because the model-market gap is small, one lineup scratch, weather update, or bullpen usage change could flip the lean. This is exactly the kind of spot where the prediction can be more wrong than usual.`,
+            });
+          }
+        }
+
+        if (awayExpected != null && homeExpected != null) {
+          const totalExpected = awayExpected + homeExpected;
+          if (totalExpected >= 9.0) {
+            addSignal({
+              direction: "over",
+              strength: totalExpected >= 9.8 ? 3 : 2,
+              category: "Run Environment",
+              icon: "\u{1F4CA}",
+              copy: `Team run context lands around ${formatNumber(totalExpected, 2)} combined runs (${detail.away_team} ${formatNumber(awayExpected, 1)} / ${detail.home_team} ${formatNumber(homeExpected, 1)}). That is one reason the model keeps seeing offense, even if the game can still play tighter in reality.`,
+            });
+          } else if (totalExpected <= 8.0) {
+            addSignal({
+              direction: "under",
+              strength: totalExpected <= 7.2 ? 3 : 2,
+              category: "Run Environment",
+              icon: "\u{1F4CA}",
+              copy: `Team run context lands around ${formatNumber(totalExpected, 2)} combined runs (${detail.away_team} ${formatNumber(awayExpected, 1)} / ${detail.home_team} ${formatNumber(homeExpected, 1)}). That supports the lower-scoring case, though one bad inning can still break it open.`,
+            });
+          }
         }
 
         // --- TEAM OFFENSE (both sides) ---
@@ -1952,22 +3025,69 @@
           const xwoba = numberOr(offense.xwoba);
           if (rpg != null) {
             if (rpg >= 5.5) {
-              signals.push({
+              const pressureBits = [];
+              if (xwoba != null) {
+                pressureBits.push(`team xwOBA is ${formatNumber(xwoba, 3)}`);
+              }
+              if (rpg >= 6.5) {
+                pressureBits.push(
+                  "recent scoring pressure is forcing pitchers to work from behind",
+                );
+              }
+              addSignal({
                 direction: "over",
                 strength: rpg >= 7 ? 3 : 2,
                 category: `${team} Offense`,
                 icon: "\u{1F525}",
-                copy: `${team} is scoring ${formatNumber(rpg, 1)} runs/game over their last 7${xwoba != null ? ` with a ${formatNumber(xwoba, 3)} team xwOBA` : ""}. Offense is rolling.`,
+                copy: `${team} is scoring ${formatNumber(rpg, 1)} runs/game over the last 7${pressureBits.length ? ` and ${pressureBits.join(" · ")}` : ""}. That is one offense-side reason the model is leaning up, even though recent scoring form can cool fast.`,
               });
             } else if (rpg <= 2.5) {
-              signals.push({
+              const dragBits = [];
+              if (xwoba != null) {
+                dragBits.push(`team xwOBA is only ${formatNumber(xwoba, 3)}`);
+                dragBits.push("contact quality has been weak lately");
+              } else {
+                dragBits.push("recent run production has been light lately");
+              }
+              addSignal({
                 direction: "under",
                 strength: rpg <= 1.5 ? 3 : 2,
                 category: `${team} Offense`,
                 icon: "\u{1F9CA}",
-                copy: `${team} is scoring only ${formatNumber(rpg, 1)} runs/game over their last 7${xwoba != null ? ` with a low ${formatNumber(xwoba, 3)} xwOBA` : ""}. Bats have gone quiet.`,
+                copy: `${team} is scoring only ${formatNumber(rpg, 1)} runs/game over the last 7${dragBits.length ? ` and ${dragBits.join(" · ")}` : ""}. That is one input supporting a lower total, but it can get overturned if the starting or relief pitching cracks.`,
               });
             }
+          }
+        }
+
+        for (const [team, top5Xwoba, lineupK] of [
+          [
+            detail.away_team,
+            numberOr(totals.away_lineup_top5_xwoba),
+            numberOr(totals.away_lineup_k_pct, totals.away_k_pct_blended),
+          ],
+          [
+            detail.home_team,
+            numberOr(totals.home_lineup_top5_xwoba),
+            numberOr(totals.home_lineup_k_pct, totals.home_k_pct_blended),
+          ],
+        ]) {
+          if (top5Xwoba != null && top5Xwoba >= 0.34) {
+            addSignal({
+              direction: "over",
+              strength: top5Xwoba >= 0.355 ? 3 : 2,
+              category: `${team} Top Order`,
+              icon: "\u{1F3CF}",
+              copy: `${team}'s top five bats carry a ${formatNumber(top5Xwoba, 3)} xwOBA${lineupK != null ? ` with ${formatPercent(lineupK, 0)} lineup K%` : ""}. That is more about the shape of the lineup than the total itself: this order has enough quality contact to test a starter even without a huge projected run number.`,
+            });
+          } else if (top5Xwoba != null && top5Xwoba <= 0.305) {
+            addSignal({
+              direction: "under",
+              strength: top5Xwoba <= 0.29 ? 3 : 2,
+              category: `${team} Top Order`,
+              icon: "\u{1F3CF}",
+              copy: `${team}'s top five bats are only at ${formatNumber(top5Xwoba, 3)} xwOBA${lineupK != null ? ` with ${formatPercent(lineupK, 0)} lineup K%` : ""}. That points to a softer middle of the lineup and gives the opposing starter a better chance to work clean innings.`,
+            });
           }
         }
 
@@ -1983,40 +3103,112 @@
           const avgK = numberOr(recentForm.avg_strikeouts);
           const xwoba = numberOr(starter.xwoba_against);
           const csw = numberOr(starter.csw_pct);
+          const opponentK = numberOr(facing?.k_pct);
 
           // Dominant starter = under signal
           if (xwoba != null && xwoba <= 0.28) {
-            signals.push({
+            const dominanceBits = [];
+            if (csw != null) {
+              dominanceBits.push(`CSW ${formatPercent(csw)}`);
+            }
+            if (avgIp != null) {
+              dominanceBits.push(
+                `working ${formatNumber(avgIp, 1)} IP per start`,
+              );
+            }
+            if (avgK != null) {
+              dominanceBits.push(`${formatNumber(avgK, 1)} K/start`);
+            }
+            addSignal({
               direction: "under",
               strength: xwoba <= 0.25 ? 3 : 2,
               category: `${name} Dominance`,
               icon: "\u{1F3AF}",
-              copy: `${name} has a ${formatNumber(xwoba, 3)} xwOBA against — elite production suppression.${avgIp != null ? ` Averaging ${formatNumber(avgIp, 1)} IP` : ""}${avgK != null ? ` and ${formatNumber(avgK, 1)} K per start` : ""}.`,
+              copy: `${name} is suppressing contact at a ${formatNumber(xwoba, 3)} xwOBA allowed${dominanceBits.length ? ` with ${dominanceBits.join(" · ")}` : ""}. That is one of the cleaner under-style inputs, although dominant starters can still lose the zone or get lifted early.`,
             });
           }
           // Hittable starter = over signal
           if (xwoba != null && xwoba >= 0.34) {
-            signals.push({
+            const vulnerabilityBits = [];
+            if (csw != null && csw < 0.28) {
+              vulnerabilityBits.push(`CSW is only ${formatPercent(csw)}`);
+            }
+            if (avgIp != null && avgIp <= 5.0) {
+              vulnerabilityBits.push(
+                `recent outings are only ${formatNumber(avgIp, 1)} IP`,
+              );
+            }
+            if (opponentK != null && opponentK <= 0.2) {
+              vulnerabilityBits.push(
+                `${opponent} do not give away many strikeouts`,
+              );
+            }
+            addSignal({
               direction: "over",
               strength: xwoba >= 0.38 ? 3 : 2,
               category: `${name} Vulnerability`,
               icon: "\u26A0",
-              copy: `${name} has a ${formatNumber(xwoba, 3)} xwOBA against — hitters are making hard contact.${csw != null && csw < 0.28 ? ` CSW just ${formatPercent(csw)} suggests lack of swing-and-miss.` : ""}`,
+              copy: `${name} is allowing a ${formatNumber(xwoba, 3)} xwOBA against${vulnerabilityBits.length ? ` and ${vulnerabilityBits.join(" · ")}` : ""}. That is one reason the model leans toward offense, but it should still read as a risk signal instead of a promise of a blow-up.`,
             });
+          }
+
+          if (avgIp != null) {
+            if (avgIp <= 4.8) {
+              addSignal({
+                direction: "over",
+                strength: avgIp <= 4.3 ? 3 : 2,
+                category: `${name} Short Outings`,
+                icon: "\u23F1",
+                copy: `${name} has only been averaging ${formatNumber(avgIp, 1)} innings recently. That can push more of the game into the bullpen and create extra ways for the total to drift away from the starter matchup.`,
+              });
+            } else if (avgIp >= 6.1) {
+              addSignal({
+                direction: "under",
+                strength: avgIp >= 6.6 ? 3 : 2,
+                category: `${name} Workload`,
+                icon: "\u23F1",
+                copy: `${name} has been averaging ${formatNumber(avgIp, 1)} innings recently. That gives the model a little more reason to trust the starter carrying the game deeper before the bullpen takes over.`,
+              });
+            }
           }
 
           // High-K pitcher vs high-K lineup
           if (avgK != null && avgK >= 7) {
-            const oppKpct = numberOr(facing?.k_pct);
-            if (oppKpct != null && oppKpct >= 0.24) {
-              signals.push({
+            if (opponentK != null && opponentK >= 0.24) {
+              addSignal({
                 direction: "neutral",
                 strength: 2,
                 category: `${name} K Upside`,
                 icon: "\u{1F4A8}",
-                copy: `${name} averages ${formatNumber(avgK, 1)} K/start and faces ${opponent} who strike out at a ${formatPercent(oppKpct, 0)} rate. High K environment.`,
+                copy: `${name} averages ${formatNumber(avgK, 1)} K/start and faces ${opponent}, whose projected swing-and-miss rate is ${formatPercent(opponentK, 0)}. It is a pitcher-shape signal first: this matchup gives him room to win plate appearances even if the final run environment stays noisy.`,
+                theme: "pitching",
               });
             }
+          } else if (opponentK != null && opponentK <= 0.19) {
+            addSignal({
+              direction: "neutral",
+              strength: 1,
+              category: `${name} Contact Test`,
+              icon: "\u2694",
+              copy: `${opponent} projects as a lower-whiff lineup at ${formatPercent(opponentK, 0)} K%. That puts more pressure on ${name} to win on command and contact management rather than simply missing bats.`,
+              theme: "pitching",
+            });
+          }
+
+          if (
+            opponentK != null &&
+            avgK != null &&
+            opponentK >= 0.25 &&
+            avgK >= 6.5
+          ) {
+            addSignal({
+              direction: "neutral",
+              strength: 2,
+              category: `${name} Matchup Fit`,
+              icon: "\u{1F9E9}",
+              copy: `${name}'s recent strikeout form (${formatNumber(avgK, 1)} K/start) lines up with a whiff-prone ${opponent} lineup (${formatPercent(opponentK, 0)} K%). That gives this starter a cleaner path to controlling plate appearances than the raw total alone suggests.`,
+              theme: "pitching",
+            });
           }
         }
 
@@ -2033,6 +3225,9 @@
             totals[`${side}_bullpen_earned_runs_last3`],
           );
           const lateEra = numberOr(totals[`${side}_bullpen_late_era_last3`]);
+          const lateSeasonEra = numberOr(
+            totals[`${side}_bullpen_late_season_era`],
+          );
           const lateInnings = numberOr(
             totals[`${side}_bullpen_late_innings_last3`],
           );
@@ -2045,28 +3240,41 @@
             lateInnings >= 3 &&
             lateEra >= 5.0
           ) {
-            signals.push({
+            addSignal({
               direction: "over",
               strength: lateEra >= 7 ? 3 : 2,
               category: `${team} Late Bullpen`,
               icon: "\u{1F6A8}",
-              copy: `${team} bullpen has allowed ${formatNumber(lateEarnedRuns, 0)} ER in ${formatNumber(lateInnings, 1)} IP across innings 7+ over the last 3 bullpen days (${formatNumber(lateEra, 2)} ERA). Late-game prevention is under stress.`,
+              copy: `${team}'s relievers have given up ${formatNumber(lateEarnedRuns, 0)} earned runs in ${formatNumber(lateInnings, 1)} innings from the 7th inning on over their last 3 bullpen games (${formatNumber(lateEra, 2)} ERA${lateSeasonEra != null ? ` vs ${formatNumber(lateSeasonEra, 2)} for the season in those late innings` : ""}). In plain terms: if this game is close late, that bullpen has recently been more likely to give up extra runs.`,
             });
           } else if (era != null && era >= 5.0) {
-            signals.push({
+            addSignal({
               direction: "over",
               strength: era >= 7 ? 3 : 2,
               category: `${team} Bullpen`,
               icon: "\u{1F6A8}",
-              copy: `${team} bullpen logged ${formatNumber(earnedRuns, 0)} ER in ${formatNumber(innings, 1)} IP over the last 3 bullpen days (${formatNumber(era, 2)} ERA)${b2b ? " and is working back-to-back" : ""}${pitches != null ? ` on ${formatNumber(pitches, 0)} pitches` : ""}. Relief corps under stress.`,
+              copy: `${team} bullpen logged ${formatNumber(earnedRuns, 0)} ER in ${formatNumber(innings, 1)} IP over the last 3 bullpen days (${formatNumber(era, 2)} ERA)${b2b ? " and is working back-to-back" : ""}${pitches != null ? ` on ${formatNumber(pitches, 0)} pitches` : ""}. The model reads that as late-scoring risk, but relief volatility is also one of the noisier parts of any total prediction.`,
             });
           } else if (b2b && pitches != null && pitches >= 60) {
-            signals.push({
+            addSignal({
               direction: "over",
               strength: 1,
               category: `${team} Bullpen Load`,
               icon: "\u{1F4AA}",
-              copy: `${team} bullpen is back-to-back with ${formatNumber(pitches, 0)} pitches over the last 3 bullpen days. Fatigue could expand scoring late.`,
+              copy: `${team} bullpen is back-to-back with ${formatNumber(pitches, 0)} pitches over the last 3 bullpen days. That is more of a warning flag than a direct scoring forecast, but it matters if the starter exits on schedule.`,
+            });
+          } else if (
+            lateEra != null &&
+            lateInnings != null &&
+            lateInnings >= 3 &&
+            lateEra <= 3.5
+          ) {
+            addSignal({
+              direction: "under",
+              strength: lateEra <= 2.8 ? 3 : 2,
+              category: `${team} Bullpen Stability`,
+              icon: "\u2714",
+              copy: `${team}'s bullpen has been steadier from the 7th inning on, with a ${formatNumber(lateEra, 2)} ERA in recent late-game work. That gives the model a little more reason to believe the late innings may stay under control.`,
             });
           }
         }
@@ -2075,52 +3283,53 @@
         const temp = numberOr(weather.temperature_f);
         if (temp != null) {
           if (temp >= 82) {
-            signals.push({
+            addSignal({
               direction: "over",
               strength: temp >= 90 ? 3 : 2,
               category: "Hot Weather",
               icon: "\u2600",
-              copy: `Game-time temperature is ${formatNumber(temp, 0)}°F. Heat boosts ball carry and run scoring historically.`,
+              copy: `Game-time temperature is ${formatNumber(temp, 0)}°F${venue.roof_type ? ` with a ${venue.roof_type.toLowerCase()} roof setup` : ""}. Warm air can help carry, so it is one environment nudge toward offense rather than a stand-alone reason to trust the over.`,
             });
           } else if (temp <= 55) {
-            signals.push({
+            addSignal({
               direction: "under",
               strength: temp <= 45 ? 3 : 2,
               category: "Cold Weather",
               icon: "\u{1F976}",
-              copy: `Game-time temperature is ${formatNumber(temp, 0)}°F. Cold suppresses ball carry and typically lowers scoring.`,
+              copy: `Game-time temperature is ${formatNumber(temp, 0)}°F${venue.roof_type ? ` with a ${venue.roof_type.toLowerCase()} roof setup` : ""}. Cooler air can trim carry, so it acts more like a supporting under input than something strong enough to trust by itself.`,
             });
           }
         }
         const windSpeed = numberOr(weather.wind_speed_mph);
         if (windSpeed != null && windSpeed >= 14) {
-          signals.push({
+          addSignal({
             direction: "neutral",
             strength: windSpeed >= 20 ? 2 : 1,
             category: "Wind Factor",
             icon: "\u{1F32C}",
-            copy: `Wind at ${formatNumber(windSpeed, 0)} mph ${windDirectionLabel(weather.wind_direction_deg)}. Strong wind can affect fly ball outcomes in either direction.`,
+            copy: `Wind is ${formatNumber(windSpeed, 0)} mph ${windDirectionLabel(weather.wind_direction_deg)}. That makes the run environment less stable, which is useful context but also a reminder that weather can make the model more wrong than usual.`,
           });
         }
 
         // --- PARK FACTOR ---
         const parkFactor = numberOr(totals.venue_run_factor);
+        const hrFactor = numberOr(totals.venue_hr_factor);
         if (parkFactor != null) {
           if (parkFactor >= 1.08) {
-            signals.push({
+            addSignal({
               direction: "over",
               strength: parkFactor >= 1.15 ? 3 : 2,
               category: "Hitter-Friendly Park",
               icon: "\u{1F3DF}",
-              copy: `${escapeHtml(venue.name || "This venue")} has a ${formatNumber(parkFactor, 2)} run factor — runs come easier here than a neutral park.`,
+              copy: `${escapeHtml(venue.name || "This venue")} carries a ${formatNumber(parkFactor, 2)} run factor${hrFactor != null ? ` and ${formatNumber(hrFactor, 2)} HR factor` : ""}. That gives the model another offense-friendly input, though park effects are still only one part of the game shape.`,
             });
           } else if (parkFactor <= 0.92) {
-            signals.push({
+            addSignal({
               direction: "under",
               strength: parkFactor <= 0.85 ? 3 : 2,
               category: "Pitcher-Friendly Park",
               icon: "\u{1F3DF}",
-              copy: `${escapeHtml(venue.name || "This venue")} has a ${formatNumber(parkFactor, 2)} run factor — scoring is suppressed here.`,
+              copy: `${escapeHtml(venue.name || "This venue")} carries only a ${formatNumber(parkFactor, 2)} run factor${hrFactor != null ? ` with ${formatNumber(hrFactor, 2)} HR support` : ""}. That is part of the lower-scoring case, but it does not stop strong lineups from outrunning the park.`,
             });
           }
         }
@@ -2136,22 +3345,32 @@
           const coldCount = lineup.filter(
             (p) => playerFormTone(p) === "cold",
           ).length;
+          const topOrderHot = lineup.filter((p) => {
+            const slot = numberOr(p.lineup_slot);
+            return slot != null && slot <= 5 && playerFormTone(p) === "hot";
+          }).length;
+          const topOrderCold = lineup.filter((p) => {
+            const slot = numberOr(p.lineup_slot);
+            return slot != null && slot <= 5 && playerFormTone(p) === "cold";
+          }).length;
+          const hotNames = signalPlayerNames(lineup, "hot");
+          const coldNames = signalPlayerNames(lineup, "cold");
           if (hotCount >= 3) {
-            signals.push({
+            addSignal({
               direction: "over",
               strength: hotCount >= 5 ? 3 : 2,
               category: `${team} Hitters Hot`,
               icon: "\u{1F525}",
-              copy: `${hotCount} hitters in ${team}'s lineup are running hot (elevated hit rates, xwOBA, or streaks). Lineup depth is clicking.`,
+              copy: `${hotCount} hitters in ${team}'s lineup are running hot${topOrderHot >= 2 ? `, including ${topOrderHot} in the top five spots` : ""}${hotNames ? ` led by ${hotNames}` : ""}. This is useful hitter-form context on its own, not just a total-runs note, even though hot streaks can cool off quickly.`,
             });
           }
           if (coldCount >= 3) {
-            signals.push({
+            addSignal({
               direction: "under",
               strength: coldCount >= 5 ? 3 : 2,
               category: `${team} Hitters Cold`,
               icon: "\u{1F9CA}",
-              copy: `${coldCount} hitters in ${team}'s lineup are cold (low hit rates or xwOBA). Lineup has significant dead spots.`,
+              copy: `${coldCount} hitters in ${team}'s lineup are cold${topOrderCold >= 2 ? `, with ${topOrderCold} of those spots in the top five` : ""}${coldNames ? ` including ${coldNames}` : ""}. That says as much about current hitter form as it does about the total, and it can reverse fast if the opposing pitcher loses location.`,
             });
           }
         }
@@ -2163,7 +3382,10 @@
             numberOr(first5.predicted_total_runs),
           );
           const f5market = numberOr(first5.market_total);
-          const f5edge = f5predicted != null && f5market != null ? f5predicted - f5market : null;
+          const f5edge =
+            f5predicted != null && f5market != null
+              ? f5predicted - f5market
+              : null;
           const awayExp = numberOr(first5.away_expected_runs);
           const homeExp = numberOr(first5.home_expected_runs);
           if (
@@ -2173,12 +3395,12 @@
             Math.abs(f5edge) >= 0.3
           ) {
             const f5side = f5edge > 0 ? "over" : "under";
-            signals.push({
+            addSignal({
               direction: f5side,
               strength: Math.abs(f5edge) >= 1.0 ? 3 : 2,
               category: "First 5 Edge",
               icon: "\u{1F551}",
-              copy: `First 5 model projects ${formatNumber(f5predicted, 2)} vs market ${formatNumber(f5market, 1)}. Starter matchup drives a ${f5side} lean before bullpens enter.`,
+              copy: `First 5 model projects ${formatNumber(f5predicted, 2)} vs market ${formatNumber(f5market, 1)}. This ${f5side.toUpperCase()} lean is mostly a starter-shape read before bullpen volatility shows up, so it can be fragile if either starter is on an unusual pitch plan.`,
             });
           } else if (awayExp != null && homeExp != null) {
             const splitTotal = awayExp + homeExp;
@@ -2188,12 +3410,12 @@
               Math.abs(splitTotal - total5) <= 0.35 &&
               total5 >= 5.5
             ) {
-              signals.push({
+              addSignal({
                 direction: "over",
                 strength: 1,
                 category: "First 5 Scoring",
                 icon: "\u{1F551}",
-                copy: `Expected ${formatNumber(total5, 1)} runs in the first 5 innings (${detail.away_team} ${formatNumber(awayExp, 1)} / ${detail.home_team} ${formatNumber(homeExp, 1)}). Starter matchup favors early scoring.`,
+                copy: `Expected ${formatNumber(total5, 1)} runs in the first 5 innings (${detail.away_team} ${formatNumber(awayExp, 1)} / ${detail.home_team} ${formatNumber(homeExp, 1)}). That gives the model an early-scoring path, though first-five reads can miss if one starter looks sharper than recent form suggests.`,
               });
             }
           }
@@ -2203,12 +3425,12 @@
         const lineMove = numberOr(totals.line_movement);
         if (lineMove != null && Math.abs(lineMove) >= 0.5) {
           const moveDir = lineMove > 0 ? "over" : "under";
-          signals.push({
+          addSignal({
             direction: moveDir,
             strength: Math.abs(lineMove) >= 1.0 ? 2 : 1,
             category: "Line Movement",
             icon: "\u{1F4C8}",
-            copy: `Market line has moved ${formatNumber(Math.abs(lineMove), 1)} toward the ${moveDir}. Sharp money or late information may be driving this shift.`,
+            copy: `Market line has moved ${formatNumber(Math.abs(lineMove), 1)} toward the ${moveDir}. That can mean sharper opinion or late information is leaning that way, but it should not be treated like proof the prediction itself is correct.`,
           });
         }
 
@@ -2219,7 +3441,7 @@
           return (dirOrder[a.direction] ?? 2) - (dirOrder[b.direction] ?? 2);
         });
 
-        return signals;
+        return selectDiverseSignals(signals, MAX_PICK_SIGNAL_CARDS);
       }
 
       function renderPickSignals(detail) {
@@ -2282,6 +3504,14 @@
           const pvt = data.pitcher_vs_team || [];
           const platoon = data.platoon_splits || [];
           const h2h = data.head_to_head || {};
+          pageState.pitcherVsTeam = Object.fromEntries(
+            pvt
+              .filter((row) => row?.pitcher_id != null)
+              .map((row) => [String(row.pitcher_id), row]),
+          );
+          if (pageState.detail) {
+            renderStarterCards(pageState.detail);
+          }
           if (
             !bvp.length &&
             !pvt.length &&
@@ -2572,44 +3802,138 @@
         const actual = detail.actual_result || {};
         const weather = detail.weather || {};
         const venue = detail.venue || {};
-        document.getElementById("heroEyebrow").textContent =
-          `${formatDateTime(detail.game_start_ts)} · ${detail.status || "Status pending"}`;
-        document.getElementById("heroTitle").textContent =
-          `${detail.away_team} at ${detail.home_team}`;
-        document.getElementById("heroCopy").textContent =
-          `This page keeps the full matchup context in one place: totals prediction, starters, venue/weather, and lineup detail with batting-order slots plus recent hit history, total bases, and home runs.`;
-        document.getElementById("statusValue").textContent = actual.is_final
-          ? `${actual.total_runs ?? "-"} runs`
-          : String(detail.status || "Pending");
-        document.getElementById("statusCopy").textContent = actual.is_final
-          ? `${detail.away_team} ${actual.away_runs ?? "-"}, ${detail.home_team} ${actual.home_runs ?? "-"}`
-          : "Game outcome pending";
-        document.getElementById("venueValue").textContent = escapeHtml(
-          venue.name || "Venue TBD",
+
+        // ── Scoreboard hero ──────────────────────────────────
+        const awayLogoUrl = mlbTeamLogoUrl(detail.away_team);
+        const homeLogoUrl = mlbTeamLogoUrl(detail.home_team);
+        const awayLogoEl = document.getElementById("ghsAwayLogo");
+        const homeLogoEl = document.getElementById("ghsHomeLogo");
+        if (awayLogoUrl) {
+          awayLogoEl.style.display = "";
+          awayLogoEl.src = awayLogoUrl;
+          awayLogoEl.alt = detail.away_team || "";
+        } else {
+          awayLogoEl.removeAttribute("src");
+          awayLogoEl.alt = "";
+          awayLogoEl.style.display = "none";
+        }
+        if (homeLogoUrl) {
+          homeLogoEl.style.display = "";
+          homeLogoEl.src = homeLogoUrl;
+          homeLogoEl.alt = detail.home_team || "";
+        } else {
+          homeLogoEl.removeAttribute("src");
+          homeLogoEl.alt = "";
+          homeLogoEl.style.display = "none";
+        }
+        document.getElementById("ghsAwayAbbr").textContent =
+          detail.away_team || "—";
+        document.getElementById("ghsHomeAbbr").textContent =
+          detail.home_team || "—";
+        if (actual.is_final) {
+          document.getElementById("ghsAwayScore").textContent =
+            actual.away_runs ?? "—";
+          document.getElementById("ghsHomeScore").textContent =
+            actual.home_runs ?? "—";
+          const chip = document.getElementById("ghsStatusChip");
+          chip.textContent = "Final";
+          chip.classList.add("final");
+        } else {
+          document.getElementById("ghsStatusChip").textContent =
+            detail.status || "Scheduled";
+        }
+        document.getElementById("ghsTime").textContent = formatDateTime(
+          detail.game_start_ts,
         );
-        document.getElementById("venueCopy").textContent =
-          `${formatDateTime(detail.game_start_ts)} · ${[venue.city, venue.state].filter(Boolean).join(", ") || "Location pending"}`;
-        const statsPred = numberOr(totals.predicted_total_fundamentals, numberOr(totals.predicted_total_runs));
-        const statsEdgeVal = statsPred != null && numberOr(totals.market_total) != null ? statsPred - numberOr(totals.market_total) : null;
+        const venueParts = [
+          venue.name,
+          [venue.city, venue.state].filter(Boolean).join(", "),
+        ].filter(Boolean);
+        document.getElementById("ghsVenue").textContent =
+          venueParts.join(" · ") || "Venue TBD";
+        // Umpire
+        const ump = detail.umpire;
+        if (ump && ump.umpire_name) {
+          document.getElementById("ghsUmpire").style.display = "";
+          document.getElementById("ghsUmpireName").textContent =
+            ump.umpire_name;
+        }
+        // Supplemental markets row
+        const sm = detail.supplemental_markets || {};
+        const smPills = [];
+        if (Array.isArray(detail.best_bets) && detail.best_bets.length) {
+          smPills.push(
+            ...detail.best_bets
+              .slice(0, 2)
+              .map(
+                (bet) =>
+                  `<span class="chip good">${escapeHtml(bet.selection_label || bet.market_label || "Best Bet")}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""}</span>`,
+              ),
+          );
+        }
+        const ml = sm["moneyline"];
+        if (ml && (ml.over_price != null || ml.under_price != null)) {
+          smPills.push(
+            `<span class="chip">${escapeHtml(detail.away_team)} ${ml.under_price != null ? formatPrice(ml.under_price) : "–"} · ${escapeHtml(detail.home_team)} ${ml.over_price != null ? formatPrice(ml.over_price) : "–"} ML</span>`,
+          );
+        }
+        const rl = sm["run_line"];
+        if (rl && rl.line_value != null) {
+          const sign = rl.line_value > 0 ? "+" : "";
+          smPills.push(
+            `<span class="chip">${escapeHtml(detail.home_team)} ${sign}${rl.line_value} · ${rl.over_price != null ? formatPrice(rl.over_price) : "–"}</span>`,
+          );
+        }
+        const att = sm["away_team_total"] || sm["team_total"];
+        const htt = sm["home_team_total"];
+        if (att && att.line_value != null)
+          smPills.push(
+            `<span class="chip">${escapeHtml(detail.away_team)} TT ${formatNumber(att.line_value, 1)}</span>`,
+          );
+        if (htt && htt.line_value != null)
+          smPills.push(
+            `<span class="chip">${escapeHtml(detail.home_team)} TT ${formatNumber(htt.line_value, 1)}</span>`,
+          );
+        document.getElementById("ghsSupMarkets").innerHTML = smPills.join("");
+        const statsPred = displayedTotalPrediction(totals);
+        const rawPred = rawTotalPrediction(totals);
+        const statsEdgeVal =
+          statsPred != null && numberOr(totals.market_total) != null
+            ? statsPred - numberOr(totals.market_total)
+            : null;
+        const bestOverPrice = numberOr(totals.best_over_price);
+        const bestUnderPrice = numberOr(totals.best_under_price);
+        const bookCount = totals.sportsbook_count ?? 0;
+        const books = (totals.sportsbooks || [])
+          .map((b) => b.replace(/_/g, " "))
+          .join(", ");
+        const decisionCopyParts = [];
+        if (
+          numberOr(totals.over_probability) != null ||
+          numberOr(totals.under_probability) != null
+        ) {
+          decisionCopyParts.push(
+            `Over ${formatPercent(totals.over_probability, 1)} · Under ${formatPercent(totals.under_probability, 1)}`,
+          );
+        }
+        if (
+          statsPred != null &&
+          rawPred != null &&
+          Math.abs(statsPred - rawPred) >= 0.05
+        ) {
+          decisionCopyParts.push(`Raw ${formatNumber(rawPred, 2)}`);
+        }
         document.getElementById("summaryGrid").innerHTML = `
-          <article class="summary-card"><div class="data-label">Model / Market</div><div class="summary-value">${formatNumber(statsPred, 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">Edge ${formatNumber(statsEdgeVal, 3)}${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` · <span class="tiny-label" title="Blended calibrated model (experimental)">Blended (exp.) ${formatNumber(totals.predicted_total_runs, 2)}</span>` : ""}</div></article>
-          <article class="summary-card"><div class="data-label">Expected Runs</div><div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="data-copy">Line move ${formatNumber(totals.line_movement, 2)}</div></article>
-          <article class="summary-card"><div class="data-label">Weather (Game-Time Est.)</div><div class="summary-value">${formatNumber(weather.temperature_f, 0)}F</div><div class="data-copy">Wind ${formatNumber(weather.wind_speed_mph, 0)} mph ${windDirectionLabel(weather.wind_direction_deg)} · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</div></article>
-          <article class="summary-card"><div class="data-label">Lineup Quality</div><div class="summary-value">${formatPercent(totals.away_lineup_k_pct)} / ${formatPercent(totals.home_lineup_k_pct)}</div><div class="data-copy">Away/Home lineup K% vs starters</div></article>
+          <article class="summary-card"><div class="data-label">Decision / Market</div><div class="summary-value">${formatNumber(statsPred, 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">${decisionCopyParts.join(" · ") || `Edge ${formatNumber(statsEdgeVal, 3)}`}</div></article>
+          <article class="summary-card"><div class="data-label">Best Market Odds</div><div class="summary-value">${bestOverPrice != null ? `Over ${formatPrice(bestOverPrice)}` : "Pending"} · ${bestUnderPrice != null ? `Under ${formatPrice(bestUnderPrice)}` : "Pending"}</div><div class="data-copy">${bookCount > 0 ? `${bookCount} book${bookCount > 1 ? "s" : ""} tracked · Line move ${formatNumber(totals.line_movement, 2)}${books ? ` · ${escapeHtml(books)}` : ""}` : "No market lines yet"}</div></article>
+          <article class="summary-card"><div class="data-label">Run Context</div><div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="data-copy">Team scoring context from blended lineup, starter, and park inputs</div></article>
+          <article class="summary-card"><div class="data-label">Bullpen From 7th On</div><div class="summary-value">L3 ${escapeHtml(detail.away_team)} ${formatNumber(totals.away_bullpen_late_era_last3, 2)} · ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_bullpen_late_era_last3, 2)}</div><div class="data-copy">Season ERA from the 7th inning on: ${escapeHtml(detail.away_team)} ${formatNumber(totals.away_bullpen_late_season_era, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_bullpen_late_season_era, 2)}</div></article>
+          <article class="summary-card"><div class="data-label">Weather (Game-Time Est.)</div><div class="summary-value">${formatNumber(weather.temperature_f, 0)}°F</div><div class="data-copy">Wind ${formatNumber(weather.wind_speed_mph, 0)} mph ${windDirectionLabel(weather.wind_direction_deg)} · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</div></article>
+          <article class="summary-card"><div class="data-label">Lineup Quality</div><div class="summary-value">${formatPercent(totals.away_lineup_k_pct)} / ${formatPercent(totals.home_lineup_k_pct)}</div><div class="data-copy">Away / Home K% vs starter · xwOBA ${formatNumber(totals.away_lineup_top5_xwoba, 3)} / ${formatNumber(totals.home_lineup_top5_xwoba, 3)}</div></article>
         `;
-        document.getElementById("starterGrid").innerHTML = [
-          starterCard(
-            detail.starters?.away,
-            detail.away_team,
-            detail.home_team,
-          ),
-          starterCard(
-            detail.starters?.home,
-            detail.home_team,
-            detail.away_team,
-          ),
-        ].join("");
+        renderStarterCards(detail);
         renderLineupPanels(detail);
+        renderMarketsSection(detail);
         renderPickSignals(detail);
         renderFirst5Section(detail);
         renderPitcherChartsSection(detail);
@@ -2617,7 +3941,7 @@
         const notes = [
           `Venue run factor ${formatNumber(totals.venue_run_factor, 2)} and HR factor ${formatNumber(totals.venue_hr_factor, 2)} are already baked into the totals context.`,
           `Bullpen snapshot over the last 3 bullpen days: away ${formatNumber(totals.away_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.away_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_era_last3, 2)} ERA${totals.away_bullpen_b2b ? " · B2B" : ""}, home ${formatNumber(totals.home_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.home_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_era_last3, 2)} ERA${totals.home_bullpen_b2b ? " · B2B" : ""}.`,
-          `Late innings 7+: away ${formatNumber(totals.away_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.away_bullpen_late_era_last3, 2)} ERA, home ${formatNumber(totals.home_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.home_bullpen_late_era_last3, 2)} ERA.`,
+          `From the 7th inning on: away bullpen ${formatNumber(totals.away_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.away_bullpen_late_era_last3, 2)} ERA (${formatNumber(totals.away_bullpen_late_season_era, 2)} season), home bullpen ${formatNumber(totals.home_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.home_bullpen_late_era_last3, 2)} ERA (${formatNumber(totals.home_bullpen_late_season_era, 2)} season).`,
           `Top-5 hitter xwOBA: away ${formatNumber(totals.away_lineup_top5_xwoba, 3)}, home ${formatNumber(totals.home_lineup_top5_xwoba, 3)}. Lineup K%: away ${formatPercent(totals.away_lineup_k_pct)}, home ${formatPercent(totals.home_lineup_k_pct)}.`,
           `Market total ${formatNumber(totals.market_total, 1)}${totals.market_locked ? ` (locked at ${formatNumber(totals.locked_line_value, 1)} from ${escapeHtml(totals.locked_sportsbook || "sportsbook")})` : ""} · Line movement ${formatNumber(totals.line_movement, 2)}.`,
           actual.is_final
@@ -2656,6 +3980,7 @@
         if (!payload.game) {
           throw new Error("No game detail was returned for this matchup.");
         }
+        pageState.pitcherVsTeam = {};
         renderSummary(payload.game);
         loadMatchupSplits(gameId);
       }
@@ -2679,7 +4004,9 @@
           const filterButton = event.target.closest("[data-history-filter]");
           if (filterButton && pageState.detail) {
             const playerKey = String(filterButton.dataset.playerKey || "");
-            const filterKey = String(filterButton.dataset.historyFilter || "l15");
+            const filterKey = String(
+              filterButton.dataset.historyFilter || "l15",
+            );
             if (playerKey) {
               pageState.historyFilters[playerKey] = filterKey;
               renderLineupPanels(pageState.detail);

@@ -15,6 +15,15 @@ class ArtifactRuntimeMismatchError(FileNotFoundError):
     pass
 
 
+STRIKEOUT_DERIVED_FEATURE_COLUMNS = [
+    "matchup_k_factor",
+    "matchup_baseline_strikeouts",
+    "matchup_recent_strikeouts_3",
+    "matchup_recent_strikeouts_5",
+    "matchup_season_k_per_start",
+]
+
+
 def _artifact_metadata_path(artifact_path: Path) -> Path:
     return artifact_path.with_suffix(".meta.json")
 
@@ -83,6 +92,41 @@ def load_feature_snapshots(lane: str) -> pd.DataFrame:
         combined = combined.drop_duplicates(subset=dedupe_columns, keep="last").reset_index(drop=True)
 
     return combined
+
+
+def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column in frame.columns:
+        return pd.to_numeric(frame[column], errors="coerce")
+    return pd.Series(index=frame.index, dtype=float)
+
+
+def add_strikeout_derived_features(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        enriched = frame.copy()
+        for column in STRIKEOUT_DERIVED_FEATURE_COLUMNS:
+            if column not in enriched.columns:
+                enriched[column] = pd.Series(dtype=float)
+        return enriched
+
+    enriched = frame.copy()
+    opponent_lineup_k = _numeric_series(enriched, "opponent_lineup_k_pct_recent")
+    opponent_team_k = _numeric_series(enriched, "opponent_k_pct_blended")
+    opponent_k_rate = opponent_lineup_k.fillna(opponent_team_k).fillna(0.225)
+    venue_k_factor = _numeric_series(enriched, "venue_k_factor").fillna(1.0).clip(0.85, 1.15)
+    umpire_k_factor = _numeric_series(enriched, "ump_k_rate_adj").fillna(1.0).clip(0.90, 1.10)
+    matchup_k_factor = (opponent_k_rate / 0.225).clip(0.78, 1.32) * venue_k_factor * umpire_k_factor
+
+    baseline_strikeouts = _numeric_series(enriched, "baseline_strikeouts")
+    recent_avg_strikeouts_3 = _numeric_series(enriched, "recent_avg_strikeouts_3")
+    recent_avg_strikeouts_5 = _numeric_series(enriched, "recent_avg_strikeouts_5")
+    season_k_per_start = _numeric_series(enriched, "season_k_per_start")
+
+    enriched["matchup_k_factor"] = matchup_k_factor
+    enriched["matchup_baseline_strikeouts"] = baseline_strikeouts * matchup_k_factor
+    enriched["matchup_recent_strikeouts_3"] = recent_avg_strikeouts_3 * matchup_k_factor
+    enriched["matchup_recent_strikeouts_5"] = recent_avg_strikeouts_5 * matchup_k_factor
+    enriched["matchup_season_k_per_start"] = season_k_per_start * matchup_k_factor
+    return enriched
 
 
 _LEAGUE_AVERAGE_DEFAULTS: dict[str, float] = {

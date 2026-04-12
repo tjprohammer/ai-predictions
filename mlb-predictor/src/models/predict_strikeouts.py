@@ -4,9 +4,10 @@ import argparse
 import math
 from datetime import date, datetime, timezone
 
+import numpy as np
 import pandas as pd
 
-from src.models.common import calibrate_with_market, encode_frame, load_feature_snapshots, load_latest_artifact
+from src.models.common import add_strikeout_derived_features, calibrate_with_market, encode_frame, load_feature_snapshots, load_latest_artifact
 from src.utils.db import query_df, run_sql, upsert_rows
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
@@ -35,6 +36,70 @@ def _expects_market_line(row: object) -> bool:
             return True
     baseline = _coerce_float(getattr(row, "baseline_strikeouts", None))
     return baseline is not None and baseline >= 2.0
+
+
+def _detect_prediction_slate_collapse(
+    adjusted_predictions: pd.Series | list[float] | tuple[float, ...] | object,
+    base_predictions: pd.Series | list[float] | tuple[float, ...] | object,
+    market_lines: pd.Series,
+) -> str | None:
+    adjusted_series = pd.Series(adjusted_predictions, dtype=float)
+    base_series = pd.Series(base_predictions, dtype=float)
+    paired = pd.DataFrame(
+        {
+            "adjusted": adjusted_series,
+            "base": base_series,
+            "market_line": pd.to_numeric(market_lines, errors="coerce"),
+        }
+    ).dropna(subset=["adjusted", "base", "market_line"])
+    if len(paired.index) < 8:
+        return None
+
+    adjusted_sides = np.where(
+        paired["adjusted"] >= paired["market_line"],
+        "over",
+        "under",
+    )
+    base_sides = np.where(
+        paired["base"] >= paired["market_line"],
+        "over",
+        "under",
+    )
+    adjusted_dominant_fraction = max(
+        (adjusted_sides == "over").sum(),
+        (adjusted_sides == "under").sum(),
+    ) / len(adjusted_sides)
+    base_dominant_fraction = max(
+        (base_sides == "over").sum(),
+        (base_sides == "under").sum(),
+    ) / len(base_sides)
+    rounded_counts = paired["adjusted"].round(2).value_counts()
+    largest_bucket = int(rounded_counts.iloc[0]) if not rounded_counts.empty else 0
+    unique_bucket_count = int(len(rounded_counts))
+    adjusted_std = float(paired["adjusted"].std(ddof=0))
+    base_std = float(paired["base"].std(ddof=0))
+
+    if (
+        adjusted_dominant_fraction >= 0.9
+        and base_dominant_fraction < adjusted_dominant_fraction
+        and largest_bucket >= max(3, len(paired.index) // 5)
+        and unique_bucket_count <= max(6, len(paired.index) // 2)
+    ):
+        return (
+            "one_sided_distribution_"
+            f"{adjusted_dominant_fraction:.0%}_bucket_{largest_bucket}"
+        )
+
+    if (
+        adjusted_dominant_fraction >= 0.95
+        and adjusted_std < max(0.55, base_std * 0.55)
+    ):
+        return (
+            "collapsed_variance_"
+            f"{adjusted_std:.2f}_vs_{base_std:.2f}"
+        )
+
+    return None
 
 
 def _load_or_train_artifact() -> dict | None:
@@ -108,7 +173,7 @@ def main() -> int:
     if artifact is None:
         return 0
 
-    frame = load_feature_snapshots("strikeouts")
+    frame = add_strikeout_derived_features(load_feature_snapshots("strikeouts"))
     if frame.empty:
         log.info("No strikeout feature snapshots found")
         return 0
@@ -130,12 +195,38 @@ def main() -> int:
         X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
         raw_predictions = artifact["model"].predict(X)
 
-    # --- Apply isotonic correction (monotonic decompression) ---
+    # --- Apply isotonic correction with the trained blend weight ---
     predictions = raw_predictions.copy()
     isotonic_calibrator = artifact.get("isotonic_calibrator")
     if isotonic_calibrator is not None:
-        predictions = isotonic_calibrator.predict(predictions)
-        log.info("Applied isotonic correction to %d predictions", len(predictions))
+        isotonic_blend_weight = float(artifact.get("isotonic_blend_weight", 1.0))
+        full_isotonic_predictions = isotonic_calibrator.predict(predictions)
+        predictions = raw_predictions + isotonic_blend_weight * (
+            full_isotonic_predictions - raw_predictions
+        )
+        log.info(
+            "Applied isotonic correction to %d predictions with blend %.2f",
+            len(predictions),
+            isotonic_blend_weight,
+        )
+
+    market_map = _fetch_market_map(target_date)
+    market_lines_series = pd.Series(
+        [market_map.get((int(r.game_id), int(r.pitcher_id))) for r in scoring.itertuples(index=False)],
+        dtype=float,
+    )
+    isotonic_collapse_reason = _detect_prediction_slate_collapse(
+        predictions,
+        raw_predictions,
+        market_lines_series,
+    )
+    if isotonic_collapse_reason is not None:
+        log.warning(
+            "Strikeout isotonic calibration collapsed the %s slate (%s); reverting fundamentals to raw predictions",
+            target_date,
+            isotonic_collapse_reason,
+        )
+        predictions = raw_predictions.copy()
 
     # Fundamentals-only predictions: post-isotonic but pre-market-calibration
     fundamentals_predictions = predictions.copy()
@@ -145,14 +236,8 @@ def main() -> int:
     residual_std = max(float(artifact.get("residual_std", 1.0)), 1.0)
     residual_std_calibrated = max(float(artifact.get("residual_std_calibrated", residual_std)), 1.0)
     prediction_ts = datetime.now(timezone.utc)
-    market_map = _fetch_market_map(target_date)
     used_market_calibration = False
 
-    # Build a Series of market lines aligned with scoring rows for batch calibration
-    market_lines_series = pd.Series(
-        [market_map.get((int(r.game_id), int(r.pitcher_id))) for r in scoring.itertuples(index=False)],
-        dtype=float,
-    )
     if market_calibrator is not None and market_lines_series.notna().any():
         calibrated, cal_mask = calibrate_with_market(
             predictions, market_lines_series, market_calibrator,
@@ -162,6 +247,21 @@ def main() -> int:
             predictions = calibrated
             used_market_calibration = True
             log.info("Applied market calibration to %d/%d predictions", n_calibrated, len(predictions))
+
+    if used_market_calibration:
+        collapse_reason = _detect_prediction_slate_collapse(
+            predictions,
+            fundamentals_predictions,
+            market_lines_series,
+        )
+        if collapse_reason is not None:
+            log.warning(
+                "Strikeout market calibration collapsed the %s slate (%s); reverting stored predictions to fundamentals",
+                target_date,
+                collapse_reason,
+            )
+            predictions = fundamentals_predictions.copy()
+            used_market_calibration = False
 
     rows = []
     missing_market_lines = 0

@@ -62,6 +62,7 @@ class Settings:
     park_factors_csv: Path
     model_version_prefix: str
     odds_api_key: str | None
+    odds_api_key_fallback: str | None
     log_level: str
 
 
@@ -94,5 +95,6 @@ def get_settings() -> Settings:
         park_factors_csv=park_factors_csv,
         model_version_prefix=os.getenv("MODEL_VERSION_PREFIX", "v1"),
         odds_api_key=os.getenv("THE_ODDS_API_KEY") or None,
+        odds_api_key_fallback=os.getenv("THE_ODDS_API_KEY_FALLBACK") or None,
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
     )

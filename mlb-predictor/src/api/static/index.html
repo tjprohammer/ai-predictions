@@ -19,7 +19,9 @@
         --accent-soft: rgba(11, 106, 88, 0.12);
         --gold: #b7791f;
         --gold-soft: rgba(183, 121, 31, 0.12);
-        --good: #166534;
+        --good: #15803d;
+        --good-bg: rgba(21, 128, 61, 0.09);
+        --good-border: rgba(21, 128, 61, 0.18);
         --warn: #92400e;
         --bad: #991b1b;
         --shadow: 0 22px 64px rgba(20, 33, 25, 0.09);
@@ -862,24 +864,48 @@
       }
 
       .game-card {
-        padding: 14px;
-        background:
-          linear-gradient(
-            180deg,
-            rgba(255, 255, 255, 0.72),
-            rgba(255, 255, 255, 0.6)
-          ),
-          var(--panel);
+        padding: 0;
+        overflow: hidden;
+        position: relative;
+        background: rgba(255, 255, 255, 0.82);
+        border: 1px solid rgba(22, 36, 29, 0.09);
+        box-shadow:
+          0 2px 12px rgba(10, 74, 63, 0.07),
+          0 1px 3px rgba(0, 0, 0, 0.04);
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease,
+          border-color 160ms ease,
+          background 160ms ease;
       }
 
       .game-card.expanded {
-        background:
-          linear-gradient(
-            180deg,
-            rgba(255, 255, 255, 0.82),
-            rgba(255, 255, 255, 0.68)
-          ),
-          var(--panel-strong);
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow:
+          0 4px 20px rgba(10, 74, 63, 0.1),
+          0 1px 4px rgba(0, 0, 0, 0.06);
+      }
+
+      /* inner toggle is the content wrapper since card has no padding */
+      .game-card .game-toggle {
+        padding: 0;
+        gap: 0;
+      }
+
+      .game-card:hover,
+      .game-card:focus-within {
+        transform: translateY(-2px);
+        border-color: rgba(10, 74, 63, 0.16);
+        box-shadow:
+          0 10px 28px rgba(10, 74, 63, 0.1),
+          0 3px 8px rgba(0, 0, 0, 0.05);
+      }
+
+      .game-card.game-card-positive {
+        border-color: rgba(21, 128, 61, 0.2);
+        box-shadow:
+          0 8px 26px rgba(21, 128, 61, 0.12),
+          0 2px 6px rgba(0, 0, 0, 0.04);
       }
 
       .game-toggle {
@@ -889,32 +915,71 @@
         background: transparent;
         color: inherit;
         text-align: left;
+        text-decoration: none;
         display: grid;
         gap: 12px;
       }
 
       .compact-summary-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 10px;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0;
+        border-top: 1px solid rgba(22, 36, 29, 0.07);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.38),
+          rgba(255, 255, 255, 0.14)
+        );
       }
 
       .compact-summary-pill {
-        padding: 12px 14px;
-        border-radius: 16px;
-        background: rgba(12, 107, 88, 0.07);
-        border: 1px solid rgba(12, 107, 88, 0.08);
+        padding: 11px 14px 13px;
+        min-height: 92px;
+        background: transparent;
+        border: none;
+        border-right: 1px solid rgba(22, 36, 29, 0.07);
+        border-radius: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 4px;
+      }
+      .compact-summary-pill:last-child {
+        border-right: none;
       }
 
       .compact-summary-pill.gold {
-        background: rgba(183, 121, 31, 0.08);
-        border-color: rgba(183, 121, 31, 0.12);
+        background: rgba(183, 121, 31, 0.04);
+      }
+
+      .compact-summary-pill .data-label {
+        font-size: 0.58rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
       }
 
       .compact-summary-pill .summary-value {
-        margin-top: 6px;
-        font-size: 1.02rem;
-        font-weight: 800;
+        margin-top: 5px;
+        font-size: 1.05rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+        color: var(--ink);
+        line-height: 1.2;
+        text-wrap: balance;
+      }
+
+      .compact-summary-pill .summary-copy {
+        font-size: 0.72rem;
+        color: var(--muted);
+        margin-top: 4px;
+        line-height: 1.4;
+        text-wrap: pretty;
+      }
+
+      .compact-summary-pill .summary-copy:empty {
+        display: none;
       }
 
       .compact-team-strip,
@@ -1027,6 +1092,180 @@
       .legend-panel {
         margin-bottom: 18px;
         justify-content: space-between;
+        display: grid;
+        gap: 14px;
+      }
+
+      .legend-stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .legend-terms {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+      }
+
+      .legend-term {
+        display: grid;
+        gap: 5px;
+        padding: 12px 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(20, 33, 25, 0.08);
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      .legend-term-label {
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent-deep);
+      }
+
+      .legend-term-copy {
+        color: var(--muted);
+        font-size: 0.82rem;
+        line-height: 1.45;
+      }
+
+      .best-bets-panel {
+        margin-bottom: 18px;
+      }
+
+      .best-bets-grid {
+        display: flex;
+        gap: 12px;
+        margin-top: 14px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 8px;
+        scroll-snap-type: x proximity;
+        scrollbar-width: thin;
+      }
+
+      .best-bets-grid.empty {
+        display: block;
+        overflow: visible;
+        padding-bottom: 0;
+      }
+
+      .best-bets-grid::-webkit-scrollbar {
+        height: 10px;
+      }
+
+      .best-bets-grid::-webkit-scrollbar-thumb {
+        background: rgba(20, 33, 25, 0.18);
+        border-radius: 999px;
+      }
+
+      .best-bets-grid::-webkit-scrollbar-track {
+        background: rgba(20, 33, 25, 0.05);
+        border-radius: 999px;
+      }
+
+      .best-bets-grid::after {
+        content: "";
+        flex: 0 0 2px;
+      }
+
+      .best-bet-card {
+        display: grid;
+        gap: 8px;
+        padding: 16px 18px;
+        border-radius: 18px;
+        text-decoration: none;
+        color: inherit;
+        border: 1px solid var(--good-border);
+        background: linear-gradient(
+          180deg,
+          rgba(21, 128, 61, 0.12),
+          rgba(255, 255, 255, 0.76)
+        );
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36);
+        flex: 0 0 min(320px, 82vw);
+        scroll-snap-align: start;
+      }
+
+      .best-bet-card.watchlist {
+        border-color: rgba(10, 74, 63, 0.16);
+        background: linear-gradient(
+          180deg,
+          rgba(10, 74, 63, 0.08),
+          rgba(255, 255, 255, 0.78)
+        );
+      }
+
+      .best-bet-card.experimental {
+        border-color: rgba(180, 83, 9, 0.18);
+        background: linear-gradient(
+          180deg,
+          rgba(245, 158, 11, 0.1),
+          rgba(255, 251, 235, 0.9)
+        );
+      }
+
+      .best-bet-card.watchlist .best-bet-kicker {
+        background: rgba(10, 74, 63, 0.1);
+        border-color: rgba(10, 74, 63, 0.16);
+        color: var(--accent-deep);
+      }
+
+      .best-bet-card.experimental .best-bet-kicker {
+        background: rgba(245, 158, 11, 0.14);
+        border-color: rgba(180, 83, 9, 0.18);
+        color: #92400e;
+      }
+
+      .best-bet-card:hover {
+        transform: translateY(-1px);
+        border-color: rgba(21, 128, 61, 0.28);
+      }
+
+      .best-bet-topline,
+      .game-best-bet-strip {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .best-bet-kicker,
+      .game-best-bet-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(21, 128, 61, 0.12);
+        color: var(--good);
+        border: 1px solid rgba(21, 128, 61, 0.18);
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .best-bet-title {
+        font-size: 1rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+      }
+
+      .best-bet-meta,
+      .best-bet-copy {
+        color: var(--muted);
+        font-size: 0.82rem;
+        line-height: 1.45;
+      }
+
+      .game-best-bet-strip {
+        padding: 0 14px 12px;
+      }
+
+      .game-best-bet-chip {
+        background: rgba(21, 128, 61, 0.09);
       }
 
       .legend-row {
@@ -1081,6 +1320,13 @@
         color: var(--muted);
       }
 
+      .compact-summary-pill.good {
+        background: var(--good-bg);
+        border-color: var(--good-border);
+      }
+      .compact-summary-pill.good .data-label {
+        color: var(--good);
+      }
       .compact-summary-pill.warn {
         background: rgba(183, 121, 31, 0.08);
         border-color: rgba(183, 121, 31, 0.14);
@@ -1097,15 +1343,22 @@
 
       .compact-grade-strip {
         justify-content: space-between;
-        padding: 12px 14px;
-        border-radius: 16px;
+        padding: 8px 14px;
+        border-top: 1px solid var(--line);
+        margin-top: 0;
+      }
+
+      .compact-grade-strip.final-result {
+        padding: 10px 12px;
+        border-radius: 14px;
         border: 1px solid rgba(20, 33, 25, 0.08);
-        background: rgba(255, 255, 255, 0.74);
+        background: rgba(255, 255, 255, 0.6);
+        margin-top: 8px;
       }
 
       .compact-grade-copy {
         color: var(--muted);
-        font-size: 0.9rem;
+        font-size: 0.82rem;
         line-height: 1.45;
       }
 
@@ -1138,14 +1391,17 @@
         display: inline-flex;
         align-items: center;
         gap: 8px;
+        margin: 0 16px 16px auto;
         padding: 7px 12px;
         border-radius: 999px;
-        background: rgba(20, 33, 25, 0.06);
+        border: 1px solid rgba(10, 74, 63, 0.1);
+        background: rgba(255, 255, 255, 0.82);
         color: var(--accent-deep);
         font-size: 0.8rem;
         font-weight: 800;
         letter-spacing: 0.08em;
         text-transform: uppercase;
+        box-shadow: 0 2px 8px rgba(10, 74, 63, 0.06);
       }
 
       .detail-grid {
@@ -1452,6 +1708,22 @@
         border: 1px solid rgba(20, 33, 25, 0.08);
       }
 
+      .summary-card.link-card {
+        display: block;
+        text-decoration: none;
+        color: inherit;
+        transition:
+          transform 140ms ease,
+          border-color 140ms ease,
+          box-shadow 140ms ease;
+      }
+
+      .summary-card.link-card:hover {
+        transform: translateY(-1px);
+        border-color: rgba(10, 74, 63, 0.16);
+        box-shadow: 0 8px 18px rgba(10, 74, 63, 0.08);
+      }
+
       .summary-value {
         margin-top: 8px;
         font-size: 1.25rem;
@@ -1580,12 +1852,226 @@
         margin-top: 10px;
       }
 
+      .reason-chip-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .reason-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 7px 11px;
+        border-radius: 999px;
+        border: 1px solid rgba(20, 33, 25, 0.1);
+        background: rgba(20, 33, 25, 0.04);
+        color: var(--ink);
+        font-size: 0.82rem;
+        line-height: 1.3;
+      }
+
+      .reason-chip.good {
+        background: var(--good-bg);
+        border-color: var(--good-border);
+        color: var(--good);
+      }
+
+      .reason-chip.warn {
+        background: rgba(146, 64, 14, 0.08);
+        border-color: rgba(146, 64, 14, 0.16);
+        color: var(--warn);
+      }
+
+      .reason-chip.gold {
+        background: var(--gold-soft);
+        border-color: rgba(183, 121, 31, 0.18);
+        color: var(--gold);
+      }
+
       .empty-state {
         padding: 18px;
         border-radius: 20px;
         border: 1px dashed var(--line);
         color: var(--muted);
         background: rgba(255, 255, 255, 0.52);
+      }
+
+      /* ── Game stats bar (replaces player strips) ────────── */
+      .game-stats-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px 14px 14px;
+        border-top: 1px solid rgba(10, 74, 63, 0.1);
+        margin-top: 0;
+        background: rgba(10, 74, 63, 0.02);
+      }
+      .gsb-divider {
+        width: 1px;
+        background: var(--line);
+        align-self: stretch;
+        margin: 0 6px;
+        opacity: 0.5;
+      }
+      .gsb-stat {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: 1 1 84px;
+        min-width: 84px;
+        padding: 8px 10px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.55);
+        border: 1px solid rgba(20, 33, 25, 0.07);
+        transition:
+          background 0.15s,
+          border-color 0.15s;
+        text-align: center;
+      }
+      .gsb-value {
+        font-size: 0.92rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        line-height: 1;
+      }
+      .gsb-value.good {
+        color: var(--good);
+      }
+      .gsb-value.warn {
+        color: var(--warn);
+      }
+      .gsb-value.bad {
+        color: var(--bad);
+      }
+      /* Green-tint the whole pill when the value is good */
+      .gsb-stat:has(.gsb-value.good) {
+        background: var(--good-bg);
+        border-color: var(--good-border);
+      }
+      .gsb-stat:has(.gsb-value.warn) {
+        background: rgba(183, 121, 31, 0.07);
+        border-color: rgba(183, 121, 31, 0.16);
+      }
+      .gsb-label {
+        font-size: 0.6rem;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-top: 3px;
+        line-height: 1.3;
+      }
+
+      /* ── Scoreboard-style game card header ─────────────── */
+      .game-scoreboard {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
+        padding: 18px 18px 16px;
+        background: linear-gradient(
+          160deg,
+          rgba(10, 74, 63, 0.06) 0%,
+          rgba(10, 74, 63, 0.02) 60%,
+          transparent 100%
+        );
+        border-bottom: 1px solid rgba(10, 74, 63, 0.1);
+      }
+      .team-slot {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+      .team-slot.away {
+        justify-self: start;
+      }
+      .team-slot > div {
+        min-width: 0;
+      }
+      .team-slot.home {
+        justify-content: flex-end;
+        justify-self: end;
+        flex-direction: row-reverse;
+        text-align: right;
+      }
+      .team-slot.home > div {
+        text-align: right;
+      }
+      .team-logo-board {
+        width: 56px;
+        height: 56px;
+        object-fit: contain;
+        flex-shrink: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        padding: 5px;
+      }
+      .team-logo-placeholder {
+        width: 56px;
+        height: 56px;
+        flex-shrink: 0;
+        border-radius: 50%;
+        border: 1px dashed rgba(10, 74, 63, 0.12);
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.75),
+          rgba(10, 74, 63, 0.08)
+        );
+      }
+      .team-abbr-lg {
+        font-size: 1.55rem;
+        font-weight: 900;
+        letter-spacing: -0.04em;
+        line-height: 1;
+        color: var(--ink);
+      }
+      .team-record-sm {
+        font-size: 0.62rem;
+        color: var(--muted);
+        font-weight: 700;
+        margin-top: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .game-center-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        text-align: center;
+        min-width: 172px;
+        padding: 0 8px;
+      }
+      .game-center-time {
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        color: var(--accent-deep);
+        text-transform: uppercase;
+        line-height: 1.35;
+      }
+      .game-center-vs {
+        font-size: 0.62rem;
+        font-weight: 700;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+      .game-center-venue {
+        font-size: 0.62rem;
+        color: var(--muted);
+        max-width: 220px;
+        line-height: 1.35;
+      }
+      .game-center-badges {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        justify-content: center;
+        margin-top: 5px;
       }
 
       @media (max-width: 1220px) {
@@ -1595,12 +2081,31 @@
         .review-grid,
         .game-grid,
         .context-grid,
-        .compact-summary-grid,
         .compact-team-strip,
         .lineup-grid,
         .detail-grid,
         .starter-detail-grid {
           grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 980px) {
+        .compact-summary-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .compact-summary-pill {
+          min-height: 0;
+          border-right: none;
+          border-bottom: 1px solid rgba(22, 36, 29, 0.07);
+        }
+
+        .compact-summary-pill:last-child {
+          border-bottom: none;
+        }
+
+        .gsb-divider {
+          display: none;
         }
       }
 
@@ -1651,6 +2156,47 @@
         .control-row {
           flex-direction: column;
           align-items: stretch;
+        }
+
+        .game-scoreboard {
+          grid-template-columns: 1fr;
+          justify-items: center;
+          text-align: center;
+        }
+
+        .team-slot,
+        .team-slot.home {
+          justify-content: center;
+          flex-direction: column;
+          text-align: center;
+          gap: 10px;
+        }
+
+        .team-slot.home > div {
+          text-align: center;
+        }
+
+        .game-center-block {
+          min-width: 0;
+        }
+
+        .game-center-venue {
+          max-width: none;
+        }
+
+        .game-stats-bar {
+          padding-inline: 12px;
+        }
+
+        .gsb-stat {
+          flex-basis: calc(50% - 4px);
+          min-width: calc(50% - 4px);
+        }
+
+        .toggle-copy {
+          justify-self: stretch;
+          margin: 0 12px 12px;
+          justify-content: center;
         }
 
         button,
@@ -2178,29 +2724,104 @@
 
         <section class="panel legend-panel">
           <div>
-            <div class="section-tag">Compact Legend</div>
+            <div class="section-tag">Board Legend</div>
             <h2 class="panel-title">
-              Hit-result pills are now icon-coded for faster reads
+              Decision terms and pick colors are explicit
             </h2>
           </div>
-          <div class="legend-row">
-            <div class="legend-chips">
-              <span class="compact-hit-grade good"
-                ><span class="compact-hit-icon">H</span> Hit</span
-              >
-              <span class="compact-hit-grade warn"
-                ><span class="compact-hit-icon">0</span> No hit</span
-              >
-              <span class="compact-hit-grade neutral"
-                ><span class="compact-hit-icon">?</span> Pending</span
+          <div class="legend-stack">
+            <div class="legend-terms">
+              <div class="legend-term">
+                <div class="legend-term-label">Decision Total</div>
+                <div class="legend-term-copy">
+                  The board number actually used for the total lean on that game
+                  card.
+                </div>
+              </div>
+              <div class="legend-term">
+                <div class="legend-term-label">Raw Model</div>
+                <div class="legend-term-copy">
+                  The pre-calibration fundamentals output. It shows only when it
+                  materially differs from the decision total.
+                </div>
+              </div>
+              <div class="legend-term">
+                <div class="legend-term-label">Run Context</div>
+                <div class="legend-term-copy">
+                  Away and home scoring environment from lineup, starter, park,
+                  and weather inputs.
+                </div>
+              </div>
+              <div class="legend-term">
+                <div class="legend-term-label">Pick Score</div>
+                <div class="legend-term-copy">
+                  Coming next: one value score built from no-vig edge, EV, and
+                  certainty weighting.
+                </div>
+              </div>
+            </div>
+            <div class="legend-row">
+              <div class="legend-chips">
+                <span class="compact-hit-grade good"
+                  ><span class="compact-hit-icon">H</span> Hit</span
+                >
+                <span class="compact-hit-grade warn"
+                  ><span class="compact-hit-icon">0</span> No hit</span
+                >
+                <span class="compact-hit-grade neutral"
+                  ><span class="compact-hit-icon">?</span> Pending</span
+                >
+                <span class="game-best-bet-chip"
+                  >Green = positive EV after no-vig + certainty</span
+                >
+              </div>
+              <span
+                >Starter K pills still show the model projection first, then the
+                live market line when one is tracked.</span
               >
             </div>
-            <span
-              >Starter K pills show model projection first, then any live market
-              line or a fallback warning when handedness context is
-              missing.</span
+          </div>
+        </section>
+
+        <section class="panel best-bets-panel" id="bestBetsPanel" hidden>
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Best Bets</div>
+              <h2 class="panel-title">Green picks for the selected day</h2>
+            </div>
+            <span class="panel-subtitle" id="bestBetsSubtitle"
+              >Waiting for green picks</span
             >
           </div>
+          <div class="lineup-toolbar" id="bestBetsToolbar"></div>
+          <div class="best-bets-grid" id="bestBetsGrid"></div>
+        </section>
+
+        <section class="panel best-bets-panel" id="watchlistPanel" hidden>
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Watchlist</div>
+              <h2 class="panel-title">Next-best games for the selected day</h2>
+            </div>
+            <span class="panel-subtitle" id="watchlistSubtitle"
+              >Waiting for watchlist markets</span
+            >
+          </div>
+          <div class="lineup-toolbar" id="watchlistToolbar"></div>
+          <div class="best-bets-grid" id="watchlistGrid"></div>
+        </section>
+
+        <section class="panel best-bets-panel" id="experimentalPanel" hidden>
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Experimental</div>
+              <h2 class="panel-title">First-inning markets to monitor</h2>
+            </div>
+            <span class="panel-subtitle" id="experimentalSubtitle"
+              >Waiting for experimental markets</span
+            >
+          </div>
+          <div class="best-bets-grid" id="experimentalGrid"></div>
         </section>
 
         <section class="games-board" id="gamesBoard">
@@ -2249,6 +2870,36 @@
                 Run the product surfaces build to populate scorecards for
                 totals, hits, and strikeouts.
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel review-panel">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag" id="bestBetHistoryTag">
+                Best Bet History
+              </div>
+              <h2 class="panel-title" id="bestBetHistoryTitle">
+                Recent Best Bet outcomes and open tickets
+              </h2>
+            </div>
+            <span class="panel-subtitle" id="bestBetHistorySubtitle"
+              >Waiting for Best Bet history</span
+            >
+          </div>
+          <div class="lineup-toolbar" id="bestBetHistoryToolbar"></div>
+          <div class="summary-grid review-grid" id="bestBetHistorySummaryGrid">
+            <div class="summary-card">
+              <div class="summary-copy">
+                Best Bet history will show the trailing record, CLV, and recent
+                tickets once graded outcome rows exist.
+              </div>
+            </div>
+          </div>
+          <div class="summary-grid review-grid" id="bestBetHistoryGrid">
+            <div class="summary-card">
+              <div class="summary-copy">Waiting for Best Bet history rows.</div>
             </div>
           </div>
         </section>
@@ -2380,6 +3031,17 @@
       const showProjectedHittersButton = document.getElementById(
         "showProjectedHittersButton",
       );
+      const bestBetsPanel = document.getElementById("bestBetsPanel");
+      const bestBetsToolbar = document.getElementById("bestBetsToolbar");
+      const bestBetsGrid = document.getElementById("bestBetsGrid");
+      const bestBetsSubtitle = document.getElementById("bestBetsSubtitle");
+      const watchlistPanel = document.getElementById("watchlistPanel");
+      const watchlistToolbar = document.getElementById("watchlistToolbar");
+      const watchlistGrid = document.getElementById("watchlistGrid");
+      const watchlistSubtitle = document.getElementById("watchlistSubtitle");
+      const experimentalPanel = document.getElementById("experimentalPanel");
+      const experimentalGrid = document.getElementById("experimentalGrid");
+      const experimentalSubtitle = document.getElementById("experimentalSubtitle");
       const gamesBoard = document.getElementById("gamesBoard");
       const leadersGrid = document.getElementById("leadersGrid");
       const leadersSubtitle = document.getElementById("leadersSubtitle");
@@ -2461,6 +3123,12 @@
         status: null,
         games: [],
         boardSummary: null,
+        bestBets: [],
+        greenPicks: [],
+        experimentalMarkets: [],
+        bestBetMarketFilter: "all",
+        bestBetHistory: null,
+        bestBetHistoryFilter: "all",
         scorecards: null,
         pickReview: null,
         clvReview: null,
@@ -3018,6 +3686,62 @@
         return `<span class="chip">Neutral vs ${throwHand}HP</span>`;
       }
 
+      function playerPitcherMatchupCopy(player) {
+        const xwoba = numberOr(player.opposing_starter_xwoba);
+        const csw = numberOr(player.opposing_starter_csw);
+        if (xwoba == null && csw == null) {
+          return "Pitcher contact profile pending";
+        }
+        const details = [];
+        if (xwoba != null) {
+          details.push(`xwOBA allowed ${formatNumber(xwoba, 3)}`);
+        }
+        if (csw != null) {
+          details.push(`CSW ${formatPercent(csw)}`);
+        }
+        if ((xwoba != null && xwoba >= 0.33) || (csw != null && csw <= 0.27)) {
+          return `Attackable starter profile · ${details.join(" · ")}`;
+        }
+        if ((xwoba != null && xwoba <= 0.295) || (csw != null && csw >= 0.3)) {
+          return `Tough starter profile · ${details.join(" · ")}`;
+        }
+        return details.join(" · ");
+      }
+
+      function playerRunEnvironmentCopy(player) {
+        const projectedPA = numberOr(player.projected_plate_appearances);
+        const runEnvironment = numberOr(player.team_run_environment);
+        const parkHrFactor = numberOr(player.park_hr_factor);
+        const details = [];
+        if (runEnvironment != null) {
+          details.push(`team env ${formatNumber(runEnvironment, 2)} runs`);
+        }
+        if (projectedPA != null) {
+          details.push(`proj PA ${formatNumber(projectedPA, 1)}`);
+        }
+        if (parkHrFactor != null) {
+          details.push(`park HR ${formatNumber(parkHrFactor, 2)}`);
+        }
+        if (!details.length) {
+          return "Run environment pending";
+        }
+        if (
+          (runEnvironment != null && runEnvironment >= 4.6) ||
+          (projectedPA != null && projectedPA >= 4.4) ||
+          (parkHrFactor != null && parkHrFactor >= 1.05)
+        ) {
+          return `Supportive volume spot · ${details.join(" · ")}`;
+        }
+        if (
+          (runEnvironment != null && runEnvironment <= 3.8) ||
+          (projectedPA != null && projectedPA <= 3.6) ||
+          (parkHrFactor != null && parkHrFactor <= 0.95)
+        ) {
+          return `Lower-volume scoring spot · ${details.join(" · ")}`;
+        }
+        return details.join(" · ");
+      }
+
       function playerAvailabilityMeta(player) {
         const description = String(
           player.roster_status_description || "",
@@ -3069,6 +3793,27 @@
       function selectedDateIsPast() {
         const selectedDate = targetDateInput.value;
         return Boolean(selectedDate) && selectedDate < today;
+      }
+
+      function renderReasonChipList(reasons, tone = "", emptyText = "") {
+        const items = Array.isArray(reasons)
+          ? reasons.filter((reason) => reason != null && String(reason).trim())
+          : [];
+        if (!items.length) {
+          return emptyText
+            ? `<div class="reason-chip-list"><span class="reason-chip ${tone}">${escapeHtml(emptyText)}</span></div>`
+            : "";
+        }
+        return `
+          <div class="reason-chip-list">
+            ${items
+              .map(
+                (reason) =>
+                  `<span class="reason-chip ${tone}">${escapeHtml(String(reason))}</span>`,
+              )
+              .join("")}
+          </div>
+        `;
       }
 
       function getHitFilters() {
@@ -3402,9 +4147,167 @@
 
       function marketDisplayName(market) {
         if (market === "totals") return "Game Totals";
+        if (market === "moneyline") return "Best Bets | Moneyline";
+        if (market === "run_line") return "Best Bets | Run Line";
+        if (market === "away_team_total") return "Best Bets | Away Team Total";
+        if (market === "home_team_total") return "Best Bets | Home Team Total";
+        if (market === "first_five_moneyline")
+          return "Best Bets | First 5 Moneyline";
+        if (market === "first_five_total") return "Best Bets | First 5 Total";
+        if (market === "first_five_spread")
+          return "Best Bets | First 5 Run Line";
+        if (market === "first_five_team_total_away")
+          return "Best Bets | First 5 Away Team Total";
+        if (market === "first_five_team_total_home")
+          return "Best Bets | First 5 Home Team Total";
         if (market === "hits") return "1+ Hits";
         if (market === "pitcher_strikeouts") return "Starter Ks";
         return market || "Unknown";
+      }
+
+      function bestBetScorecardSummary() {
+        const rows = (state.scorecards?.rows || []).filter((row) =>
+          [
+            "moneyline",
+            "run_line",
+            "away_team_total",
+            "home_team_total",
+            "first_five_moneyline",
+            "first_five_total",
+            "first_five_spread",
+            "first_five_team_total_away",
+            "first_five_team_total_home",
+          ].includes(row.market),
+        );
+        if (!rows.length) return null;
+        let graded = 0;
+        let weightedWins = 0;
+        for (const row of rows) {
+          const rowGraded = numberOr(row.trailing_graded, 0);
+          const successRate = numberOr(row.trailing_success_rate);
+          graded += rowGraded;
+          if (successRate != null && rowGraded > 0) {
+            weightedWins += successRate * rowGraded;
+          }
+        }
+        return {
+          graded,
+          successRate: graded > 0 ? weightedWins / graded : null,
+        };
+      }
+
+      function bestBetMarketFilterOptions() {
+        return [
+          { value: "all", label: "All markets" },
+          { value: "moneyline", label: "Moneyline" },
+          { value: "spread", label: "Run line" },
+          { value: "team_totals", label: "Team totals" },
+          { value: "first5", label: "First 5" },
+        ];
+      }
+
+      function bestBetMarketGroup(market) {
+        if (market === "moneyline") return "moneyline";
+        if (market === "run_line" || market === "first_five_spread")
+          return "spread";
+        if (market === "away_team_total" || market === "home_team_total") {
+          return "team_totals";
+        }
+        if (
+          market === "first_five_moneyline" ||
+          market === "first_five_total" ||
+          market === "first_five_team_total_away" ||
+          market === "first_five_team_total_home"
+        ) {
+          return "first5";
+        }
+        return "other";
+      }
+
+      function applyBestBetMarketFilter(rows, marketGetter) {
+        const filter = state.bestBetMarketFilter || "all";
+        if (filter === "all") {
+          return rows;
+        }
+        return rows.filter(
+          (row) => bestBetMarketGroup(marketGetter(row)) === filter,
+        );
+      }
+
+      function bestBetMarketFilterLabel() {
+        return (
+          bestBetMarketFilterOptions().find(
+            (option) => option.value === state.bestBetMarketFilter,
+          )?.label || "All markets"
+        );
+      }
+
+      function renderBestBetMarketFilterControl() {
+        return `
+          <div class="field">
+            <label>Board market</label>
+            <select data-best-bet-market-filter-select="true">
+              ${bestBetMarketFilterOptions()
+                .map(
+                  (option) =>
+                    `<option value="${option.value}" ${option.value === state.bestBetMarketFilter ? "selected" : ""}>${option.label}</option>`,
+                )
+                .join("")}
+            </select>
+          </div>
+        `;
+      }
+
+      function summarizeBestBetHistoryRows(rows) {
+        const summary = {
+          total: rows.length,
+          graded: 0,
+          pending: 0,
+          wins: 0,
+          losses: 0,
+          pushes: 0,
+          avg_weighted_ev: null,
+          avg_clv_side_value: null,
+          positive_clv_rate: null,
+          win_rate: null,
+        };
+        const weightedEvs = [];
+        const clvValues = [];
+        const clvRows = [];
+        for (const row of rows) {
+          const result = String(row?.result || "pending");
+          if (result === "won") summary.wins += 1;
+          else if (result === "lost") summary.losses += 1;
+          else if (result === "push") summary.pushes += 1;
+          else summary.pending += 1;
+          if (result !== "pending" && result !== "missing") {
+            summary.graded += 1;
+          }
+          const weightedEv = numberOr(row?.weighted_ev);
+          if (weightedEv != null) {
+            weightedEvs.push(weightedEv);
+          }
+          const clvValue = numberOr(row?.clv_side_value);
+          if (clvValue != null) {
+            clvValues.push(clvValue);
+          }
+          if (row?.beat_closing_line != null) {
+            clvRows.push(Boolean(row.beat_closing_line));
+          }
+        }
+        const decisions = summary.wins + summary.losses;
+        summary.win_rate = decisions > 0 ? summary.wins / decisions : null;
+        summary.avg_weighted_ev = weightedEvs.length
+          ? weightedEvs.reduce((sum, value) => sum + value, 0) /
+            weightedEvs.length
+          : null;
+        summary.avg_clv_side_value = clvValues.length
+          ? clvValues.reduce((sum, value) => sum + value, 0) / clvValues.length
+          : null;
+        summary.positive_clv_rate = clvRows.length
+          ? clvRows.filter(Boolean).length / clvRows.length
+          : null;
+        return summary;
       }
 
       function renderScorecards() {
@@ -3452,6 +4355,207 @@
             );
           })
           .join("");
+      }
+
+      function bestBetResultTone(result) {
+        if (result === "won") return "good";
+        if (result === "lost") return "warn";
+        return "";
+      }
+
+      function bestBetResultLabel(row) {
+        const result = String(row?.result || "pending");
+        if (result === "won") return "Won";
+        if (result === "lost") return "Lost";
+        if (result === "push") return "Push";
+        if (result === "missing") return "Missing";
+        return "Pending";
+      }
+
+      function renderBestBetHistoryItem(row) {
+        const teams = `${row.away_team || "?"} at ${row.home_team || "?"}`;
+        const dateLabel = row.game_date
+          ? new Date(row.game_date).toLocaleDateString()
+          : "-";
+        const matchupHref = appUrl(
+          `game?game_id=${encodeURIComponent(row.game_id)}&target_date=${encodeURIComponent(row.game_date || targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`,
+        );
+        const priceText = row.price != null ? formatPrice(row.price) : null;
+        const lineText =
+          row.line_value != null ? formatNumber(row.line_value, 1) : null;
+        const details = [
+          row.market_label || marketDisplayName(row.market),
+          row.sportsbook || row.entry_market_sportsbook || "sportsbook pending",
+          priceText ? `Price ${priceText}` : "",
+          lineText ? `Line ${lineText}` : "",
+          row.model_probability != null
+            ? `Model ${formatPercent(row.model_probability, 0)}`
+            : "",
+          row.no_vig_probability != null
+            ? `No-vig ${formatPercent(row.no_vig_probability, 0)}`
+            : "",
+          row.closing_market_line != null
+            ? `Close ${formatPercent(row.closing_market_line, 0)}`
+            : "",
+          row.probability_edge != null
+            ? `Edge ${formatSigned(row.probability_edge * 100, 1)} pts`
+            : "",
+          row.clv_side_value != null
+            ? `CLV ${formatSigned(row.clv_side_value, 2)}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const chipBits = [];
+        if (row.weighted_ev != null) {
+          chipBits.push(`EV ${formatSigned(row.weighted_ev * 100, 1)}%`);
+        }
+        if (row.beat_closing_line === true) {
+          chipBits.push("Beat close");
+        } else if (row.beat_closing_line === false) {
+          chipBits.push("Lost to close");
+        }
+        return `
+        <a class="summary-card link-card" href="${matchupHref}">
+          <div class="stat-label">${escapeHtml(row.selection_label || row.market_label || "Best Bet")} · ${escapeHtml(teams)}</div>
+          <div class="summary-value">${dateLabel} · ${bestBetResultLabel(row)}</div>
+          <div class="summary-copy">${details || "Best Bet metadata pending."}</div>
+          <div style="margin-top:10px;"><span class="chip ${bestBetResultTone(row.result)}">${escapeHtml(chipBits.join(" · ") || "Open ticket")}</span></div>
+        </a>
+      `;
+      }
+
+      function renderBestBetHistoryPanel() {
+        const tag = document.getElementById("bestBetHistoryTag");
+        const title = document.getElementById("bestBetHistoryTitle");
+        const subtitle = document.getElementById("bestBetHistorySubtitle");
+        const toolbar = document.getElementById("bestBetHistoryToolbar");
+        const summaryGrid = document.getElementById(
+          "bestBetHistorySummaryGrid",
+        );
+        const grid = document.getElementById("bestBetHistoryGrid");
+        const payload = state.bestBetHistory;
+
+        if (!payload) {
+          tag.textContent = "Best Bet History";
+          title.textContent = "Recent Best Bet outcomes and open tickets";
+          subtitle.textContent = "Waiting for Best Bet history";
+          toolbar.innerHTML = "";
+          summaryGrid.innerHTML = `
+          <div class="summary-card">
+            <div class="summary-copy">Load trailing Best Bet outcomes to review recent record quality, EV, and CLV.</div>
+          </div>
+        `;
+          grid.innerHTML = `
+          <div class="summary-card">
+            <div class="summary-copy">No Best Bet history rows loaded yet.</div>
+          </div>
+        `;
+          return;
+        }
+
+        const summary = payload.summary || {};
+        const byMarket = Array.isArray(payload.by_market)
+          ? payload.by_market
+          : [];
+        const rows = Array.isArray(payload.rows) ? payload.rows : [];
+        const filteredRows = applyBestBetMarketFilter(
+          rows,
+          (row) => row.market,
+        );
+        const summaryRows =
+          state.bestBetMarketFilter === "all"
+            ? summary
+            : summarizeBestBetHistoryRows(filteredRows);
+        const visibleRows = filteredRows.slice(0, 12);
+        const activeMarketLabel = bestBetMarketFilterLabel();
+        const marketMix = byMarket.length
+          ? byMarket
+              .slice(0, 3)
+              .map((row) => `${row.market_label} ${row.total}`)
+              .join(" · ")
+          : "No Best Bet markets in the selected window.";
+        toolbar.innerHTML = `
+        <div class="segmented-control">
+          <button class="segmented-button ${state.bestBetHistoryFilter === "all" ? "active" : ""}" type="button" data-best-bet-history-filter="all">All Tickets</button>
+          <button class="segmented-button ${state.bestBetHistoryFilter === "graded" ? "active" : ""}" type="button" data-best-bet-history-filter="graded">Graded Only</button>
+        </div>
+        ${renderBestBetMarketFilterControl()}
+      `;
+
+        tag.textContent = `Best Bet History · ${payload.window_days}-day window`;
+        title.textContent = "Recent Best Bet outcomes and open tickets";
+        subtitle.textContent = summaryRows.total
+          ? `${summaryRows.graded || 0} graded · ${summaryRows.pending || 0} pending · ${summaryRows.wins || 0}-${summaryRows.losses || 0}-${summaryRows.pushes || 0}${state.bestBetMarketFilter !== "all" ? ` · ${activeMarketLabel.toLowerCase()}` : ""}`
+          : `No Best Bet rows found through ${payload.end_date}.`;
+
+        summaryGrid.innerHTML = [
+          renderReviewCard(
+            "Best Bet Window",
+            summaryRows.total ? `${summaryRows.total} calls` : "Waiting",
+            `${payload.start_date} through ${payload.end_date} ending on the selected date.`,
+            `${summaryRows.graded || 0} graded · ${summaryRows.pending || 0} pending`,
+            reviewToneClass(
+              "progress",
+              numberOr(summaryRows.total) > 0 ? 1 : 0,
+            ),
+          ),
+          renderReviewCard(
+            "Graded Record",
+            summaryRows.graded
+              ? `${summaryRows.wins || 0}-${summaryRows.losses || 0}-${summaryRows.pushes || 0}`
+              : "Waiting",
+            summaryRows.graded
+              ? `${summaryRows.graded} graded Best Bet${summaryRows.graded === 1 ? "" : "s"} in the current trailing window.`
+              : "No graded Best Bets yet in this window.",
+            summaryRows.win_rate != null
+              ? `${formatPercent(summaryRows.win_rate, 0)} win rate`
+              : "No decision rate",
+            reviewToneClass("winRate", summaryRows.win_rate),
+          ),
+          renderReviewCard(
+            "EV / CLV",
+            `${summaryRows.avg_weighted_ev != null ? formatSigned(summaryRows.avg_weighted_ev * 100, 1) + "%" : "-"} / ${summaryRows.avg_clv_side_value != null ? formatSigned(summaryRows.avg_clv_side_value, 2) : "-"}`,
+            "Average weighted EV at selection time vs realized closing-line value over the same trailing window.",
+            summaryRows.positive_clv_rate != null
+              ? `${formatPercent(summaryRows.positive_clv_rate, 0)} positive CLV`
+              : "No CLV sample",
+            summaryRows.avg_clv_side_value != null &&
+              summaryRows.avg_clv_side_value > 0
+              ? "good"
+              : summaryRows.avg_clv_side_value != null &&
+                  summaryRows.avg_clv_side_value < 0
+                ? "warn"
+                : "",
+          ),
+          renderReviewCard(
+            "Market Mix",
+            state.bestBetMarketFilter === "all"
+              ? byMarket.length
+                ? `${byMarket.length} market${byMarket.length === 1 ? "" : "s"}`
+                : "Waiting"
+              : activeMarketLabel,
+            state.bestBetMarketFilter === "all"
+              ? marketMix
+              : `${filteredRows.length} recent ticket${filteredRows.length === 1 ? "" : "s"} match the selected market filter.`,
+            state.bestBetMarketFilter === "all" && byMarket[0]?.win_rate != null
+              ? `${byMarket[0].market_label} ${formatPercent(byMarket[0].win_rate, 0)}`
+              : state.bestBetMarketFilter === "all"
+                ? "No graded market split"
+                : "Filtered view",
+            state.bestBetMarketFilter === "all" && byMarket[0]?.win_rate != null
+              ? reviewToneClass("winRate", byMarket[0].win_rate)
+              : "",
+          ),
+        ].join("");
+
+        grid.innerHTML = visibleRows.length
+          ? visibleRows.map((row) => renderBestBetHistoryItem(row)).join("")
+          : `
+          <div class="summary-card">
+            <div class="summary-copy">No Best Bet history rows match the selected market filter.</div>
+          </div>
+        `;
       }
 
       function renderPickReviewItem(row, kind) {
@@ -3691,9 +4795,40 @@
 
       function primaryTotalPrediction(totals) {
         return numberOr(
-          totals.predicted_total_fundamentals,
-          numberOr(totals.predicted_total_runs),
+          totals?.predicted_total_runs,
+          numberOr(totals?.predicted_total_fundamentals),
         );
+      }
+
+      function rawTotalPrediction(totals) {
+        return numberOr(totals?.predicted_total_fundamentals);
+      }
+
+      function totalDecisionCopy(totals) {
+        const parts = [];
+        const edge = statsEdge(totals);
+        const decisionTotal = primaryTotalPrediction(totals);
+        const rawTotal = rawTotalPrediction(totals);
+        if (edge != null) {
+          parts.push(`${leanLabel(totals)} ${totalsLeanValue(totals)}`);
+        }
+        if (
+          decisionTotal != null &&
+          rawTotal != null &&
+          Math.abs(decisionTotal - rawTotal) >= 0.05
+        ) {
+          parts.push(`Raw ${formatNumber(rawTotal, 2)}`);
+        }
+        return parts.join(" · ") || "No totals decision yet";
+      }
+
+      function runContextCopy(totals) {
+        const away = numberOr(totals?.away_expected_runs);
+        const home = numberOr(totals?.home_expected_runs);
+        if (away == null || home == null) {
+          return "Team run context pending";
+        }
+        return "Away/home run context from lineup, starter, and park inputs";
       }
 
       function statsEdge(totals) {
@@ -3960,6 +5095,7 @@
       function totalsReasonList(game) {
         const totals = game?.totals || {};
         const weather = game?.weather || {};
+        const starters = game?.starters || {};
         const direction = totalsLeanDirection(totals);
         if (!direction) {
           return [];
@@ -3976,6 +5112,7 @@
         const venueRunFactor = numberOr(totals.venue_run_factor);
         const lineMovement = numberOr(totals.line_movement);
         const temperature = numberOr(weather.temperature_f);
+        const windSpeed = numberOr(weather.wind_speed_mph);
         const awayTop5 = numberOr(totals.away_lineup_top5_xwoba);
         const homeTop5 = numberOr(totals.home_lineup_top5_xwoba);
         const awayK = numberOr(
@@ -3986,6 +5123,14 @@
           totals.home_k_pct_blended,
           numberOr(totals.home_lineup_k_pct),
         );
+        const awayStarter = starters.away || {};
+        const homeStarter = starters.home || {};
+        const awayRecent = awayStarter.recent_form || {};
+        const homeRecent = homeStarter.recent_form || {};
+        const awayLateEra = numberOr(totals.away_bullpen_late_era_last3);
+        const homeLateEra = numberOr(totals.home_bullpen_late_era_last3);
+        const awayLateSeasonEra = numberOr(totals.away_bullpen_late_season_era);
+        const homeLateSeasonEra = numberOr(totals.home_bullpen_late_season_era);
         const reasons = [];
 
         if (edgeDelta != null && Math.abs(edgeDelta) >= 0.35) {
@@ -3993,13 +5138,23 @@
             `Model sits ${formatNumber(Math.abs(edgeDelta), 2)} runs ${direction === "over" ? "above" : "below"} the market total`,
           );
         }
-        if (awayExpected != null && homeExpected != null) {
-          reasons.push(
-            `Expected scoring adds to ${formatNumber(awayExpected + homeExpected, 2)} total runs`,
-          );
-        }
-
         if (direction === "over") {
+          const pressureTeams = [];
+          if (awayExpected != null && awayExpected >= 4.6) {
+            pressureTeams.push(
+              `${game.away_team} ${formatNumber(awayExpected, 1)}`,
+            );
+          }
+          if (homeExpected != null && homeExpected >= 4.6) {
+            pressureTeams.push(
+              `${game.home_team} ${formatNumber(homeExpected, 1)}`,
+            );
+          }
+          if (pressureTeams.length) {
+            reasons.push(
+              `${pressureTeams.join(" · ")} projected runs create real team-total pressure`,
+            );
+          }
           const strongLineups = [];
           if (awayTop5 != null && awayTop5 >= 0.335)
             strongLineups.push(game.away_team);
@@ -4020,12 +5175,89 @@
               `Warm weather at ${formatNumber(temperature, 0)} F supports carry`,
             );
           }
+          if (windSpeed != null && windSpeed >= 12) {
+            reasons.push(
+              `${formatNumber(windSpeed, 0)} mph wind raises batted-ball volatility`,
+            );
+          }
+          const vulnerableStarters = [];
+          if (
+            numberOr(awayStarter.xwoba_against) != null &&
+            numberOr(awayStarter.xwoba_against) >= 0.325
+          ) {
+            vulnerableStarters.push(
+              `${game.away_team} SP xwOBA ${formatNumber(awayStarter.xwoba_against, 3)}`,
+            );
+          }
+          if (
+            numberOr(homeStarter.xwoba_against) != null &&
+            numberOr(homeStarter.xwoba_against) >= 0.325
+          ) {
+            vulnerableStarters.push(
+              `${game.home_team} SP xwOBA ${formatNumber(homeStarter.xwoba_against, 3)}`,
+            );
+          }
+          if (vulnerableStarters.length) {
+            reasons.push(
+              `${vulnerableStarters.join(" · ")} suggests hittable starter contact quality`,
+            );
+          }
+          const shortStarters = [];
+          if (
+            numberOr(awayRecent.avg_ip) != null &&
+            numberOr(awayRecent.avg_ip) <= 5.0
+          ) {
+            shortStarters.push(
+              `${game.away_team} SP ${formatNumber(awayRecent.avg_ip, 1)} IP`,
+            );
+          }
+          if (
+            numberOr(homeRecent.avg_ip) != null &&
+            numberOr(homeRecent.avg_ip) <= 5.0
+          ) {
+            shortStarters.push(
+              `${game.home_team} SP ${formatNumber(homeRecent.avg_ip, 1)} IP`,
+            );
+          }
+          if (shortStarters.length) {
+            reasons.push(
+              `${shortStarters.join(" · ")} points to earlier bullpen exposure`,
+            );
+          }
+          const shakyPens = [];
+          if (
+            (awayLateEra != null && awayLateEra >= 4.4) ||
+            (awayLateSeasonEra != null && awayLateSeasonEra >= 4.4)
+          ) {
+            shakyPens.push(`${game.away_team} pen`);
+          }
+          if (
+            (homeLateEra != null && homeLateEra >= 4.4) ||
+            (homeLateSeasonEra != null && homeLateSeasonEra >= 4.4)
+          ) {
+            shakyPens.push(`${game.home_team} pen`);
+          }
+          if (shakyPens.length) {
+            reasons.push(
+              `${joinTeamNames(shakyPens)} show elevated late-inning ERA`,
+            );
+          }
           if (lineMovement != null && lineMovement > 0.1) {
             reasons.push(
               `Market has already moved up ${formatTrend(lineMovement)}`,
             );
           }
         } else {
+          if (
+            awayExpected != null &&
+            homeExpected != null &&
+            awayExpected <= 4.0 &&
+            homeExpected <= 4.0
+          ) {
+            reasons.push(
+              `Neither lineup is projected above 4.0 runs (${formatNumber(awayExpected, 1)} / ${formatNumber(homeExpected, 1)})`,
+            );
+          }
           const highKTeams = [];
           if (awayK != null && awayK >= 0.23) highKTeams.push(game.away_team);
           if (homeK != null && homeK >= 0.23) highKTeams.push(game.home_team);
@@ -4042,6 +5274,56 @@
           if (temperature != null && temperature <= 60) {
             reasons.push(
               `Cool weather at ${formatNumber(temperature, 0)} F can mute offense`,
+            );
+          }
+          if (
+            windSpeed != null &&
+            windSpeed >= 12 &&
+            temperature != null &&
+            temperature <= 68
+          ) {
+            reasons.push(
+              `Cool air plus ${formatNumber(windSpeed, 0)} mph wind leans lower-scoring`,
+            );
+          }
+          const suppressiveStarters = [];
+          if (
+            (numberOr(awayStarter.xwoba_against) != null &&
+              numberOr(awayStarter.xwoba_against) <= 0.295) ||
+            (numberOr(awayStarter.csw_pct) != null &&
+              numberOr(awayStarter.csw_pct) >= 0.3)
+          ) {
+            suppressiveStarters.push(game.away_team);
+          }
+          if (
+            (numberOr(homeStarter.xwoba_against) != null &&
+              numberOr(homeStarter.xwoba_against) <= 0.295) ||
+            (numberOr(homeStarter.csw_pct) != null &&
+              numberOr(homeStarter.csw_pct) >= 0.3)
+          ) {
+            suppressiveStarters.push(game.home_team);
+          }
+          if (suppressiveStarters.length) {
+            reasons.push(
+              `${joinTeamNames(suppressiveStarters)} bring starter contact suppression or bat-missing form`,
+            );
+          }
+          const stablePens = [];
+          if (
+            (awayLateEra != null && awayLateEra <= 3.7) ||
+            (awayLateSeasonEra != null && awayLateSeasonEra <= 3.8)
+          ) {
+            stablePens.push(game.away_team);
+          }
+          if (
+            (homeLateEra != null && homeLateEra <= 3.7) ||
+            (homeLateSeasonEra != null && homeLateSeasonEra <= 3.8)
+          ) {
+            stablePens.push(game.home_team);
+          }
+          if (stablePens.length === 2) {
+            reasons.push(
+              "Both bullpens look stable enough to protect later innings",
             );
           }
           if (lineMovement != null && lineMovement < -0.1) {
@@ -4342,7 +5624,18 @@
         const hitRate30 = Number(player.hit_rate_30);
         const xwoba14 = Number(player.xwoba_14);
         const hardHit14 = Number(player.hard_hit_pct_14);
+        const battingAvgLast7 = numberOr(player.batting_avg_last7);
+        const hitGamesLast7 = numberOr(player.hit_games_last7, 0);
+        const gamesLast7 = numberOr(player.games_last7, 0);
         const streak = Number(player.streak_len_capped || 0);
+        const projectedPA = numberOr(player.projected_plate_appearances);
+        const splitAvg = numberOr(player.vs_pitcher_hand_batting_avg);
+        const splitXwoba = numberOr(player.vs_pitcher_hand_xwoba);
+        const splitGames = numberOr(player.vs_pitcher_hand_games, 0);
+        const opponentStarterXwoba = numberOr(player.opposing_starter_xwoba);
+        const opponentStarterCsw = numberOr(player.opposing_starter_csw);
+        const teamRunEnvironment = numberOr(player.team_run_environment);
+        const parkHrFactor = numberOr(player.park_hr_factor);
         const hitDelta =
           Number.isFinite(hitRate7) && Number.isFinite(hitRate30)
             ? hitRate7 - hitRate30
@@ -4361,6 +5654,116 @@
           `Streak ${streak}`,
         ];
 
+        const hotReasons = [];
+        const steadyReasons = [];
+        const coldReasons = [];
+
+        if (hitDelta != null && hitDelta >= 0.12) {
+          hotReasons.push(
+            `7G hit rate is ${formatSigned(hitDelta * 100, 0)} points above the 30G baseline`,
+          );
+        }
+        if (gamesLast7 >= 5 && hitGamesLast7 >= 4) {
+          hotReasons.push(
+            `Hits in ${hitGamesLast7} of the last ${gamesLast7} games`,
+          );
+        }
+        if (battingAvgLast7 != null && battingAvgLast7 >= 0.32) {
+          hotReasons.push(
+            `Batting ${formatBattingAverage(battingAvgLast7)} over the last 7 games`,
+          );
+        }
+        if (Number.isFinite(xwoba14) && xwoba14 >= 0.345) {
+          hotReasons.push(`xwOBA14 is up at ${formatNumber(xwoba14, 3)}`);
+        }
+        if (Number.isFinite(hardHit14) && hardHit14 >= 0.4) {
+          hotReasons.push(`Hard-hit rate is ${formatPercent(hardHit14, 0)}`);
+        }
+        if (streak >= 2) {
+          hotReasons.push(`Carrying a ${streak}-game hit streak`);
+        }
+        if (
+          splitGames >= 4 &&
+          ((splitAvg != null && splitAvg >= 0.29) ||
+            (splitXwoba != null && splitXwoba >= 0.35))
+        ) {
+          hotReasons.push(`Strong platoon split vs this pitcher hand`);
+        }
+        if (
+          (opponentStarterXwoba != null && opponentStarterXwoba >= 0.33) ||
+          (opponentStarterCsw != null && opponentStarterCsw <= 0.27)
+        ) {
+          hotReasons.push(`Opposing starter profile is attackable for contact`);
+        }
+        if (
+          (teamRunEnvironment != null && teamRunEnvironment >= 4.6) ||
+          (projectedPA != null && projectedPA >= 4.4)
+        ) {
+          hotReasons.push(
+            `Run environment and projected volume both support chances`,
+          );
+        }
+
+        if (hitDelta != null && hitDelta <= -0.12) {
+          coldReasons.push(
+            `7G hit rate is ${formatSigned(hitDelta * 100, 0)} points below the 30G baseline`,
+          );
+        }
+        if (Number.isFinite(xwoba14) && xwoba14 <= 0.285) {
+          coldReasons.push(`xwOBA14 is only ${formatNumber(xwoba14, 3)}`);
+        }
+        if (Number.isFinite(hardHit14) && hardHit14 <= 0.32) {
+          coldReasons.push(
+            `Hard-hit rate is muted at ${formatPercent(hardHit14, 0)}`,
+          );
+        }
+        if (
+          splitGames >= 4 &&
+          ((splitAvg != null && splitAvg <= 0.22) ||
+            (splitXwoba != null && splitXwoba <= 0.3))
+        ) {
+          coldReasons.push(
+            `Tracked platoon split is weak vs this pitcher hand`,
+          );
+        }
+        if (
+          (opponentStarterXwoba != null && opponentStarterXwoba <= 0.295) ||
+          (opponentStarterCsw != null && opponentStarterCsw >= 0.3)
+        ) {
+          coldReasons.push(`Opposing starter form is suppressing contact`);
+        }
+        if (
+          (teamRunEnvironment != null && teamRunEnvironment <= 3.8) ||
+          (projectedPA != null && projectedPA <= 3.6) ||
+          (parkHrFactor != null && parkHrFactor <= 0.95)
+        ) {
+          coldReasons.push(
+            `Run context points to fewer quality plate appearances`,
+          );
+        }
+
+        if (hitDelta != null) {
+          steadyReasons.push(
+            `7G ${formatPercent(hitRate7, 0)} vs 30G ${formatPercent(hitRate30, 0)}`,
+          );
+        }
+        if (Number.isFinite(xwoba14)) {
+          steadyReasons.push(`xwOBA14 ${formatNumber(xwoba14, 3)}`);
+        }
+        if (splitGames >= 4 && splitXwoba != null) {
+          steadyReasons.push(
+            `Split xwOBA ${formatNumber(splitXwoba, 3)} vs ${playerPitcherHandLabel(player)}`,
+          );
+        }
+        if (projectedPA != null) {
+          steadyReasons.push(
+            `Projected volume ${formatNumber(projectedPA, 1)} PA`,
+          );
+        }
+        if (opponentStarterXwoba != null || opponentStarterCsw != null) {
+          steadyReasons.push(playerPitcherMatchupCopy(player));
+        }
+
         if (
           (hitDelta != null && hitDelta >= 0.12) ||
           (Number.isFinite(xwoba14) && xwoba14 >= 0.38) ||
@@ -4369,8 +5772,14 @@
           return {
             label: "Hot",
             tone: "good",
-            summary: evidence[0],
-            detail: evidence.slice(1).join(" · "),
+            summary: hotReasons[0] || evidence[0],
+            detail: (hotReasons.slice(1).length
+              ? hotReasons.slice(1)
+              : steadyReasons
+            )
+              .slice(0, 3)
+              .join(" · "),
+            reasons: hotReasons.slice(0, 4),
           };
         }
         if (
@@ -4380,15 +5789,30 @@
           return {
             label: "Cold",
             tone: "warn",
-            summary: evidence[0],
-            detail: evidence.slice(1).join(" · "),
+            summary: coldReasons[0] || evidence[0],
+            detail: (coldReasons.slice(1).length
+              ? coldReasons.slice(1)
+              : steadyReasons
+            )
+              .slice(0, 3)
+              .join(" · "),
+            reasons: coldReasons.slice(0, 4),
           };
         }
         return {
-          label: "Steady",
-          tone: "",
-          summary: evidence[0],
-          detail: evidence.slice(1).join(" · "),
+          label:
+            streak >= 2 || (gamesLast7 >= 5 && hitGamesLast7 >= 4)
+              ? "Hitting well"
+              : "Steady",
+          tone:
+            streak >= 2 || (gamesLast7 >= 5 && hitGamesLast7 >= 4)
+              ? "good"
+              : "",
+          summary: steadyReasons[0] || evidence[0],
+          detail:
+            steadyReasons.slice(1, 4).join(" · ") ||
+            evidence.slice(1).join(" · "),
+          reasons: steadyReasons.slice(0, 4),
         };
       }
 
@@ -4433,6 +5857,120 @@
           return "warn";
         }
         return projection.market?.consensus_line != null ? "gold" : "";
+      }
+
+      function starterStrikeoutReasons(starter, opponentTeam) {
+        if (!starter) {
+          return [];
+        }
+        const recent = starter.recent_form || {};
+        const projection = starter.k_projection || {};
+        const market = projection.market || {};
+        const reasons = [];
+        const projectedKs = numberOr(
+          projection.projected_strikeouts_fundamentals,
+          projection.projected_strikeouts,
+          projection.baseline_strikeouts,
+        );
+        const opponentK = numberOr(projection.opponent_k_pct_used);
+        const delta = numberOr(market.projection_delta);
+        const csw = numberOr(starter.csw_pct);
+        const whiff = numberOr(recent.whiff_pct, starter.whiff_pct);
+        const avgIp = numberOr(recent.avg_ip);
+        const handedness = projection.lineup_handedness || {};
+        const sameHandShare = numberOr(handedness.same_hand_share);
+
+        if (delta != null && delta >= 0.5) {
+          reasons.push(
+            `Model is ${formatSigned(delta, 1)} above the market K line`,
+          );
+        }
+        if (projectedKs != null) {
+          reasons.push(
+            `Projection sits around ${formatNumber(projectedKs, 1)} Ks`,
+          );
+        }
+        if (opponentK != null && opponentK >= 0.24) {
+          reasons.push(
+            `${opponentTeam} projected K rate is ${formatPercent(opponentK)}`,
+          );
+        }
+        if (csw != null && csw >= 0.3) {
+          reasons.push(`CSW is a strong ${formatPercent(csw)}`);
+        }
+        if (whiff != null && whiff >= 0.3) {
+          reasons.push(`Whiff rate is ${formatPercent(whiff)}`);
+        }
+        if (avgIp != null && avgIp >= 5.8) {
+          reasons.push(
+            `Recent workload is ${formatNumber(avgIp, 1)} IP, leaving room for strikeout volume`,
+          );
+        }
+        if (
+          sameHandShare != null &&
+          sameHandShare >= 0.55 &&
+          projection.handedness_adjustment_applied
+        ) {
+          reasons.push(
+            `Lineup handedness mix favors this starter's platoon profile`,
+          );
+        }
+        if (!reasons.length && market.consensus_line != null) {
+          reasons.push(
+            `Market line is ${formatNumber(market.consensus_line, 1)} while lineup context is still filling in`,
+          );
+        }
+        return reasons.slice(0, 4);
+      }
+
+      function starterRunPreventionReasons(starter) {
+        if (!starter) {
+          return [];
+        }
+        const recent = starter.recent_form || {};
+        const reasons = [];
+        const xwoba = numberOr(starter.xwoba_against);
+        const csw = numberOr(starter.csw_pct);
+        const whiff = numberOr(recent.whiff_pct, starter.whiff_pct);
+        const avgIp = numberOr(recent.avg_ip);
+        const avgKs = numberOr(recent.avg_strikeouts);
+
+        if (xwoba != null && xwoba <= 0.295) {
+          reasons.push(
+            `Contact suppression is strong with ${formatNumber(xwoba, 3)} xwOBA allowed`,
+          );
+        } else if (xwoba != null && xwoba >= 0.325) {
+          reasons.push(
+            `Contact risk is higher with ${formatNumber(xwoba, 3)} xwOBA allowed`,
+          );
+        }
+        if (csw != null && csw >= 0.3) {
+          reasons.push(
+            `CSW ${formatPercent(csw)} supports fewer clean balls in play`,
+          );
+        } else if (csw != null && csw <= 0.27) {
+          reasons.push(
+            `CSW ${formatPercent(csw)} leaves less margin for run prevention`,
+          );
+        }
+        if (whiff != null && whiff >= 0.3) {
+          reasons.push(`Whiff ${formatPercent(whiff)} helps strand runners`);
+        }
+        if (avgIp != null && avgIp >= 5.8) {
+          reasons.push(
+            `Recent ${formatNumber(avgIp, 1)} IP outings limit bullpen dependence`,
+          );
+        } else if (avgIp != null && avgIp <= 5.0) {
+          reasons.push(
+            `Shorter ${formatNumber(avgIp, 1)} IP outings can expose the bullpen early`,
+          );
+        }
+        if (avgKs != null && avgKs >= 6.0) {
+          reasons.push(
+            `Recent strikeout form (${formatNumber(avgKs, 1)} K/start) helps shut down rallies`,
+          );
+        }
+        return reasons.slice(0, 4);
       }
 
       function playerHeatScore(player) {
@@ -4496,19 +6034,20 @@
         const opponentK = projection.opponent_k_pct_used;
         const handedness = handednessCountsLabel(projection.lineup_handedness);
         const market = projection.market || {};
+        const reasons = starterStrikeoutReasons(starter, opponentTeam);
         if (projection.handedness_data_missing) {
           if (market.consensus_line != null) {
-            return `Market backed · line ${formatNumber(market.consensus_line, 1)} · fallback no bat-side data`;
+            return `Market backed · ${reasons[0] || `line ${formatNumber(market.consensus_line, 1)}`} · fallback no bat-side data`;
           }
-          return `Awaiting K market · fallback no bat-side data · K ${formatPercent(opponentK)}`;
+          return `Awaiting K market · ${reasons[0] || `K ${formatPercent(opponentK)}`} · fallback no bat-side data`;
         }
-        if (market.consensus_line != null && market.projection_delta != null) {
-          return `Market backed · line ${formatNumber(market.consensus_line, 1)} · ${formatSigned(market.projection_delta, 1)} vs market`;
+        if (market.consensus_line != null && reasons.length) {
+          return `Market backed · ${reasons[0]}`;
         }
         if (projectedKs == null) {
-          return `Awaiting K market · ${opponentTeam} K ${formatPercent(opponentK)} · ${handedness}`;
+          return `Awaiting K market · ${reasons[0] || `${opponentTeam} K ${formatPercent(opponentK)}`} · ${handedness}`;
         }
-        return `Awaiting K market · vs ${opponentTeam} · K ${formatPercent(opponentK)} · ${handedness}`;
+        return `Awaiting K market · ${reasons[0] || `vs ${opponentTeam} · K ${formatPercent(opponentK)}`} · ${handedness}`;
       }
 
       function renderStarterProjectionPill(label, starter, opponentTeam) {
@@ -4538,12 +6077,8 @@
           const needsRefresh = selectedDateIsPast();
           return `
           <div class="compact-grade-strip">
-            <span class="chip warn">${needsRefresh ? "Needs refresh" : "Pregame"}</span>
-            <div class="compact-grade-copy">${
-              needsRefresh
-                ? "No final score is loaded for this past date yet. Refresh the date pipeline to ingest completed outcomes."
-                : "No graded result yet. Use the card for totals, hitter, and starter-K context before first pitch."
-            }</div>
+            <span class="chip ${needsRefresh ? "warn" : ""}">${needsRefresh ? "Needs Refresh" : "Pregame"}</span>
+            <div class="compact-grade-copy">${needsRefresh ? "Refresh to load final score." : "Click to open full matchup for lineup &amp; starter context."}</div>
           </div>
         `;
         }
@@ -4564,10 +6099,10 @@
           gradeTone = push ? "" : leanWon ? "good" : "warn";
         }
         return `
-        <div class="compact-grade-strip">
+        <div class="compact-grade-strip final-result">
           <div>
             <div class="data-label">Final</div>
-            <div class="summary-value">${game.away_team} ${actual.away_runs} - ${game.home_team} ${actual.home_runs}</div>
+            <div class="summary-value">${game.away_team} ${actual.away_runs} – ${game.home_team} ${actual.home_runs}</div>
           </div>
           <div class="compact-grade-copy">Total ${actual.total_runs ?? "-"} · ${gradeLabel}</div>
           <span class="chip ${gradeTone}">${gradeLabel}</span>
@@ -4709,7 +6244,15 @@
             : mkt == null
               ? "No market line yet"
               : "";
-        return renderCompactSummaryPill("First 5 Inn", value, copy);
+        const tone =
+          delta == null
+            ? ""
+            : delta < -0.25
+              ? "good"
+              : delta > 0.25
+                ? "warn"
+                : "";
+        return renderCompactSummaryPill("First 5 Inn", value, copy, tone);
       }
 
       function renderResultBanner(detail) {
@@ -4802,14 +6345,12 @@
           rationale.confidence == null
             ? "-"
             : formatPercent(rationale.confidence, 0);
-        const signals =
-          Array.isArray(rationale.signals) && rationale.signals.length
-            ? rationale.signals.join(" · ")
-            : "Waiting for stronger model evidence.";
-        const risks =
-          Array.isArray(rationale.risk_flags) && rationale.risk_flags.length
-            ? rationale.risk_flags.join(" · ")
-            : "No major risk flags from the current payload.";
+        const signals = Array.isArray(rationale.signals)
+          ? rationale.signals
+          : [];
+        const risks = Array.isArray(rationale.risk_flags)
+          ? rationale.risk_flags
+          : [];
         const beatMarket =
           grading.beat_market == null
             ? "No comparison yet"
@@ -4833,11 +6374,9 @@
             <span class="data-label">Confidence</span>
             <span class="data-value ${confidenceTone(rationale.confidence)}">${confidence}</span>
           </div>
-          <div class="data-row">
-            <span class="data-label">Signals</span>
-            <span class="data-value">${signals}</span>
-          </div>
-          <div class="small-note">Risk flags: ${risks}</div>
+          ${renderReasonChipList(signals, "gold", "Waiting for stronger model evidence.")}
+          <div class="small-note">Risk flags</div>
+          ${renderReasonChipList(risks, "warn", "No major risk flags from the current payload.")}
         </article>
         <article class="context-card">
           <div class="section-tag">Postgame Review</div>
@@ -4862,7 +6401,7 @@
       `;
       }
 
-      function renderStarterDetailCard(starter, fallbackLabel) {
+      function renderStarterDetailCard(starter, fallbackLabel, opponentTeam) {
         if (!starter) {
           return `
           <article class="starter-card">
@@ -4875,6 +6414,17 @@
         const recent = starter.recent_form || {};
         const projection = starter.k_projection || {};
         const market = projection.market || {};
+        const strikeoutReasons = starterStrikeoutReasons(starter, opponentTeam);
+        const runPreventionReasons = starterRunPreventionReasons(starter);
+        const strikeoutTone = starterProjectionTone(starter) || "gold";
+        const runPreventionTone =
+          numberOr(starter.xwoba_against) != null &&
+          numberOr(starter.xwoba_against) <= 0.305
+            ? "good"
+            : numberOr(starter.xwoba_against) != null &&
+                numberOr(starter.xwoba_against) >= 0.325
+              ? "warn"
+              : "gold";
         const marketChip =
           market.consensus_line == null
             ? `<span class="chip warn">Awaiting K market</span>`
@@ -4922,10 +6472,14 @@
             <span class="data-label">Market K Line / Delta</span>
             <span class="data-value">${market.consensus_line == null ? "Awaiting market line" : `${formatNumber(market.consensus_line, 1)} / <span class="${deltaTone(market.projection_delta, 0.3)}">${formatSigned(market.projection_delta, 1)}</span>`}</span>
           </div>
+          <div class="small-note">Why K Lean</div>
+          ${renderReasonChipList(strikeoutReasons, strikeoutTone, "Awaiting stronger strikeout context")}
           <div class="data-row">
             <span class="data-label">Whiff / Velo</span>
             <span class="data-value"><span class="${whiffTone(recent.whiff_pct)}">${formatPercent(recent.whiff_pct)}</span> / ${formatNumber(recent.avg_fb_velo, 1)}</span>
           </div>
+          <div class="small-note">Run Prevention</div>
+          ${renderReasonChipList(runPreventionReasons, runPreventionTone, "Run-prevention context pending")}
         </article>
       `;
       }
@@ -4936,6 +6490,7 @@
         const availability = playerAvailabilityMeta(player);
         const availabilityTag = playerAvailabilityTag(player);
         const lineupState = playerLineupStateMeta(player);
+        const formReasons = Array.isArray(form.reasons) ? form.reasons : [];
         const actualStatus = playerOutcomeStatus(player);
         const actualHits =
           actualStatus === "pending"
@@ -4997,6 +6552,10 @@
             <span class="data-value">${playerPlatoonCopy(player)}</span>
           </div>
           <div class="data-row">
+            <span class="data-label">Pitcher Matchup</span>
+            <span class="data-value">${playerPitcherMatchupCopy(player)}</span>
+          </div>
+          <div class="data-row">
             <span class="data-label">Roster Status</span>
             <span class="data-value">${escapeHtml(availability.detail)}</span>
           </div>
@@ -5009,13 +6568,15 @@
             <span class="data-value">${playerDecisionPriceCopy(player)}</span>
           </div>
           <div class="data-row">
+            <span class="data-label">Run Context</span>
+            <span class="data-value">${playerRunEnvironmentCopy(player)}</span>
+          </div>
+          <div class="data-row">
             <span class="data-label">Hit Rate 7 / 30</span>
             <span class="data-value"><span class="${hitRateTone(player.hit_rate_7)}">${formatPercent(player.hit_rate_7)}</span> / <span class="${hitRateTone(player.hit_rate_30)}">${formatPercent(player.hit_rate_30)}</span></span>
           </div>
-          <div class="data-row">
-            <span class="data-label">Form Signal</span>
-            <span class="data-value">${form.summary || "Recent form pending"}</span>
-          </div>
+          <div class="small-note">Why 1+ Hit Lean</div>
+          ${renderReasonChipList(formReasons.length ? formReasons : [form.summary], form.tone || "gold", "Recent form pending")}
           <div class="data-row">
             <span class="data-label">xwOBA 14 / Hard Hit 14</span>
             <span class="data-value">${formatNumber(player.xwoba_14, 3)} / ${formatPercent(player.hard_hit_pct_14)}</span>
@@ -5070,14 +6631,14 @@
         ${renderResultBanner(detail)}
         <div class="summary-grid">
           <div class="summary-card">
-            <div class="data-label">Model Total</div>
-            <div class="summary-value">${formatNumber(primaryTotalPrediction(totals), 2)}</div>
-            <div class="summary-copy">Market ${formatNumber(totals.market_total, 1)} · Edge ${formatSigned(statsEdge(totals))}${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` · <span class="tiny-label" title="Blended calibrated model (experimental)">Blended (exp.) ${formatNumber(totals.predicted_total_runs, 2)}</span>` : ""}</div>
+            <div class="data-label">Decision / Market</div>
+            <div class="summary-value">${formatNumber(primaryTotalPrediction(totals), 2)} / ${formatNumber(totals.market_total, 1)}</div>
+            <div class="summary-copy">${totalDecisionCopy(totals)}${totalsReasonSummary(detail) ? ` · ${totalsReasonSummary(detail)}` : ""}</div>
           </div>
           <div class="summary-card">
-            <div class="data-label">Expected Runs</div>
+            <div class="data-label">Run Context</div>
             <div class="summary-value">${detail.away_team} ${formatNumber(totals.away_expected_runs, 2)} / ${detail.home_team} ${formatNumber(totals.home_expected_runs, 2)}</div>
-            <div class="summary-copy">${leanLabel(totals)} ${totalsLeanValue(totals)} · ${totalsReasonSummary(detail)}</div>
+            <div class="summary-copy">${runContextCopy(totals)}</div>
           </div>
           <div class="summary-card">
             <div class="data-label">Lineup Quality</div>
@@ -5122,8 +6683,8 @@
             <section class="detail-section">
               <div class="section-tag">Starter Form</div>
               <div class="starter-detail-grid">
-                ${renderStarterDetailCard(detail.starters.away, detail.away_team)}
-                ${renderStarterDetailCard(detail.starters.home, detail.home_team)}
+                ${renderStarterDetailCard(detail.starters.away, detail.away_team, detail.home_team)}
+                ${renderStarterDetailCard(detail.starters.home, detail.home_team, detail.away_team)}
               </div>
             </section>
           </div>
@@ -5196,6 +6757,480 @@
         return `<span class="lock-chip" title="Pregame market frozen${book}">LOCKED${book}</span>`;
       }
 
+      // ── MLB team ID map (for logos) ──────────────────────
+      const _BOARD_TEAM_IDS = {
+        ARI: 109,
+        AZ: 109,
+        ATL: 144,
+        BAL: 110,
+        BOS: 111,
+        CHC: 112,
+        CWS: 145,
+        CIN: 113,
+        CLE: 114,
+        COL: 115,
+        DET: 116,
+        HOU: 117,
+        KC: 118,
+        LAA: 108,
+        LAD: 119,
+        MIA: 146,
+        MIL: 158,
+        MIN: 142,
+        NYM: 121,
+        NYY: 147,
+        OAK: 133,
+        ATH: 133,
+        PHI: 143,
+        PIT: 134,
+        SD: 135,
+        SF: 137,
+        SEA: 136,
+        STL: 138,
+        TB: 139,
+        TEX: 140,
+        TOR: 141,
+        WSH: 120,
+        WAS: 120,
+        CHW: 145,
+      };
+
+      function boardTeamLogoUrl(abbr) {
+        const id = _BOARD_TEAM_IDS[String(abbr || "").toUpperCase()];
+        return id ? `https://www.mlbstatic.com/team-logos/${id}.svg` : "";
+      }
+
+      function renderGameStatsBar(game) {
+        const totals = game.totals || {};
+        const weather = game.weather || {};
+        const sm = game.supplemental_markets || {};
+        const umpire = game.umpire || null;
+        const away = game.away_team;
+        const home = game.home_team;
+        const starters = game.starters || {};
+        const marketTotal = numberOr(totals.market_total);
+        const overPct = numberOr(totals.over_probability);
+        const underPct = numberOr(totals.under_probability);
+        const awayXwoba = numberOr(totals.away_lineup_top5_xwoba);
+        const homeXwoba = numberOr(totals.home_lineup_top5_xwoba);
+        const awayKPct = numberOr(totals.away_lineup_k_pct);
+        const homeKPct = numberOr(totals.home_lineup_k_pct);
+        const awayBullpen = numberOr(totals.away_bullpen_pitches_last3);
+        const homeBullpen = numberOr(totals.home_bullpen_pitches_last3);
+        const awayB2b = numberOr(totals.away_bullpen_b2b);
+        const homeB2b = numberOr(totals.home_bullpen_b2b);
+        const awayLateRecentEra = numberOr(totals.away_bullpen_late_era_last3);
+        const homeLateRecentEra = numberOr(totals.home_bullpen_late_era_last3);
+        const awayLateSeasonEra = numberOr(totals.away_bullpen_late_season_era);
+        const homeLateSeasonEra = numberOr(totals.home_bullpen_late_season_era);
+        const temp = numberOr(weather.temperature_f);
+        const wind = numberOr(weather.wind_mph);
+        const windDir = weather.wind_direction || "";
+        const lineMove = numberOr(totals.line_movement);
+
+        // Supplemental market helpers
+        const ml = sm["moneyline"] || null;
+        const rl = sm["run_line"] || null;
+        const homeTT = sm["home_team_total"] || sm["team_total"] || null;
+        const awayTT = sm["away_team_total"] || null;
+        const f5ml = sm["first_five_moneyline"] || null;
+
+        const stat = (label, value, tone = "") =>
+          `<div class="gsb-stat"><div class="gsb-value ${tone}">${value}</div><div class="gsb-label">${label}</div></div>`;
+        const divider = () => `<div class="gsb-divider"></div>`;
+
+        const groups = [];
+
+        // ── Group 1: Betting markets ─────────────────────
+        const mktStats = [];
+        if (marketTotal != null && overPct != null) {
+          mktStats.push(
+            stat(
+              `O/U ${formatNumber(marketTotal, 1)}`,
+              `${formatPercent(overPct, 0)} / ${formatPercent(underPct, 0)}`,
+              overPct >= 0.56 ? "good" : overPct <= 0.44 ? "warn" : "",
+            ),
+          );
+        }
+        if (ml) {
+          const homePrice = numberOr(ml.over_price); // over=home ML in our schema
+          const awayPrice = numberOr(ml.under_price);
+          if (homePrice != null || awayPrice != null)
+            mktStats.push(
+              stat(
+                "Moneyline",
+                `${away} ${awayPrice != null ? formatPrice(awayPrice) : "–"} / ${home} ${homePrice != null ? formatPrice(homePrice) : "–"}`,
+                "",
+              ),
+            );
+        }
+        if (rl) {
+          const rlLine = numberOr(rl.line_value);
+          const rlHomePrice = numberOr(rl.over_price);
+          if (rlLine != null)
+            mktStats.push(
+              stat(
+                "Run Line",
+                `${home} ${rlLine > 0 ? "+" : ""}${rlLine} (${rlHomePrice != null ? formatPrice(rlHomePrice) : "–"})`,
+                "",
+              ),
+            );
+        }
+        if (homeTT || awayTT) {
+          const att = awayTT ? numberOr(awayTT.line_value) : null;
+          const htt = homeTT ? numberOr(homeTT.line_value) : null;
+          if (att != null || htt != null)
+            mktStats.push(
+              stat(
+                "Team O/U",
+                `${away} ${att != null ? formatNumber(att, 1) : "–"} / ${home} ${htt != null ? formatNumber(htt, 1) : "–"}`,
+                "",
+              ),
+            );
+        }
+        if (f5ml) {
+          const f5HomePrice = numberOr(f5ml.over_price);
+          const f5AwayPrice = numberOr(f5ml.under_price);
+          if (f5HomePrice != null || f5AwayPrice != null)
+            mktStats.push(
+              stat(
+                "F5 ML",
+                `${away} ${f5AwayPrice != null ? formatPrice(f5AwayPrice) : "–"} / ${home} ${f5HomePrice != null ? formatPrice(f5HomePrice) : "–"}`,
+                "",
+              ),
+            );
+        }
+        if (lineMove != null)
+          mktStats.push(
+            stat(
+              "Line Move",
+              formatSigned(lineMove, 1),
+              Math.abs(lineMove) >= 0.5 ? "warn" : "",
+            ),
+          );
+        if (mktStats.length) groups.push(mktStats.join(""));
+
+        // ── Group 2: Matchup ─────────────────────────────
+        const matchStats = [];
+        if (awayXwoba != null)
+          matchStats.push(
+            stat(
+              `${away} xwOBA`,
+              formatNumber(awayXwoba, 3),
+              awayXwoba >= 0.34 ? "good" : awayXwoba <= 0.29 ? "warn" : "",
+            ),
+          );
+        if (homeXwoba != null)
+          matchStats.push(
+            stat(
+              `${home} xwOBA`,
+              formatNumber(homeXwoba, 3),
+              homeXwoba >= 0.34 ? "good" : homeXwoba <= 0.29 ? "warn" : "",
+            ),
+          );
+        if (awayKPct != null)
+          matchStats.push(
+            stat(
+              `${away} K%`,
+              formatPercent(awayKPct, 0),
+              awayKPct >= 0.25 ? "warn" : awayKPct <= 0.16 ? "good" : "",
+            ),
+          );
+        if (homeKPct != null)
+          matchStats.push(
+            stat(
+              `${home} K%`,
+              formatPercent(homeKPct, 0),
+              homeKPct >= 0.25 ? "warn" : homeKPct <= 0.16 ? "good" : "",
+            ),
+          );
+        if (umpire && umpire.umpire_name)
+          matchStats.push(stat("HP Ump", escapeHtml(umpire.umpire_name), ""));
+        // SP K projections (moved here from compact pills)
+        const awayStarter = starters.away;
+        const homeStarter = starters.home;
+        if (awayStarter?.k_projection) {
+          const proj = numberOr(
+            awayStarter.k_projection.projected_strikeouts_fundamentals,
+            awayStarter.k_projection.projected_strikeouts,
+          );
+          const mkt = numberOr(awayStarter.k_market?.consensus_line);
+          if (proj != null)
+            matchStats.push(
+              stat(
+                `${away} SP Ks`,
+                `${formatNumber(proj, 1)}${mkt != null ? ` vs ${formatNumber(mkt, 1)}` : ""}`,
+                mkt != null && proj < mkt - 0.5 ? "warn" : "",
+              ),
+            );
+        }
+        if (homeStarter?.k_projection) {
+          const proj = numberOr(
+            homeStarter.k_projection.projected_strikeouts_fundamentals,
+            homeStarter.k_projection.projected_strikeouts,
+          );
+          const mkt = numberOr(homeStarter.k_market?.consensus_line);
+          if (proj != null)
+            matchStats.push(
+              stat(
+                `${home} SP Ks`,
+                `${formatNumber(proj, 1)}${mkt != null ? ` vs ${formatNumber(mkt, 1)}` : ""}`,
+                mkt != null && proj < mkt - 0.5 ? "warn" : "",
+              ),
+            );
+        }
+        if (matchStats.length) {
+          if (groups.length) groups.push(divider());
+          groups.push(matchStats.join(""));
+        }
+
+        // ── Group 3: Bullpen / weather ───────────────────
+        const envStats = [];
+        if (awayBullpen != null)
+          envStats.push(
+            stat(
+              `${away} Pen L3`,
+              `${Math.round(awayBullpen)}P`,
+              awayBullpen >= 210 ? "warn" : awayBullpen <= 90 ? "good" : "",
+            ),
+          );
+        if (homeBullpen != null)
+          envStats.push(
+            stat(
+              `${home} Pen L3`,
+              `${Math.round(homeBullpen)}P`,
+              homeBullpen >= 210 ? "warn" : homeBullpen <= 90 ? "good" : "",
+            ),
+          );
+        if (awayB2b != null && awayB2b > 0)
+          envStats.push(stat(`${away} B2B`, `${awayB2b} rel`, "warn"));
+        if (homeB2b != null && homeB2b > 0)
+          envStats.push(stat(`${home} B2B`, `${homeB2b} rel`, "warn"));
+        if (awayLateRecentEra != null || awayLateSeasonEra != null)
+          envStats.push(
+            stat(
+              `${away} Late ERA`,
+              `L3 ${formatNumber(awayLateRecentEra, 2)} / S ${formatNumber(awayLateSeasonEra, 2)}`,
+              awayLateRecentEra != null &&
+                awayLateSeasonEra != null &&
+                awayLateRecentEra > awayLateSeasonEra + 0.5
+                ? "warn"
+                : awayLateRecentEra != null && awayLateRecentEra <= 3.5
+                  ? "good"
+                  : "",
+            ),
+          );
+        if (homeLateRecentEra != null || homeLateSeasonEra != null)
+          envStats.push(
+            stat(
+              `${home} Late ERA`,
+              `L3 ${formatNumber(homeLateRecentEra, 2)} / S ${formatNumber(homeLateSeasonEra, 2)}`,
+              homeLateRecentEra != null &&
+                homeLateSeasonEra != null &&
+                homeLateRecentEra > homeLateSeasonEra + 0.5
+                ? "warn"
+                : homeLateRecentEra != null && homeLateRecentEra <= 3.5
+                  ? "good"
+                  : "",
+            ),
+          );
+        if (temp != null)
+          envStats.push(
+            stat(
+              "Temp",
+              `${Math.round(temp)}°F`,
+              temp >= 82 ? "good" : temp <= 44 ? "warn" : "",
+            ),
+          );
+        if (wind != null)
+          envStats.push(
+            stat(
+              `Wind${windDir ? ` ${windDir}` : ""}`,
+              `${Math.round(wind)} mph`,
+              wind >= 15 ? "warn" : "",
+            ),
+          );
+        if (envStats.length) {
+          if (groups.length) groups.push(divider());
+          groups.push(envStats.join(""));
+        }
+
+        if (!groups.length) return "";
+        return `<div class="game-stats-bar">${groups.join("")}</div>`;
+      }
+
+      function renderGameBestBetStrip(game) {
+        const bets = Array.isArray(game?.best_bets)
+          ? game.best_bets.slice(0, 2)
+          : [];
+        if (!bets.length) {
+          return "";
+        }
+        return `
+          <div class="game-best-bet-strip">
+            ${bets
+              .map(
+                (bet) =>
+                  `<span class="game-best-bet-chip">${escapeHtml(bet.selection_label || bet.market_label || "Best Bet")}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""} · EV ${formatSigned(numberOr(bet.weighted_ev, 0) * 100, 1)}%</span>`,
+              )
+              .join("")}
+          </div>
+        `;
+      }
+
+      function renderBestBetsBoard() {
+        const bets = Array.isArray(state.greenPicks) ? state.greenPicks : [];
+        const filteredBets = applyBestBetMarketFilter(
+          bets,
+          (bet) => bet.market_key || bet.market,
+        );
+        bestBetsToolbar.innerHTML = renderBestBetMarketFilterControl();
+        if (!bets.length) {
+          bestBetsPanel.hidden = true;
+          bestBetsToolbar.innerHTML = "";
+          bestBetsGrid.innerHTML = "";
+          bestBetsGrid.classList.remove("empty");
+          bestBetsSubtitle.textContent = "No green picks on this slate yet";
+          return;
+        }
+        bestBetsPanel.hidden = false;
+        const activeMarketLabel = bestBetMarketFilterLabel();
+        bestBetsSubtitle.textContent = `${filteredBets.length} green pick${filteredBets.length === 1 ? "" : "s"}${state.bestBetMarketFilter !== "all" ? ` · ${activeMarketLabel.toLowerCase()}` : ""}`;
+        bestBetsGrid.classList.toggle("empty", !filteredBets.length);
+        bestBetsGrid.innerHTML = filteredBets.length
+          ? filteredBets
+              .map((bet) => {
+                const matchupHref = appUrl(
+                  `game?game_id=${encodeURIComponent(bet.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`,
+                );
+                const marketLabel = bet.market_label || "Green Pick";
+                const title =
+                  bet.subject_label ||
+                  bet.selection_label ||
+                  bet.pick_label ||
+                  "Green Pick";
+                const subtitle =
+                  bet.subject_subtitle ||
+                  `${bet.away_team || "Away"} at ${bet.home_team || "Home"}`;
+                const ticket =
+                  bet.pick_label || bet.selection_label || marketLabel;
+                const modelLine = bet.model_display || "Model context pending";
+                const notesLine =
+                  bet.notes_display ||
+                  bet.market_summary ||
+                  bet.model_summary ||
+                  "Green-pick context pending";
+                return `
+              <a class="best-bet-card" href="${matchupHref}">
+                <div class="best-bet-topline">
+                  <span class="best-bet-kicker">Green Pick</span>
+                  <span class="section-tag">${escapeHtml(marketLabel)}</span>
+                </div>
+                <div class="best-bet-title">${escapeHtml(title)}</div>
+                <div class="best-bet-meta">${escapeHtml(subtitle)}</div>
+                <div class="best-bet-copy">${escapeHtml(ticket)}</div>
+                <div class="best-bet-copy">${escapeHtml(notesLine)}</div>
+                <div class="best-bet-meta">${escapeHtml(modelLine)}${bet.green_reason ? ` · ${escapeHtml(bet.green_reason)}` : ""}</div>
+              </a>
+            `;
+              })
+              .join("")
+          : `
+            <div class="summary-card">
+              <div class="summary-copy">No green picks match the selected market filter.</div>
+            </div>
+          `;
+      }
+
+      function renderWatchlistBoard() {
+        const bets = Array.isArray(state.bestBets) ? state.bestBets : [];
+        const filteredBets = applyBestBetMarketFilter(
+          bets,
+          (bet) => bet.market_key || bet.market,
+        );
+        watchlistToolbar.innerHTML = renderBestBetMarketFilterControl();
+        if (!bets.length) {
+          watchlistPanel.hidden = true;
+          watchlistToolbar.innerHTML = "";
+          watchlistGrid.innerHTML = "";
+          watchlistGrid.classList.remove("empty");
+          watchlistSubtitle.textContent =
+            "No watchlist markets on this slate yet";
+          return;
+        }
+        watchlistPanel.hidden = false;
+        const activeMarketLabel = bestBetMarketFilterLabel();
+        watchlistSubtitle.textContent = `${filteredBets.length} watchlist market${filteredBets.length === 1 ? "" : "s"}${state.bestBetMarketFilter !== "all" ? ` · ${activeMarketLabel.toLowerCase()}` : ""}`;
+        watchlistGrid.classList.toggle("empty", !filteredBets.length);
+        watchlistGrid.innerHTML = filteredBets.length
+          ? filteredBets
+              .map((bet) => {
+                const matchupHref = appUrl(
+                  `game?game_id=${encodeURIComponent(bet.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`,
+                );
+                const marketLabel = bet.market_label || "Watchlist";
+                const title = bet.selection_label || "Watchlist";
+                const subtitle = `${bet.away_team || "Away"} at ${bet.home_team || "Home"}`;
+                const notesLine =
+                  bet.market_summary || "Market pricing pending";
+                const modelLine = bet.model_summary || "Model context pending";
+                return `
+              <a class="best-bet-card watchlist" href="${matchupHref}">
+                <div class="best-bet-topline">
+                  <span class="best-bet-kicker">Watchlist</span>
+                  <span class="section-tag">${escapeHtml(marketLabel)}</span>
+                </div>
+                <div class="best-bet-title">${escapeHtml(title)}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""}</div>
+                <div class="best-bet-meta">${escapeHtml(subtitle)} · ${escapeHtml(bet.sportsbook || "sportsbook")}</div>
+                <div class="best-bet-copy">${escapeHtml(notesLine)}</div>
+                <div class="best-bet-copy">${escapeHtml(modelLine)}</div>
+                <div class="best-bet-meta">EV ${formatSigned(numberOr(bet.weighted_ev, 0) * 100, 1)}% · No-vig edge ${formatSigned(numberOr(bet.probability_edge, 0) * 100, 1)} pts · Cert ${formatPercent(bet.certainty_weight, 0)}</div>
+              </a>
+            `;
+              })
+              .join("")
+          : `
+            <div class="summary-card">
+              <div class="summary-copy">No watchlist markets match the selected market filter.</div>
+            </div>
+          `;
+      }
+
+      function renderExperimentalBoard() {
+        const markets = Array.isArray(state.experimentalMarkets)
+          ? state.experimentalMarkets
+          : [];
+        experimentalPanel.hidden = false;
+        if (!markets.length) {
+          experimentalGrid.classList.add("empty");
+          experimentalGrid.innerHTML =
+            '<div class="empty-state">No experimental first-inning markets are available on this slate yet. Tracked NRFI and YRFI picks will appear here under the watchlist when books post them.</div>';
+          experimentalSubtitle.textContent =
+            "0 experimental markets tracked right now";
+          return;
+        }
+        experimentalSubtitle.textContent = `${markets.length} experimental market${markets.length === 1 ? "" : "s"}`;
+        experimentalGrid.classList.remove("empty");
+        experimentalGrid.innerHTML = markets
+          .map((market) => {
+            const matchupHref = appUrl(
+              `game?game_id=${encodeURIComponent(market.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`,
+            );
+            return `
+              <a class="best-bet-card experimental" href="${matchupHref}">
+                <div class="best-bet-topline">
+                  <span class="best-bet-kicker">Experimental</span>
+                  <span class="section-tag">${escapeHtml(market.market_label || "Experimental")}</span>
+                </div>
+                <div class="best-bet-title">${escapeHtml(market.pick_label || market.market_label || "Experimental market")}${market.price != null ? ` ${formatPrice(market.price)}` : ""}</div>
+                <div class="best-bet-meta">${escapeHtml(market.subject_label || "Matchup pending")}${market.sportsbook ? ` · ${escapeHtml(market.sportsbook)}` : ""}</div>
+                <div class="best-bet-copy">${escapeHtml(market.notes_display || "Experimental market only; keep separate from the green board.")}</div>
+              </a>
+            `;
+          })
+          .join("");
+      }
+
       function renderGameSection(game) {
         const totals = game.totals || {};
         const first5 = game.first5_totals || {};
@@ -5211,33 +7246,63 @@
         const matchupHref = appUrl(
           `game?game_id=${encodeURIComponent(game.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`,
         );
+        const awayLogo = boardTeamLogoUrl(game.away_team);
+        const homeLogo = boardTeamLogoUrl(game.home_team);
+        const edgeVal = statsEdge(totals);
+        const edgeToneClass = edgeTone(edgeVal);
+        const venueCity = [venue.city, venue.state].filter(Boolean).join(", ");
+        const venueLine = [venueCity, venue.roof_type]
+          .filter(Boolean)
+          .join(" · ");
+        const badges = [
+          renderDataQualityBadge(game),
+          renderMarketLockBadge(game),
+          renderLateBullpenBadge(game),
+        ]
+          .filter(Boolean)
+          .join("");
         return `
-        <article class="game-card">
+        <article class="game-card ${Array.isArray(game.best_bets) && game.best_bets.length ? "game-card-positive" : ""}">
           <a class="game-toggle" href="${matchupHref}">
-            <div class="game-header">
-              <div>
-                <div class="eyebrow">${renderDataQualityBadge(game)}${renderMarketLockBadge(game)}${renderLateBullpenBadge(game)}${formatDateTime(game.game_start_ts)} · ${venue.name || "Venue TBD"}</div>
-                <h2 class="game-title">${game.away_team} at ${game.home_team}</h2>
-                <div class="game-subtitle">${venue.city || ""}${venue.city && venue.state ? ", " : ""}${venue.state || ""}${venue.roof_type ? ` · ${venue.roof_type}` : ""}</div>
+            <div class="game-scoreboard">
+              <div class="team-slot away">
+                ${
+                  awayLogo
+                    ? `<img class="team-logo-board" src="${awayLogo}" alt="${escapeHtml(game.away_team)}" onerror="this.style.display='none'">`
+                    : `<div class="team-logo-placeholder"></div>`
+                }
+                <div>
+                  <div class="team-abbr-lg">${escapeHtml(game.away_team)}</div>
+                  <div class="team-record-sm">Away</div>
+                </div>
               </div>
-              <div class="big-metric">
-                <span class="tiny-label">Totals Edge</span>
-                <span class="value ${edgeTone(statsEdge(totals))}">${formatSigned(statsEdge(totals))}</span>
+              <div class="game-center-block">
+                <div class="game-center-time">${formatDateTime(game.game_start_ts)}</div>
+                <div class="game-center-vs">at</div>
+                ${venueLine ? `<div class="game-center-venue">${escapeHtml(venueLine)}</div>` : ""}
+                ${badges ? `<div class="game-center-badges">${badges}</div>` : ""}
+              </div>
+              <div class="team-slot home">
+                ${
+                  homeLogo
+                    ? `<img class="team-logo-board" src="${homeLogo}" alt="${escapeHtml(game.home_team)}" onerror="this.style.display='none'">`
+                    : `<div class="team-logo-placeholder"></div>`
+                }
+                <div>
+                  <div class="team-abbr-lg">${escapeHtml(game.home_team)}</div>
+                  <div class="team-record-sm">Home</div>
+                </div>
               </div>
             </div>
             <div class="compact-summary-grid">
-              ${renderCompactSummaryPill("Model / Market", `${formatNumber(primaryPred, 2)} / ${formatNumber(totals.market_total, 1)}`, `Delta <span class="${deltaTone(predictedDelta)}">${predictedDelta == null ? "-" : formatTrend(predictedDelta)}</span>${totals.predicted_total_runs != null && totals.predicted_total_fundamentals != null ? ` · <span class="tiny-label" title="Blended calibrated model (experimental)">Blended (exp.) ${formatNumber(totals.predicted_total_runs, 2)}</span>` : ""}`)}
-              ${renderCompactSummaryPill("Expected Runs", `${game.away_team} ${formatNumber(totals.away_expected_runs, 2)} / ${game.home_team} ${formatNumber(totals.home_expected_runs, 2)}`, `${leanLabel(totals)} ${totalsLeanValue(totals)} · ${totalsReasonSummary(game)}`)}
+              ${renderCompactSummaryPill("Decision / Market", `${formatNumber(primaryPred, 2)} / ${formatNumber(totals.market_total, 1)}`, totalDecisionCopy(totals), predictedDelta != null && predictedDelta < -0.5 ? "good" : predictedDelta != null && predictedDelta > 0.5 ? "warn" : "")}
+              ${renderCompactSummaryPill("Run Context", `${game.away_team} ${formatNumber(totals.away_expected_runs, 2)} / ${game.home_team} ${formatNumber(totals.home_expected_runs, 2)}`, runContextCopy(totals))}
               ${renderFirst5Pill(first5)}
-              ${renderStarterProjectionPill(`${game.away_team} SP Ks`, game.starters?.away, game.home_team)}
-              ${renderStarterProjectionPill(`${game.home_team} SP Ks`, game.starters?.home, game.away_team)}
             </div>
             ${renderCompactOutcome(game)}
-            <div class="compact-team-strip">
-              ${renderCompactHitTargets(game.away_team, awayPlayers, actual.is_final)}
-              ${renderCompactHitTargets(game.home_team, homePlayers, actual.is_final)}
-            </div>
-            <span class="toggle-copy">Open Matchup Page</span>
+            ${renderGameStatsBar(game)}
+            ${renderGameBestBetStrip(game)}
+            <span class="toggle-copy">Open Matchup Page →</span>
           </a>
         </article>
       `;
@@ -5329,9 +7394,13 @@
         renderHitterDataWarning();
         renderReviewStrip();
         renderScorecards();
+        renderBestBetHistoryPanel();
         renderPickReviewPanel();
         renderClvReviewPanel();
         renderHistoricalReview();
+        renderBestBetsBoard();
+        renderWatchlistBoard();
+        renderExperimentalBoard();
         renderGames();
         applyDashboardView();
       }
@@ -5360,6 +7429,9 @@
         }
         const payload = await response.json();
         state.boardSummary = payload.summary || null;
+        state.bestBets = payload.watchlist_markets || [];
+        state.experimentalMarkets = payload.experimental_markets || [];
+        state.greenPicks = payload.green_picks || [];
         state.games = payload.games || [];
       }
 
@@ -5374,6 +7446,35 @@
           throw new Error(`Scorecard request failed: ${response.status}`);
         }
         state.scorecards = await response.json();
+      }
+
+      async function loadBestBetHistory() {
+        const date = targetDateInput.value;
+        const response = await fetch(
+          appUrl(
+            `api/recommendations/best-bets-history?target_date=${encodeURIComponent(date)}&window_days=14&limit=100&graded_only=${encodeURIComponent(String(state.bestBetHistoryFilter === "graded"))}`,
+          ),
+        );
+        if (!response.ok) {
+          throw new Error(
+            `Best Bet history request failed: ${response.status}`,
+          );
+        }
+        state.bestBetHistory = await response.json();
+      }
+
+      async function refreshBestBetHistoryPanel() {
+        const subtitle = document.getElementById("bestBetHistorySubtitle");
+        subtitle.textContent = "Loading Best Bet history...";
+        try {
+          await loadBestBetHistory();
+          renderBestBetHistoryPanel();
+        } catch (error) {
+          state.bestBetHistory = null;
+          renderBestBetHistoryPanel();
+          subtitle.textContent = describeError(error);
+          throw error;
+        }
       }
 
       async function loadPickReview() {
@@ -5420,7 +7521,7 @@
         const preserveLog = Boolean(options.preserveLog);
         const filters = getHitFilters();
         const date = targetDateInput.value;
-        const totalLoads = 6;
+        const totalLoads = 7;
         let completedLoads = 0;
         const trackLoad = (label, loader) =>
           Promise.resolve()
@@ -5448,7 +7549,8 @@
         setActivityState({
           visible: true,
           title: `Loading ${date} board...`,
-          detail: "Fetching games, scorecards, review panels, and CLV data.",
+          detail:
+            "Fetching games, scorecards, Best Bet history, review panels, and CLV data.",
           tone: "running",
           spinning: true,
           progressVisible: true,
@@ -5468,6 +7570,7 @@
             statusResult,
             boardResult,
             scorecardResult,
+            bestBetHistoryResult,
             pickReviewResult,
             clvReviewResult,
             leadersResult,
@@ -5475,6 +7578,7 @@
             trackLoad("status", () => loadStatus()),
             trackLoad("board games", () => loadBoard()),
             trackLoad("scorecards", () => loadScorecards()),
+            trackLoad("best bet history", () => loadBestBetHistory()),
             trackLoad("pick review", () => loadPickReview()),
             trackLoad("CLV review", () => loadClvReview()),
             trackLoad("season leaders", () => loadLeaders()),
@@ -5486,6 +7590,8 @@
           }
           if (boardResult.status === "rejected") {
             state.boardSummary = null;
+            state.bestBets = [];
+            state.greenPicks = [];
             state.games = [];
             problems.push(`Board: ${describeError(boardResult.reason)}`);
           }
@@ -5493,6 +7599,12 @@
             state.scorecards = null;
             problems.push(
               `Scorecards: ${describeError(scorecardResult.reason)}`,
+            );
+          }
+          if (bestBetHistoryResult.status === "rejected") {
+            state.bestBetHistory = null;
+            problems.push(
+              `Best Bet history: ${describeError(bestBetHistoryResult.reason)}`,
             );
           }
           if (pickReviewResult.status === "rejected") {
@@ -5871,15 +7983,48 @@
         }
 
         const historySortButton = event.target.closest("[data-history-sort]");
-        if (!historySortButton) {
+        if (historySortButton) {
+          const sortMode = historySortButton.dataset.historySort;
+          if (!sortMode || sortMode === state.historySortMode) {
+            return;
+          }
+          state.historySortMode = sortMode;
+          renderHistoricalReview();
           return;
         }
-        const sortMode = historySortButton.dataset.historySort;
-        if (!sortMode || sortMode === state.historySortMode) {
+
+        const bestBetFilterButton = event.target.closest(
+          "[data-best-bet-history-filter]",
+        );
+        if (bestBetFilterButton) {
+          const filterMode =
+            bestBetFilterButton.dataset.bestBetHistoryFilter || "all";
+          if (filterMode === state.bestBetHistoryFilter) {
+            return;
+          }
+          state.bestBetHistoryFilter =
+            filterMode === "graded" ? "graded" : "all";
+          refreshBestBetHistoryPanel().catch((error) => {
+            console.error(error);
+          });
           return;
         }
-        state.historySortMode = sortMode;
-        renderHistoricalReview();
+      });
+
+      document.addEventListener("change", (event) => {
+        const marketSelect = event.target.closest(
+          "[data-best-bet-market-filter-select]",
+        );
+        if (!marketSelect) {
+          return;
+        }
+        const nextValue = marketSelect.value || "all";
+        if (nextValue === state.bestBetMarketFilter) {
+          return;
+        }
+        state.bestBetMarketFilter = nextValue;
+        renderBestBetsBoard();
+        renderBestBetHistoryPanel();
       });
 
       refreshButton.addEventListener("click", (event) => {
@@ -5918,7 +8063,20 @@
                 setUpdateJobStatusCopy("No update job running.");
                 return;
               }
-              applyUpdateJobState(jobs[0]);
+              const preferredJob =
+                jobs.find(
+                  (candidate) =>
+                    candidate.status === "succeeded" &&
+                    candidate.target_date >= today,
+                ) || jobs[0];
+              applyUpdateJobState(preferredJob);
+              if (
+                preferredJob.target_date &&
+                preferredJob.target_date !== targetDateInput.value
+              ) {
+                targetDateInput.value = preferredJob.target_date;
+                return refreshBoard({ preserveLog: true });
+              }
             });
           }
           applyUpdateJobState(job);

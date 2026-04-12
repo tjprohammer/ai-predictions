@@ -33,6 +33,7 @@ from src.features.contracts import (
 )
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df, table_exists
+from src.features.totals_builder import _umpire_run_value
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -133,6 +134,25 @@ def _load_frames(start_date, end_date, settings):
         if table_exists("market_selection_freezes")
         else pd.DataFrame(),
         "parks": query_df("SELECT * FROM park_factors"),
+        "umpire_assignments": query_df(
+            """
+            SELECT ua.game_id, ua.game_date, ua.umpire_name, ua.umpire_id
+            FROM umpire_assignments ua
+            INNER JOIN (
+                SELECT game_id, MAX(snapshot_ts) AS max_ts
+                FROM umpire_assignments GROUP BY game_id
+            ) latest ON ua.game_id = latest.game_id AND ua.snapshot_ts = latest.max_ts
+            """
+        ) if table_exists("umpire_assignments") else pd.DataFrame(),
+        "games_history": query_df(
+            """
+            SELECT game_id, game_date, total_runs
+            FROM games
+            WHERE game_date >= :history_start AND game_date <= :end_date
+              AND total_runs IS NOT NULL
+            """,
+            {"history_start": history_start, "end_date": end_date},
+        ),
     }
     return frames
 
@@ -253,6 +273,14 @@ def main() -> int:
         weather = latest_weather_snapshot(game.game_id, cutoff_ts, frames["weather"])
         season = int(game.game_date.year) if pd.isna(game.season) else int(game.season)
         park = park_snapshot(game.home_team, season, frames["parks"], settings.prior_season)
+        ump_row = frames["umpire_assignments"][
+            frames["umpire_assignments"]["game_id"] == int(game.game_id)
+        ] if not frames["umpire_assignments"].empty else pd.DataFrame()
+        ump_name = str(ump_row.iloc[0]["umpire_name"]) if not ump_row.empty else None
+        ump_run_val = _umpire_run_value(
+            ump_name, game.game_date,
+            frames["umpire_assignments"], frames["games_history"],
+        )
 
         game_start = game.game_start_ts.to_pydatetime() if pd.notna(game.game_start_ts) else None
         starter_certainty = (
@@ -348,6 +376,8 @@ def main() -> int:
                 "wind_speed_mph": weather["wind_speed_mph"],
                 "wind_direction_deg": weather["wind_direction_deg"],
                 "humidity_pct": weather["humidity_pct"],
+                "ump_name": ump_name,
+                "ump_run_value": ump_run_val,
                 "market_sportsbook": market.get("market_sportsbook"),
                 "market_total": market["market_total"],
                 "market_over_price": market["market_over_price"],

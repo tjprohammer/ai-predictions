@@ -247,7 +247,11 @@ def main() -> int:
             market["line_snapshot_ts"], game_start, decay_hours=(1, 6, 12, 24),
         )
 
+        _PITCHER_POSITIONS = {"P", "SP", "RP", "CP", "MR", "LHP", "RHP"}
         for lineup_row in latest_lineups.itertuples(index=False):
+            fp = str(getattr(lineup_row, "field_position", "") or "").upper().strip()
+            if fp in _PITCHER_POSITIONS:
+                continue
             lineup_team = lineup_row.team
             opponent = game.away_team if lineup_team == game.home_team else game.home_team
             opponent_starter = away_pitcher if lineup_team == game.home_team else home_pitcher

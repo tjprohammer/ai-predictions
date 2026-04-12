@@ -374,8 +374,61 @@
         color: var(--muted);
       }
 
+      .table-head-cell {
+        min-width: 0;
+      }
+
+      .table-head-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 0;
+        min-height: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-weight: inherit;
+        letter-spacing: inherit;
+        text-transform: inherit;
+        justify-content: flex-start;
+        cursor: pointer;
+      }
+
+      .table-head-button.active {
+        color: var(--ink);
+      }
+
+      .table-head-button:hover {
+        color: var(--ink);
+      }
+
+      .sort-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        color: var(--muted);
+        opacity: 0.7;
+      }
+
+      .table-head-button.active .sort-indicator {
+        color: var(--accent);
+        opacity: 1;
+      }
+
       .table-row + .table-row {
         border-top: 1px solid var(--line);
+      }
+
+      .table-row.green-pick {
+        box-shadow: inset 4px 0 0 var(--good);
+      }
+
+      .table-row.green-pick .cell-title {
+        color: var(--good);
       }
 
       .table-row.won,
@@ -447,6 +500,11 @@
       .pill.market {
         color: var(--accent);
         background: var(--accent-soft);
+      }
+
+      .pill.green {
+        color: var(--good);
+        background: rgba(13, 122, 67, 0.16);
       }
 
       .result-badge {
@@ -622,7 +680,8 @@
           <p class="hero-copy">
             This page strips the slate down to outcomes: did totals go over or
             under, did hitters get a hit, and did pitchers clear their strikeout
-            line. It is built for fast review after games finish.
+            line. It now opens on yesterday by default so the first thing you
+            see is the scorecard, not a slate full of pending games.
           </p>
           <div class="hero-actions">
             <a class="button-link" data-app-link="" href="."
@@ -668,10 +727,25 @@
               <label for="focusSection">Focus section</label>
               <select id="focusSection">
                 <option value="all" selected>Show all sections</option>
+                <option value="ai_picks">Board best bets only</option>
+                <option value="watchlist">Watchlist only</option>
+                <option value="experimental">Experimental only</option>
                 <option value="totals">Totals only</option>
                 <option value="hitters">Hitter hits only</option>
                 <option value="strikeouts">Pitcher Ks only</option>
                 <option value="first5">First-5 innings only</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="aiPickMarketFilter">Recommendation market</label>
+              <select id="aiPickMarketFilter">
+                <option value="all" selected>All recommendation markets</option>
+                <option value="game_totals">Game totals</option>
+                <option value="team_totals">Team totals</option>
+                <option value="moneyline">Moneyline</option>
+                <option value="spread">Run line</option>
+                <option value="first5">First 5</option>
+                <option value="other">Other markets</option>
               </select>
             </div>
             <div class="field">
@@ -681,6 +755,12 @@
                 <option value="result">Best results first</option>
                 <option value="edge_desc">Biggest edge first</option>
                 <option value="confidence_desc">Strongest model first</option>
+                <option value="model_desc">Highest projection first</option>
+                <option value="model_asc">Lowest projection first</option>
+                <option value="line_desc">Highest line or price first</option>
+                <option value="line_asc">Lowest line or price first</option>
+                <option value="actual_desc">Highest actual result first</option>
+                <option value="actual_asc">Lowest actual result first</option>
                 <option value="start_time">Earliest start first</option>
                 <option value="alpha">Alphabetical</option>
               </select>
@@ -707,6 +787,27 @@
           <div class="section-tag">Games</div>
           <div class="summary-value" id="gamesSummary">-</div>
           <div class="summary-foot" id="gamesSummaryFoot">Waiting for data</div>
+        </article>
+        <article class="summary-card">
+          <div class="section-tag">Board Best Bets</div>
+          <div class="summary-value" id="aiPicksSummary">-</div>
+          <div class="summary-foot" id="aiPicksSummaryFoot">
+            Waiting for data
+          </div>
+        </article>
+        <article class="summary-card">
+          <div class="section-tag">Watchlist</div>
+          <div class="summary-value" id="watchlistSummary">-</div>
+          <div class="summary-foot" id="watchlistSummaryFoot">
+            Waiting for data
+          </div>
+        </article>
+        <article class="summary-card">
+          <div class="section-tag">Experimental</div>
+          <div class="summary-value" id="experimentalSummary">-</div>
+          <div class="summary-foot" id="experimentalSummaryFoot">
+            Waiting for data
+          </div>
         </article>
         <article class="summary-card">
           <div class="section-tag">Totals</div>
@@ -747,6 +848,22 @@
           <span>All Results</span>
           <span class="jump-count" id="allCount">-</span>
         </button>
+        <button class="jump-chip" data-section-target="ai_picks" type="button">
+          <span>Board Best Bets</span>
+          <span class="jump-count" id="aiPicksCount">-</span>
+        </button>
+        <button class="jump-chip" data-section-target="watchlist" type="button">
+          <span>Watchlist</span>
+          <span class="jump-count" id="watchlistCount">-</span>
+        </button>
+        <button
+          class="jump-chip"
+          data-section-target="experimental"
+          type="button"
+        >
+          <span>Experimental</span>
+          <span class="jump-count" id="experimentalCount">-</span>
+        </button>
         <button class="jump-chip" data-section-target="totals" type="button">
           <span>Totals</span>
           <span class="jump-count" id="totalsCount">-</span>
@@ -770,6 +887,45 @@
       </section>
 
       <section class="panel-grid">
+        <section class="panel" id="aiPicksSection" data-section="ai_picks">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Board Best Bets</div>
+              <h2 class="panel-title">Archived green-board picks</h2>
+            </div>
+            <span class="panel-subtitle" id="aiPicksSubtitle"
+              >Loading board best bets</span
+            >
+          </div>
+          <div class="table-shell" id="aiPicksTable"></div>
+        </section>
+
+        <section class="panel" id="watchlistSection" data-section="watchlist">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Watchlist</div>
+              <h2 class="panel-title">Archived watchlist picks</h2>
+            </div>
+            <span class="panel-subtitle" id="watchlistSubtitle"
+              >Loading watchlist picks</span
+            >
+          </div>
+          <div class="table-shell" id="watchlistTable"></div>
+        </section>
+
+        <section class="panel" id="experimentalSection" data-section="experimental">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Experimental</div>
+              <h2 class="panel-title">Tracked first-inning markets</h2>
+            </div>
+            <span class="panel-subtitle" id="experimentalSubtitle"
+              >Loading experimental markets</span
+            >
+          </div>
+          <div class="table-shell" id="experimentalTable"></div>
+        </section>
+
         <section class="panel" id="totalsSection" data-section="totals">
           <div class="panel-head">
             <div>
@@ -825,8 +981,9 @@
     </main>
 
     <script>
-      function localDateValue() {
+      function localDateValue(daysOffset = 0) {
         const now = new Date();
+        now.setDate(now.getDate() + daysOffset);
         const offsetMs = now.getTimezoneOffset() * 60 * 1000;
         return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
       }
@@ -969,7 +1126,154 @@
         return rightValue - leftValue;
       }
 
+      function compareNumberAsc(left, right) {
+        const leftValue = numberOr(left, Number.POSITIVE_INFINITY);
+        const rightValue = numberOr(right, Number.POSITIVE_INFINITY);
+        return leftValue - rightValue;
+      }
+
+      const RESULTS_STORAGE_KEYS = {
+        sortMode: "mlbPredictor.dailyResults.sortMode",
+      };
+
+      const TABLE_SORT_MODES = {
+        alpha: ["alpha"],
+        model: ["model_desc", "model_asc"],
+        line: ["line_desc", "line_asc"],
+        actual: ["actual_desc", "actual_asc"],
+        confidence: ["confidence_desc"],
+        edge: ["edge_desc"],
+        result: ["result"],
+        start: ["start_time"],
+      };
+
+      let latestResultsPayload = null;
+
+      function readStoredSortMode() {
+        try {
+          return window.localStorage.getItem(RESULTS_STORAGE_KEYS.sortMode);
+        } catch {
+          return null;
+        }
+      }
+
+      function persistSortMode(value) {
+        try {
+          window.localStorage.setItem(RESULTS_STORAGE_KEYS.sortMode, value);
+        } catch {
+          /* ignore storage failures */
+        }
+      }
+
+      function setSortMode(value, { rerender = true } = {}) {
+        if (!value) return;
+        sortModeInput.value = value;
+        persistSortMode(value);
+        if (rerender && latestResultsPayload) {
+          renderAll(latestResultsPayload);
+        }
+      }
+
+      function currentSortIndicator(sortModes) {
+        if (!Array.isArray(sortModes) || !sortModes.length) return "";
+        if (sortModes.includes(sortModeInput.value)) {
+          if (sortModeInput.value.endsWith("_asc")) return "↑";
+          if (sortModeInput.value.endsWith("_desc")) return "↓";
+          return "•";
+        }
+        return "↕";
+      }
+
+      function nextSortMode(sortModes) {
+        if (!Array.isArray(sortModes) || !sortModes.length) return null;
+        const currentIndex = sortModes.indexOf(sortModeInput.value);
+        if (currentIndex === -1) return sortModes[0];
+        return sortModes[(currentIndex + 1) % sortModes.length];
+      }
+
+      function makeHeading(label, key = null) {
+        return { label, key };
+      }
+
+      function renderHeadingCell(heading) {
+        const label = typeof heading === "string" ? heading : heading.label;
+        const key = typeof heading === "string" ? null : heading.key;
+        if (!key || !TABLE_SORT_MODES[key]) {
+          return `<div class="table-head-cell">${escapeHtml(label)}</div>`;
+        }
+        const sortModes = TABLE_SORT_MODES[key];
+        const active = sortModes.includes(sortModeInput.value);
+        return `
+          <div class="table-head-cell">
+            <button class="table-head-button ${active ? "active" : ""}" type="button" data-sort-key="${escapeHtml(key)}" title="Sort by ${escapeHtml(label)}">
+              <span>${escapeHtml(label)}</span>
+              <span class="sort-indicator" aria-hidden="true">${currentSortIndicator(sortModes)}</span>
+            </button>
+          </div>
+        `;
+      }
+
+      function projectionValue(row, category) {
+        if (category === "ai_picks" || category === "watchlist") {
+          return numberOr(row.confidence, Number.NEGATIVE_INFINITY);
+        }
+        if (category === "hitters") {
+          return numberOr(
+            row.predicted_hit_probability,
+            Number.NEGATIVE_INFINITY,
+          );
+        }
+        if (category === "totals" || category === "first5") {
+          return numberOr(
+            row.predicted_total_fundamentals,
+            numberOr(row.predicted_total_runs, Number.NEGATIVE_INFINITY),
+          );
+        }
+        if (category === "strikeouts") {
+          return numberOr(
+            row.predicted_strikeouts_fundamentals,
+            numberOr(row.predicted_strikeouts, Number.NEGATIVE_INFINITY),
+          );
+        }
+        return Number.NEGATIVE_INFINITY;
+      }
+
+      function lineValue(row, category) {
+        if (category === "hitters") {
+          return numberOr(row.market_price, numberOr(row.fair_price));
+        }
+        if (category === "totals" || category === "first5") {
+          return numberOr(row.market_total);
+        }
+        if (category === "strikeouts") {
+          return numberOr(row.market_line);
+        }
+        if (category === "ai_picks" || category === "watchlist") {
+          return numberOr(row.edge, numberOr(row.confidence));
+        }
+        return null;
+      }
+
+      function actualValue(row, category) {
+        if (category === "hitters") {
+          return numberOr(row.actual_hits);
+        }
+        if (category === "totals" || category === "first5") {
+          return numberOr(row.actual_total_runs);
+        }
+        if (category === "strikeouts") {
+          return numberOr(row.actual_strikeouts);
+        }
+        if (category === "ai_picks" || category === "watchlist") {
+          return -resultRank(row.result);
+        }
+        return null;
+      }
+
       function confidenceValue(row, category) {
+        if (category === "ai_picks" || category === "watchlist") {
+          return numberOr(row.confidence, Number.NEGATIVE_INFINITY);
+        }
         if (category === "hitters") {
           return numberOr(
             row.predicted_hit_probability,
@@ -983,6 +1287,9 @@
       }
 
       function alphaValue(row, category) {
+        if (category === "ai_picks" || category === "watchlist") {
+          return row.subject_label || row.pick_label;
+        }
         if (category === "totals") return row.matchup;
         if (category === "hitters") return row.player_name;
         return row.pitcher_name;
@@ -1005,6 +1312,90 @@
                 confidenceValue(left, category),
                 confidenceValue(right, category),
               ) || compareNumberDesc(left.edge, right.edge),
+          );
+        }
+        if (mode === "model_desc") {
+          return workingRows.sort(
+            (left, right) =>
+              compareNumberDesc(
+                projectionValue(left, category),
+                projectionValue(right, category),
+              ) ||
+              compareNumberDesc(
+                lineValue(left, category),
+                lineValue(right, category),
+              ) ||
+              compareDate(left.game_start_ts, right.game_start_ts),
+          );
+        }
+        if (mode === "model_asc") {
+          return workingRows.sort(
+            (left, right) =>
+              compareNumberAsc(
+                projectionValue(left, category),
+                projectionValue(right, category),
+              ) ||
+              compareNumberAsc(
+                lineValue(left, category),
+                lineValue(right, category),
+              ) ||
+              compareDate(left.game_start_ts, right.game_start_ts),
+          );
+        }
+        if (mode === "line_desc") {
+          return workingRows.sort(
+            (left, right) =>
+              compareNumberDesc(
+                lineValue(left, category),
+                lineValue(right, category),
+              ) ||
+              compareNumberDesc(
+                projectionValue(left, category),
+                projectionValue(right, category),
+              ) ||
+              compareDate(left.game_start_ts, right.game_start_ts),
+          );
+        }
+        if (mode === "line_asc") {
+          return workingRows.sort(
+            (left, right) =>
+              compareNumberAsc(
+                lineValue(left, category),
+                lineValue(right, category),
+              ) ||
+              compareNumberAsc(
+                projectionValue(left, category),
+                projectionValue(right, category),
+              ) ||
+              compareDate(left.game_start_ts, right.game_start_ts),
+          );
+        }
+        if (mode === "actual_desc") {
+          return workingRows.sort(
+            (left, right) =>
+              compareNumberDesc(
+                actualValue(left, category),
+                actualValue(right, category),
+              ) ||
+              compareNumberDesc(
+                projectionValue(left, category),
+                projectionValue(right, category),
+              ) ||
+              compareDate(left.game_start_ts, right.game_start_ts),
+          );
+        }
+        if (mode === "actual_asc") {
+          return workingRows.sort(
+            (left, right) =>
+              compareNumberAsc(
+                actualValue(left, category),
+                actualValue(right, category),
+              ) ||
+              compareNumberAsc(
+                projectionValue(left, category),
+                projectionValue(right, category),
+              ) ||
+              compareDate(left.game_start_ts, right.game_start_ts),
           );
         }
         if (mode === "result") {
@@ -1076,6 +1467,39 @@
         return rows;
       }
 
+      function aiPickMarketGroup(row) {
+        const market = String(row?.market || "").trim();
+        if (market === "totals") return "game_totals";
+        if (market === "away_team_total" || market === "home_team_total") {
+          return "team_totals";
+        }
+        if (market === "nrfi" || market === "yrfi") return "experimental";
+        if (market === "moneyline") return "moneyline";
+        if (market === "run_line" || market === "first_five_spread") {
+          return "spread";
+        }
+        if (
+          market === "first5" ||
+          market === "first_five_moneyline" ||
+          market === "first_five_total" ||
+          market === "first_five_team_total_away" ||
+          market === "first_five_team_total_home"
+        ) {
+          return "first5";
+        }
+        if (market === "hits") return "hits";
+        if (market === "pitcher_strikeouts") return "pitcher_strikeouts";
+        return "other";
+      }
+
+      function applyAiPickMarketFilter(rows) {
+        const filter = aiPickMarketFilterInput.value;
+        if (filter === "all") {
+          return rows;
+        }
+        return rows.filter((row) => aiPickMarketGroup(row) === filter);
+      }
+
       function renderEmptyState(message) {
         return `<div class="empty-state">${escapeHtml(message)}</div>`;
       }
@@ -1085,7 +1509,7 @@
           return renderEmptyState(emptyMessage);
         }
         return `
-          <div class="table-head">${headings.map((heading) => `<div>${escapeHtml(heading)}</div>`).join("")}</div>
+          <div class="table-head">${headings.map((heading) => renderHeadingCell(heading)).join("")}</div>
           ${rows.map(rowRenderer).join("")}
         `;
       }
@@ -1103,6 +1527,38 @@
             <div class="cell-main">
               <div>${escapeHtml(formatPercent(row.over_probability, 0))} over · ${escapeHtml(formatPercent(row.under_probability, 0))} under</div>
               <div class="result-note">Edge <span style="${edgeTone(row.edge)}">${escapeHtml(formatSigned(row.edge, 3))}</span></div>
+            </div>
+            <div><span class="result-badge ${escapeHtml(row.result || "pending")}">${escapeHtml(resultLabel(row.result))}</span></div>
+          </div>
+        `;
+      }
+
+      function renderAiPickRow(row) {
+        const recommendationBadge = row.is_green_pick
+          ? '<span class="pill green">Green Board</span>'
+          : row.is_watchlist_pick
+            ? '<span class="pill neutral">Watchlist</span>'
+            : row.is_experimental_pick
+              ? '<span class="pill neutral">Experimental</span>'
+            : "";
+        return `
+          <div class="table-row ${escapeHtml(row.result || "pending")} ${row.is_green_pick ? "green-pick" : ""}">
+            <div class="cell-main">
+              <div class="cell-title">${escapeHtml(row.subject_label || row.pick_label || "AI Pick")}</div>
+              <div class="cell-subtitle">${escapeHtml(row.subject_subtitle || row.market_label || "")}</div>
+              <div class="pill-row">
+                ${recommendationBadge}
+                <span class="pill ${row.market_backed ? "market" : "neutral"}">${row.market_backed ? "Tracked Market" : "Model Only"}</span>
+              </div>
+            </div>
+            <div>${escapeHtml(row.model_display || "-")}</div>
+            <div class="cell-main">
+              <div>${escapeHtml(row.pick_label || "-")}</div>
+            </div>
+            <div>${escapeHtml(row.actual_display || "-")}</div>
+            <div class="cell-main">
+              <div>${escapeHtml(row.notes_display || row.market_label || "")}</div>
+              ${row.green_reason ? `<div class="result-note">${escapeHtml(row.green_reason)}</div>` : ""}
             </div>
             <div><span class="result-badge ${escapeHtml(row.result || "pending")}">${escapeHtml(resultLabel(row.result))}</span></div>
           </div>
@@ -1175,12 +1631,21 @@
       }
 
       function updateSummary(summary) {
+        const aiPicks = summary?.ai_picks || {};
+        const watchlist = summary?.watchlist || {};
+        const experimental = summary?.experimental || {};
         const totals = summary?.totals || {};
         const hitters = summary?.hitters || {};
         const strikeouts = summary?.strikeouts || {};
         const first5 = summary?.first5 || {};
         gamesSummary.textContent = `${summary?.final_games || 0}/${summary?.total_games || 0}`;
         gamesSummaryFoot.textContent = `${summary?.pending_games || 0} game${summary?.pending_games === 1 ? "" : "s"} still pending final grading.`;
+        aiPicksSummary.textContent = `${aiPicks.won || 0}-${aiPicks.lost || 0}-${aiPicks.push || 0}`;
+        aiPicksSummaryFoot.textContent = `${aiPicks.total || 0} archived board picks · ${aiPicks.pending || 0} pending`;
+        watchlistSummary.textContent = `${watchlist.won || 0}-${watchlist.lost || 0}-${watchlist.push || 0}`;
+        watchlistSummaryFoot.textContent = `${watchlist.total || 0} archived watchlist picks · ${watchlist.pending || 0} pending`;
+        experimentalSummary.textContent = `${experimental.won || 0}-${experimental.lost || 0}-${experimental.push || 0}`;
+        experimentalSummaryFoot.textContent = `${experimental.total || 0} tracked experimental picks · ${experimental.pending || 0} pending`;
         totalsSummary.textContent = `${totals.won || 0}-${totals.lost || 0}-${totals.push || 0}`;
         totalsSummaryFoot.textContent = `${totals.market_backed || 0} market-backed totals · ${totals.pending || 0} pending`;
         hittersSummary.textContent = `${hitters.hit || 0}-${hitters.no_hit || 0}`;
@@ -1192,6 +1657,18 @@
       }
 
       function renderAll(payload) {
+        const aiPickRows = sortRows(
+          applyAiPickMarketFilter(applyResultFilter(payload.ai_picks || [])),
+          "ai_picks",
+        );
+        const watchlistRows = sortRows(
+          applyAiPickMarketFilter(applyResultFilter(payload.watchlist || [])),
+          "watchlist",
+        );
+        const experimentalRows = sortRows(
+          applyResultFilter(payload.experimental || []),
+          "experimental",
+        );
         const totalsRows = sortRows(
           applyResultFilter(payload.totals || []),
           "totals",
@@ -1210,42 +1687,123 @@
         );
 
         updateSummary(payload.summary || {});
+        aiPicksCount.textContent = String(aiPickRows.length);
+        watchlistCount.textContent = String(watchlistRows.length);
+        experimentalCount.textContent = String(experimentalRows.length);
         totalsCount.textContent = String(totalsRows.length);
         hittersCount.textContent = String(hitterRows.length);
         strikeoutsCount.textContent = String(strikeoutRows.length);
         first5Count.textContent = String(first5Rows.length);
         allCount.textContent = String(
-          totalsRows.length +
+          aiPickRows.length +
+            watchlistRows.length +
+            experimentalRows.length +
+            totalsRows.length +
             hitterRows.length +
             strikeoutRows.length +
             first5Rows.length,
         );
         updateSectionVisibility();
+        const aiPickMarketOption = aiPickMarketFilterInput.selectedOptions[0];
+        const aiPickMarketSuffix =
+          aiPickMarketFilterInput.value === "all"
+            ? ""
+            : ` · ${aiPickMarketOption ? aiPickMarketOption.textContent.toLowerCase() : "filtered"}`;
+        aiPicksSubtitle.textContent = `${aiPickRows.length} board best bet${aiPickRows.length === 1 ? "" : "s"} shown${aiPickMarketSuffix}`;
+        watchlistSubtitle.textContent = `${watchlistRows.length} watchlist pick${watchlistRows.length === 1 ? "" : "s"} shown${aiPickMarketSuffix}`;
+        experimentalSubtitle.textContent = `${experimentalRows.length} experimental pick${experimentalRows.length === 1 ? "" : "s"} shown`;
         totalsSubtitle.textContent = `${totalsRows.length} totals result${totalsRows.length === 1 ? "" : "s"} shown`;
         hittersSubtitle.textContent = `${hitterRows.length} hitter result${hitterRows.length === 1 ? "" : "s"} shown`;
         strikeoutsSubtitle.textContent = `${strikeoutRows.length} pitcher result${strikeoutRows.length === 1 ? "" : "s"} shown`;
         first5Subtitle.textContent = `${first5Rows.length} first-5 result${first5Rows.length === 1 ? "" : "s"} shown`;
 
+        aiPicksTable.innerHTML = renderTable(
+          [
+            makeHeading("Pick", "alpha"),
+            makeHeading("Model", "model"),
+            makeHeading("Ticket", "line"),
+            makeHeading("Actual", "actual"),
+            makeHeading("Notes", "edge"),
+            makeHeading("Result", "result"),
+          ],
+          aiPickRows,
+          renderAiPickRow,
+          "No board best bets match this filter.",
+        );
+        watchlistTable.innerHTML = renderTable(
+          [
+            makeHeading("Pick", "alpha"),
+            makeHeading("Model", "model"),
+            makeHeading("Ticket", "line"),
+            makeHeading("Actual", "actual"),
+            makeHeading("Notes", "edge"),
+            makeHeading("Result", "result"),
+          ],
+          watchlistRows,
+          renderAiPickRow,
+          "No watchlist picks match this filter.",
+        );
+        experimentalTable.innerHTML = renderTable(
+          [
+            makeHeading("Pick", "alpha"),
+            makeHeading("Model", "model"),
+            makeHeading("Ticket", "line"),
+            makeHeading("Actual", "actual"),
+            makeHeading("Notes", "edge"),
+            makeHeading("Result", "result"),
+          ],
+          experimentalRows,
+          renderAiPickRow,
+          "No experimental picks match this filter.",
+        );
         totalsTable.innerHTML = renderTable(
-          ["Matchup", "Model", "Line / Pick", "Actual", "Context", "Result"],
+          [
+            makeHeading("Matchup", "alpha"),
+            makeHeading("Model", "model"),
+            makeHeading("Line / Pick", "line"),
+            makeHeading("Actual", "actual"),
+            makeHeading("Context", "confidence"),
+            makeHeading("Result", "result"),
+          ],
           totalsRows,
           renderTotalsRow,
           "No totals rows match this filter.",
         );
         hittersTable.innerHTML = renderTable(
-          ["Player", "Model Hit%", "Price", "Actual", "Context", "Result"],
+          [
+            makeHeading("Player", "alpha"),
+            makeHeading("Model Hit%", "model"),
+            makeHeading("Price", "line"),
+            makeHeading("Actual", "actual"),
+            makeHeading("Context", "edge"),
+            makeHeading("Result", "result"),
+          ],
           hitterRows,
           renderHitterRow,
           "No hitter rows match this filter.",
         );
         strikeoutsTable.innerHTML = renderTable(
-          ["Pitcher", "Model Ks", "Line / Pick", "Actual", "Context", "Result"],
+          [
+            makeHeading("Pitcher", "alpha"),
+            makeHeading("Model Ks", "model"),
+            makeHeading("Line / Pick", "line"),
+            makeHeading("Actual", "actual"),
+            makeHeading("Context", "confidence"),
+            makeHeading("Result", "result"),
+          ],
           strikeoutRows,
           renderStrikeoutRow,
           "No strikeout rows match this filter.",
         );
         first5Table.innerHTML = renderTable(
-          ["Matchup", "Model", "Line / Pick", "Actual", "Context", "Result"],
+          [
+            makeHeading("Matchup", "alpha"),
+            makeHeading("Model", "model"),
+            makeHeading("Line / Pick", "line"),
+            makeHeading("Actual", "actual"),
+            makeHeading("Context", "confidence"),
+            makeHeading("Result", "result"),
+          ],
           first5Rows,
           renderFirst5Row,
           "No first-5 rows match this filter.",
@@ -1253,9 +1811,12 @@
       }
 
       async function refreshResults() {
-        const dateValue = targetDateInput.value || localDateValue();
+        const dateValue = targetDateInput.value || localDateValue(-1);
         const hitMinProbability = hitMinProbabilityInput.value || "0.5";
         pageStatus.textContent = "Refreshing";
+        aiPicksSubtitle.textContent = "Refreshing board best bets";
+        watchlistSubtitle.textContent = "Refreshing watchlist picks";
+        experimentalSubtitle.textContent = "Refreshing experimental picks";
         totalsSubtitle.textContent = "Refreshing totals";
         hittersSubtitle.textContent = "Refreshing hitters";
         strikeoutsSubtitle.textContent = "Refreshing strikeouts";
@@ -1269,6 +1830,7 @@
           throw new Error(`Daily results request failed: ${response.status}`);
         }
         const payload = await response.json();
+        latestResultsPayload = payload;
         renderAll(payload);
         pageStatus.textContent = `${payload.summary?.final_games || 0} of ${payload.summary?.total_games || 0} games final`;
       }
@@ -1278,11 +1840,19 @@
         document.getElementById("hitMinProbability");
       const resultFilterInput = document.getElementById("resultFilter");
       const focusSectionInput = document.getElementById("focusSection");
+      const aiPickMarketFilterInput =
+        document.getElementById("aiPickMarketFilter");
       const sortModeInput = document.getElementById("sortMode");
       const refreshButton = document.getElementById("refreshButton");
       const pageStatus = document.getElementById("pageStatus");
       const gamesSummary = document.getElementById("gamesSummary");
       const gamesSummaryFoot = document.getElementById("gamesSummaryFoot");
+      const aiPicksSummary = document.getElementById("aiPicksSummary");
+      const aiPicksSummaryFoot = document.getElementById("aiPicksSummaryFoot");
+      const watchlistSummary = document.getElementById("watchlistSummary");
+      const watchlistSummaryFoot = document.getElementById("watchlistSummaryFoot");
+      const experimentalSummary = document.getElementById("experimentalSummary");
+      const experimentalSummaryFoot = document.getElementById("experimentalSummaryFoot");
       const totalsSummary = document.getElementById("totalsSummary");
       const totalsSummaryFoot = document.getElementById("totalsSummaryFoot");
       const hittersSummary = document.getElementById("hittersSummary");
@@ -1291,26 +1861,49 @@
       const strikeoutsSummaryFoot = document.getElementById(
         "strikeoutsSummaryFoot",
       );
+      const first5Summary = document.getElementById("first5Summary");
+      const first5SummaryFoot = document.getElementById("first5SummaryFoot");
+      const aiPicksSubtitle = document.getElementById("aiPicksSubtitle");
+      const watchlistSubtitle = document.getElementById("watchlistSubtitle");
+      const experimentalSubtitle = document.getElementById("experimentalSubtitle");
       const totalsSubtitle = document.getElementById("totalsSubtitle");
       const hittersSubtitle = document.getElementById("hittersSubtitle");
       const strikeoutsSubtitle = document.getElementById("strikeoutsSubtitle");
+      const first5Subtitle = document.getElementById("first5Subtitle");
+      const aiPicksTable = document.getElementById("aiPicksTable");
+      const watchlistTable = document.getElementById("watchlistTable");
+      const experimentalTable = document.getElementById("experimentalTable");
       const totalsTable = document.getElementById("totalsTable");
       const hittersTable = document.getElementById("hittersTable");
       const strikeoutsTable = document.getElementById("strikeoutsTable");
+      const first5Table = document.getElementById("first5Table");
       const allCount = document.getElementById("allCount");
+      const aiPicksCount = document.getElementById("aiPicksCount");
+      const watchlistCount = document.getElementById("watchlistCount");
+      const experimentalCount = document.getElementById("experimentalCount");
       const totalsCount = document.getElementById("totalsCount");
       const hittersCount = document.getElementById("hittersCount");
       const strikeoutsCount = document.getElementById("strikeoutsCount");
+      const first5Count = document.getElementById("first5Count");
       const updateScoresButton = document.getElementById("updateScoresButton");
       const updateJobStatus = document.getElementById("updateJobStatus");
       let updateJobPollTimer = null;
 
       applyAppLinks();
-      targetDateInput.value = localDateValue();
+      const storedSortMode = readStoredSortMode();
+      if (
+        storedSortMode &&
+        Array.from(sortModeInput.options).some(
+          (option) => option.value === storedSortMode,
+        )
+      ) {
+        sortModeInput.value = storedSortMode;
+      }
+      targetDateInput.value = localDateValue(-1);
       updateSectionVisibility();
 
       async function startUpdateScores() {
-        const dateValue = targetDateInput.value || localDateValue();
+        const dateValue = targetDateInput.value || localDateValue(-1);
         updateScoresButton.disabled = true;
         updateScoresButton.textContent = "Updating…";
         updateJobStatus.textContent = "Starting score update…";
@@ -1396,20 +1989,51 @@
       refreshButton.addEventListener("click", () => {
         refreshResults().catch((error) => {
           pageStatus.textContent = error.message;
+          latestResultsPayload = null;
+          aiPicksTable.innerHTML = renderEmptyState(error.message);
           totalsTable.innerHTML = renderEmptyState(error.message);
           hittersTable.innerHTML = renderEmptyState(error.message);
           strikeoutsTable.innerHTML = renderEmptyState(error.message);
+          first5Table.innerHTML = renderEmptyState(error.message);
         });
       });
       targetDateInput.addEventListener("change", () => refreshButton.click());
       hitMinProbabilityInput.addEventListener("change", () =>
         refreshButton.click(),
       );
-      resultFilterInput.addEventListener("change", () => refreshButton.click());
-      sortModeInput.addEventListener("change", () => refreshButton.click());
+      resultFilterInput.addEventListener("change", () => {
+        if (latestResultsPayload) {
+          renderAll(latestResultsPayload);
+          return;
+        }
+        refreshButton.click();
+      });
+      aiPickMarketFilterInput.addEventListener("change", () => {
+        if (latestResultsPayload) {
+          renderAll(latestResultsPayload);
+          return;
+        }
+        refreshButton.click();
+      });
+      sortModeInput.addEventListener("change", () => {
+        persistSortMode(sortModeInput.value);
+        if (latestResultsPayload) {
+          renderAll(latestResultsPayload);
+          return;
+        }
+        refreshButton.click();
+      });
       focusSectionInput.addEventListener("change", () => {
         updateSectionVisibility();
         jumpToFocusedSection();
+      });
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-sort-key]");
+        if (!button) return;
+        const sortKey = button.dataset.sortKey;
+        const nextMode = nextSortMode(TABLE_SORT_MODES[sortKey]);
+        if (!nextMode) return;
+        setSortMode(nextMode);
       });
       document.querySelectorAll("[data-section-target]").forEach((button) => {
         button.addEventListener("click", () => {

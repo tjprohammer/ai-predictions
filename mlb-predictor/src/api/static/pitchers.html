@@ -690,6 +690,146 @@
         }
       }
 
+      /* ── Baseball card shared system ─────────────────── */
+      .bc-top {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+      }
+      .bc-photo-wrap {
+        position: relative;
+        flex-shrink: 0;
+      }
+      .bc-photo {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        overflow: hidden;
+        border: 2.5px solid var(--line);
+        background: linear-gradient(
+          135deg,
+          rgba(20, 33, 25, 0.06),
+          rgba(20, 33, 25, 0.14)
+        );
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .bc-photo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: top center;
+      }
+      .bc-slot {
+        position: absolute;
+        bottom: -4px;
+        right: -4px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: white;
+        font-size: 0.58rem;
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid white;
+      }
+      .bc-identity {
+        flex: 1;
+        min-width: 0;
+        display: grid;
+        gap: 5px;
+      }
+      .bc-name-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .bc-player-name {
+        font-size: 1.12rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1;
+      }
+      .bc-team-logo {
+        width: 22px;
+        height: 22px;
+        object-fit: contain;
+        flex-shrink: 0;
+      }
+      .bc-pos-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .bc-pos-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 6px;
+        background: rgba(11, 106, 88, 0.12);
+        color: var(--accent-deep);
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .bc-meta {
+        font-size: 0.78rem;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .bc-bio {
+        font-size: 0.74rem;
+        color: var(--muted);
+        min-height: 1em;
+      }
+      .bc-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 2px;
+      }
+      .bc-pills {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .bc-pill {
+        padding: 9px 10px;
+        border-radius: 12px;
+        text-align: center;
+        background: rgba(11, 106, 88, 0.06);
+        border: 1px solid rgba(11, 106, 88, 0.08);
+      }
+      .bc-pill.gold {
+        background: rgba(183, 121, 31, 0.08);
+        border-color: rgba(183, 121, 31, 0.1);
+      }
+      .bc-pill.accent {
+        background: rgba(11, 106, 88, 0.1);
+        border-color: rgba(11, 106, 88, 0.14);
+      }
+      .bc-pill-val {
+        font-size: 1.05rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1;
+      }
+      .bc-pill-lbl {
+        font-size: 0.62rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-top: 3px;
+      }
+
       @media (max-width: 820px) {
         .topbar {
           border-radius: 28px;
@@ -832,6 +972,25 @@
                 <option value="edge" selected>Market edge</option>
                 <option value="delta">Projection delta</option>
                 <option value="under">Under probability</option>
+                <option value="era">ERA (low → high)</option>
+                <option value="whiff">Whiff % (high → low)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="handFilter">Handedness</label>
+              <select id="handFilter">
+                <option value="all">All</option>
+                <option value="RHP">RHP only</option>
+                <option value="LHP">LHP only</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="eraMaxFilter">Max ERA (L5)</label>
+              <select id="eraMaxFilter">
+                <option value="">Any ERA</option>
+                <option value="3.0">Under 3.00</option>
+                <option value="4.0">Under 4.00</option>
+                <option value="5.0">Under 5.00</option>
               </select>
             </div>
           </div>
@@ -993,6 +1152,8 @@
       const marketBackedOnlyInput = document.getElementById("marketBackedOnly");
       const probableOnlyInput = document.getElementById("probableOnly");
       const hideStartedOnlyInput = document.getElementById("hideStartedOnly");
+      const handFilterInput = document.getElementById("handFilter");
+      const eraMaxFilterInput = document.getElementById("eraMaxFilter");
       const refreshButton = document.getElementById("refreshButton");
       const cardsGrid = document.getElementById("cardsGrid");
       const leadersGrid = document.getElementById("leadersGrid");
@@ -1271,8 +1432,8 @@
       }
 
       function probabilityEdge(projection) {
-        const over = numberOr(projection?.over_probability);
-        const under = numberOr(projection?.under_probability);
+        const over = displayOverProbability(projection);
+        const under = displayUnderProbability(projection);
         if (over == null && under == null) return null;
         return Math.max(
           over == null ? -1 : Math.abs(over - 0.5),
@@ -1280,11 +1441,35 @@
         );
       }
 
+      function displayProjectedStrikeouts(projection) {
+        return numberOr(
+          projection?.public_projected_strikeouts,
+          numberOr(
+            projection?.projected_strikeouts_fundamentals,
+            projection?.projected_strikeouts,
+          ),
+        );
+      }
+
+      function displayOverProbability(projection) {
+        return numberOr(
+          projection?.public_over_probability,
+          projection?.over_probability,
+        );
+      }
+
+      function displayUnderProbability(projection) {
+        return numberOr(
+          projection?.public_under_probability,
+          projection?.under_probability,
+        );
+      }
+
       function marketRecommendation(projection) {
         const market = projection?.market || {};
         const line = numberOr(market.consensus_line);
-        const over = numberOr(projection?.over_probability);
-        const under = numberOr(projection?.under_probability);
+        const over = displayOverProbability(projection);
+        const under = displayUnderProbability(projection);
         if (line == null || (over == null && under == null)) {
           return null;
         }
@@ -1344,14 +1529,8 @@
                 Math.abs(
                   numberOr(left.k_projection?.market?.projection_delta, -999),
                 ) ||
-              numberOr(
-                right.k_projection?.projected_strikeouts_fundamentals,
-                numberOr(right.k_projection?.projected_strikeouts, -1),
-              ) -
-                numberOr(
-                  left.k_projection?.projected_strikeouts_fundamentals,
-                  numberOr(left.k_projection?.projected_strikeouts, -1),
-                ),
+              numberOr(displayProjectedStrikeouts(right.k_projection), -1) -
+                numberOr(displayProjectedStrikeouts(left.k_projection), -1),
           );
         }
         if (sortMode === "delta") {
@@ -1363,47 +1542,45 @@
                 Math.abs(
                   numberOr(left.k_projection?.market?.projection_delta, -999),
                 ) ||
-              numberOr(
-                right.k_projection?.projected_strikeouts_fundamentals,
-                numberOr(right.k_projection?.projected_strikeouts, -1),
-              ) -
-                numberOr(
-                  left.k_projection?.projected_strikeouts_fundamentals,
-                  numberOr(left.k_projection?.projected_strikeouts, -1),
-                ),
+              numberOr(displayProjectedStrikeouts(right.k_projection), -1) -
+                numberOr(displayProjectedStrikeouts(left.k_projection), -1),
           );
         }
         if (sortMode === "under") {
           return sorted.sort(
             (left, right) =>
-              numberOr(right.k_projection?.under_probability, -1) -
-                numberOr(left.k_projection?.under_probability, -1) ||
-              numberOr(
-                right.k_projection?.projected_strikeouts_fundamentals,
-                numberOr(right.k_projection?.projected_strikeouts, -1),
-              ) -
-                numberOr(
-                  left.k_projection?.projected_strikeouts_fundamentals,
-                  numberOr(left.k_projection?.projected_strikeouts, -1),
-                ),
+              numberOr(displayUnderProbability(right.k_projection), -1) -
+                numberOr(displayUnderProbability(left.k_projection), -1) ||
+              numberOr(displayProjectedStrikeouts(right.k_projection), -1) -
+                numberOr(displayProjectedStrikeouts(left.k_projection), -1),
+          );
+        }
+        if (sortMode === "era") {
+          return sorted.sort(
+            (l, r) =>
+              numberOr(l.recent_form?.era_last3, 99) -
+              numberOr(r.recent_form?.era_last3, 99),
+          );
+        }
+        if (sortMode === "whiff") {
+          return sorted.sort(
+            (l, r) => numberOr(r.whiff_pct, -1) - numberOr(l.whiff_pct, -1),
           );
         }
         return sorted.sort(
           (left, right) =>
-            numberOr(
-              right.k_projection?.projected_strikeouts_fundamentals,
-              numberOr(right.k_projection?.projected_strikeouts, -1),
-            ) -
-              numberOr(
-                left.k_projection?.projected_strikeouts_fundamentals,
-                numberOr(left.k_projection?.projected_strikeouts, -1),
-              ) ||
+            numberOr(displayProjectedStrikeouts(right.k_projection), -1) -
+              numberOr(displayProjectedStrikeouts(left.k_projection), -1) ||
             numberOr(right.k_projection?.market?.projection_delta, -999) -
               numberOr(left.k_projection?.market?.projection_delta, -999),
         );
       }
 
       function filteredRows() {
+        const handFilter = handFilterInput?.value || "all";
+        const eraMax = eraMaxFilterInput?.value
+          ? parseFloat(eraMaxFilterInput.value)
+          : null;
         return sortRows(
           (state.rows || []).filter((row) => {
             if (probableOnlyInput.checked && row.is_probable === false)
@@ -1413,6 +1590,18 @@
               numberOr(row.k_projection?.market?.consensus_line) == null
             )
               return false;
+            if (handFilter !== "all") {
+              const throws = String(
+                row.throws || row.pitcher_throws || "",
+              ).toUpperCase();
+              const isLHP = throws === "L" || throws === "LHP";
+              if (handFilter === "LHP" && !isLHP) return false;
+              if (handFilter === "RHP" && isLHP) return false;
+            }
+            if (eraMax != null) {
+              const era = numberOr(row.recent_form?.era_last3);
+              if (era == null || era > eraMax) return false;
+            }
             if (
               hideStartedOnlyInput.checked &&
               isTodayTarget() &&
@@ -1566,14 +1755,95 @@
         ].join("");
       }
 
+      // ── MLB helpers ───────────────────────────────────────
+      const _PT_TEAM_IDS = {
+        ARI: 109,
+        AZ: 109,
+        ATL: 144,
+        BAL: 110,
+        BOS: 111,
+        CHC: 112,
+        CWS: 145,
+        CIN: 113,
+        CLE: 114,
+        COL: 115,
+        DET: 116,
+        HOU: 117,
+        KC: 118,
+        LAA: 108,
+        LAD: 119,
+        MIA: 146,
+        MIL: 158,
+        MIN: 142,
+        NYM: 121,
+        NYY: 147,
+        OAK: 133,
+        ATH: 133,
+        PHI: 143,
+        PIT: 134,
+        SD: 135,
+        SF: 137,
+        SEA: 136,
+        STL: 138,
+        TB: 139,
+        TEX: 140,
+        TOR: 141,
+        WSH: 120,
+        WAS: 120,
+        CHW: 145,
+      };
+      function _ptTeamLogo(abbr) {
+        const id = _PT_TEAM_IDS[String(abbr || "").toUpperCase()];
+        return id ? `https://www.mlbstatic.com/team-logos/${id}.svg` : "";
+      }
+      function _ptPhotoUrl(pid) {
+        return pid
+          ? `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/${pid}/headshot/67/current`
+          : "";
+      }
+      const _ptBioCache = {};
+      async function _ptFetchBios(ids) {
+        const unique = [...new Set(ids.map(String).filter(Boolean))];
+        await Promise.allSettled(
+          unique.map(async (id) => {
+            if (_ptBioCache[id] !== undefined) return;
+            _ptBioCache[id] = null;
+            try {
+              const r = await fetch(
+                `https://statsapi.mlb.com/api/v1/people/${id}?fields=people,id,primaryPosition,abbreviation,height,weight`,
+              );
+              if (!r.ok) return;
+              const d = await r.json();
+              const p = d?.people?.[0];
+              if (!p) return;
+              _ptBioCache[id] = {
+                position: p.primaryPosition?.abbreviation || null,
+                height: p.height || null,
+                weight: p.weight ? `${p.weight} lbs` : null,
+              };
+            } catch {
+              /* ignore */
+            }
+          }),
+        );
+        unique.forEach((id) => {
+          const el = document.getElementById(`pt-bio-${id}`);
+          if (!el) return;
+          const bio = _ptBioCache[id];
+          if (!bio) {
+            el.textContent = "";
+            return;
+          }
+          el.textContent = [bio.height, bio.weight].filter(Boolean).join(" · ");
+        });
+      }
+
       function renderCard(row) {
         const projection = row.k_projection || {};
         const market = projection.market || {};
         const recent = row.recent_form || {};
         const marketBacked = numberOr(market.consensus_line) != null;
         const delta = numberOr(market.projection_delta);
-        const leverageLabel = delta == null ? "No line" : "Model delta";
-        const leverageValue = delta == null ? "-" : formatSigned(delta, 2);
         const recommendation = marketRecommendation(projection);
         const started = hasStarted(row.game_start_ts);
         const statusLabel =
@@ -1584,83 +1854,106 @@
               : "Awaiting market";
         const statusTone =
           started && isTodayTarget() ? "warn" : marketBacked ? "good" : "warn";
+        const pid = String(row.pitcher_id || "");
+        const photoUrl = _ptPhotoUrl(pid);
+        const logoUrl = _ptTeamLogo(row.team);
+        const genericSvg = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;fill:var(--muted);padding:10px"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-5.33 0-8 2.67-8 4v1h16v-1c0-1.33-2.67-4-8-4z"/></svg>`;
+        const projK = displayProjectedStrikeouts(projection);
+        const deltaColor =
+          delta != null && delta >= 0.5
+            ? "var(--good)"
+            : delta != null && delta <= -0.5
+              ? "var(--bad)"
+              : "inherit";
         return `
           <article class="pitcher-card">
-            <div class="pitcher-head">
-              <div>
-                <div class="section-tag">${escapeHtml(row.matchup)}</div>
-                <div class="pitcher-name">${escapeHtml(row.pitcher_name)}</div>
-                <div class="pitcher-context">${escapeHtml([row.team, `vs ${row.opponent}`, row.throws ? `${row.throws}HP` : null, row.days_rest != null ? `${row.days_rest} days rest` : null, formatStartTime(row.game_start_ts)].filter(Boolean).join(" · "))}</div>
+            <div class="bc-top">
+              <div class="bc-photo-wrap">
+                <div class="bc-photo">
+                  ${photoUrl ? `<img src="${photoUrl}" alt="${escapeHtml(row.pitcher_name)}" onerror="this.style.display='none';this.parentElement.innerHTML='${genericSvg.replace(/"/g, "&quot;")}'">` : genericSvg}
+                </div>
+                <span class="bc-slot" title="Starting Pitcher">SP</span>
               </div>
-              <div class="pitcher-topline">
-                <span class="chip ${row.is_probable === false ? "warn" : "good"}">${row.is_probable === false ? "Not probable" : "Probable"}</span>
-                <span class="status-chip ${statusTone}">${statusLabel}</span>
-              </div>
-            </div>
-
-            <div class="metric-grid">
-              <div class="metric-box">
-                <span class="metric-label">Projected Ks</span>
-                <span class="metric-value">${formatNumber(numberOr(projection.projected_strikeouts_fundamentals, projection.projected_strikeouts), 2)}</span>
-              </div>
-              ${
-                projection.projected_strikeouts_fundamentals != null &&
-                projection.projected_strikeouts != null
-                  ? `<div class="metric-box">
-                <span class="metric-label" title="Blended model (market-calibrated)">Blended Ks</span>
-                <span class="metric-value">${formatNumber(projection.projected_strikeouts, 2)}</span>
-              </div>`
-                  : ""
-              }
-              <div class="metric-box">
-                <span class="metric-label">Market Line</span>
-                <span class="metric-value">${formatNumber(market.consensus_line, 1)}</span>
-              </div>
-              <div class="metric-box">
-                <span class="metric-label">${leverageLabel}</span>
-                <span class="metric-value" style="color: ${delta != null && delta >= 0.5 ? "var(--good)" : delta != null && delta <= -0.5 ? "var(--bad)" : "inherit"}">${leverageValue}</span>
+              <div class="bc-identity">
+                <div class="bc-name-row">
+                  <span class="bc-player-name">${escapeHtml(row.pitcher_name)}</span>
+                  ${logoUrl ? `<img class="bc-team-logo" src="${logoUrl}" alt="${escapeHtml(row.team || "")}" onerror="this.style.display='none'">` : ""}
+                </div>
+                <div class="bc-pos-row">
+                  <span class="bc-pos-badge">${row.throws ? `${row.throws}HP` : "SP"}</span>
+                  ${row.days_rest != null ? `<span class="bc-meta">${row.days_rest}d rest</span>` : ""}
+                  ${row.opponent ? `<span class="bc-meta">vs ${escapeHtml(row.opponent)}</span>` : ""}
+                  <span class="bc-meta">${escapeHtml(formatStartTime(row.game_start_ts))}</span>
+                </div>
+                <div class="bc-bio" id="pt-bio-${pid}">Loading…</div>
+                <div class="bc-chips">
+                  <span class="chip ${row.is_probable === false ? "warn" : "good"}">${row.is_probable === false ? "Not probable" : "Probable"}</span>
+                  ${projection.public_projection_mode === "fundamentals_fallback" ? '<span class="chip warn">Fundamentals fallback</span>' : ""}
+                  <span class="status-chip ${statusTone}">${statusLabel}</span>
+                </div>
               </div>
             </div>
-
+            <div class="bc-pills">
+              <div class="bc-pill accent"><div class="bc-pill-val">${formatNumber(projK, 2)}</div><div class="bc-pill-lbl">Proj Ks</div></div>
+              <div class="bc-pill gold"><div class="bc-pill-val">${marketBacked ? formatNumber(market.consensus_line, 1) : "—"}</div><div class="bc-pill-lbl">Market Line</div></div>
+              <div class="bc-pill"><div class="bc-pill-val" style="color:${deltaColor}">${delta != null ? formatSigned(delta, 2) : "—"}</div><div class="bc-pill-lbl">Model Delta</div></div>
+              <div class="bc-pill"><div class="bc-pill-val" style="color:${numberOr(displayOverProbability(projection)) >= 0.6 ? "var(--good)" : "inherit"}">${marketBacked ? formatPercent(displayOverProbability(projection), 1) : "—"}</div><div class="bc-pill-lbl">Over%</div></div>
+              <div class="bc-pill"><div class="bc-pill-val" style="color:${numberOr(displayUnderProbability(projection)) >= 0.6 ? "var(--good)" : "inherit"}">${marketBacked ? formatPercent(displayUnderProbability(projection), 1) : "—"}</div><div class="bc-pill-lbl">Under%</div></div>
+              <div class="bc-pill"><div class="bc-pill-val">${formatNumber(recent.avg_strikeouts, 2)}</div><div class="bc-pill-lbl">Avg Ks</div></div>
+              <div class="bc-pill"><div class="bc-pill-val">${formatNumber(recent.avg_ip, 1)}</div><div class="bc-pill-lbl">Avg IP</div></div>
+              <div class="bc-pill"><div class="bc-pill-val" style="color:${numberOr(recent.whiff_pct) >= 0.28 ? "var(--good)" : numberOr(recent.whiff_pct) <= 0.2 ? "var(--warn)" : "inherit"}">${formatPercent(recent.whiff_pct, 1)}</div><div class="bc-pill-lbl">Whiff%</div></div>
+              <div class="bc-pill"><div class="bc-pill-val" style="color:${numberOr(recent.era_last3) <= 3 ? "var(--good)" : numberOr(recent.era_last3) >= 5 ? "var(--bad)" : "inherit"}">${formatNumber(recent.era_last3, 2)}</div><div class="bc-pill-lbl">ERA L3</div></div>
+              ${(() => {
+                const pp = row.pitcher_props || {};
+                const ha = pp["pitcher_hits_allowed"];
+                const er = pp["pitcher_earned_runs"];
+                const bb = pp["pitcher_walks"];
+                const parts = [];
+                if (ha && ha.line != null)
+                  parts.push(
+                    `<div class="bc-pill"><div class="bc-pill-val">${formatNumber(ha.line, 1)}</div><div class="bc-pill-lbl">H Allow</div></div>`,
+                  );
+                if (er && er.line != null)
+                  parts.push(
+                    `<div class="bc-pill"><div class="bc-pill-val">${formatNumber(er.line, 1)}</div><div class="bc-pill-lbl">ER Line</div></div>`,
+                  );
+                if (bb && bb.line != null)
+                  parts.push(
+                    `<div class="bc-pill"><div class="bc-pill-val">${formatNumber(bb.line, 1)}</div><div class="bc-pill-lbl">BB Line</div></div>`,
+                  );
+                return parts.join("");
+              })()}
+            </div>
             ${recentStrikeoutChart(row)}
-
             <div class="data-stack">
-              <div class="data-row">
-                <span class="data-label">Best Bet</span>
-                <span class="data-value">${recommendation ? `${recommendation.label} (${formatPercent(recommendation.probability, 1)})${recommendation.price == null ? "" : ` @ ${formatPrice(recommendation.price)}`}` : "No strikeout line posted"}</span>
-              </div>
-              <div class="data-row">
-                <span class="data-label">Over / Under</span>
-                <span class="data-value">${marketBacked ? `<span style="color: ${numberOr(projection.over_probability) >= 0.6 ? "var(--good)" : "inherit"}">${formatPercent(projection.over_probability, 1)}</span> over · <span style="color: ${numberOr(projection.under_probability) >= 0.6 ? "var(--good)" : "inherit"}">${formatPercent(projection.under_probability, 1)}</span> under` : "Line pending"}</span>
-              </div>
-              <div class="data-row">
-                <span class="data-label">Best Over / Under Price</span>
-                <span class="data-value">${marketBacked ? `${formatPrice(market.best_over_price)} / ${formatPrice(market.best_under_price)}` : "-"}</span>
-              </div>
-              <div class="data-row">
-                <span class="data-label">Recent Avg Ks</span>
-                <span class="data-value">${formatNumber(recent.avg_strikeouts, 2)} over ${recent.sample_starts ?? projection.sample_starts ?? 0} starts</span>
-              </div>
-              <div class="data-row">
-                <span class="data-label">Season Ks</span>
-                <span class="data-value">${formatNumber(projection.season_context?.strikeouts, 0)} in ${formatNumber(projection.season_context?.starts, 0)} starts · ${formatNumber(projection.season_context?.strikeouts_per_start, 2)} K/start</span>
-              </div>
-              <div class="data-row">
-                <span class="data-label">Recent Avg IP</span>
-                <span class="data-value">${formatNumber(recent.avg_ip, 2)}</span>
-              </div>
-              <div class="data-row">
-                <span class="data-label">ERA (Last 3 / Last 5 / Season)</span>
-                <span class="data-value"><span style="color: ${numberOr(recent.era_last3) <= 3.0 ? "var(--good)" : numberOr(recent.era_last3) >= 5.0 ? "var(--bad)" : "inherit"}">${formatNumber(recent.era_last3, 2)}</span> / <span style="color: ${numberOr(recent.era_last5) <= 3.0 ? "var(--good)" : numberOr(recent.era_last5) >= 5.0 ? "var(--bad)" : "inherit"}">${formatNumber(recent.era_last5, 2)}</span> / <span style="color: ${numberOr(recent.season_era) <= 3.0 ? "var(--good)" : numberOr(recent.season_era) >= 5.0 ? "var(--bad)" : "inherit"}">${formatNumber(recent.season_era, 2)}</span></span>
-              </div>
-              <div class="data-row">
-                <span class="data-label">Whiff / CSW</span>
-                <span class="data-value"><span style="color: ${numberOr(recent.whiff_pct) >= 0.28 ? "var(--good)" : numberOr(recent.whiff_pct) <= 0.2 ? "var(--warn)" : "inherit"}">${formatPercent(recent.whiff_pct, 1)}</span> / <span style="color: ${numberOr(recent.csw_pct) >= 0.3 ? "var(--good)" : numberOr(recent.csw_pct) <= 0.25 ? "var(--warn)" : "inherit"}">${formatPercent(recent.csw_pct, 1)}</span></span>
-              </div>
-              <div class="data-row">
-                <span class="data-label">Lineup Handedness</span>
-                <span class="data-value">R ${projection.lineup_handedness?.counts?.R ?? 0} · L ${projection.lineup_handedness?.counts?.L ?? 0} · S ${projection.lineup_handedness?.counts?.S ?? 0}</span>
-              </div>
+              <div class="data-row"><span class="data-label">Best Bet</span><span class="data-value">${recommendation ? `${recommendation.label} (${formatPercent(recommendation.probability, 1)})${recommendation.price == null ? "" : ` @ ${formatPrice(recommendation.price)}`}` : "No strikeout line posted"}</span></div>
+              ${(() => {
+                const pp = row.pitcher_props || {};
+                const ha = pp["pitcher_hits_allowed"];
+                const er = pp["pitcher_earned_runs"];
+                const bb = pp["pitcher_walks"];
+                const parts = [];
+                if (ha?.line != null)
+                  parts.push(
+                    `H Allow ${formatNumber(ha.line, 1)} (o ${formatPrice(ha.over_price) || "–"})`,
+                  );
+                if (er?.line != null)
+                  parts.push(
+                    `ER ${formatNumber(er.line, 1)} (o ${formatPrice(er.over_price) || "–"})`,
+                  );
+                if (bb?.line != null)
+                  parts.push(
+                    `BB ${formatNumber(bb.line, 1)} (o ${formatPrice(bb.over_price) || "–"})`,
+                  );
+                return parts.length
+                  ? `<div class="data-row"><span class="data-label">Other Props</span><span class="data-value">${parts.join(" · ")}</span></div>`
+                  : "";
+              })()}
+              <div class="data-row"><span class="data-label">Best Over / Under Price</span><span class="data-value">${marketBacked ? `${formatPrice(market.best_over_price)} / ${formatPrice(market.best_under_price)}` : "Pending"}</span></div>
+              <div class="data-row"><span class="data-label">Season Ks</span><span class="data-value">${formatNumber(projection.season_context?.strikeouts, 0)} in ${formatNumber(projection.season_context?.starts, 0)} starts · ${formatNumber(projection.season_context?.strikeouts_per_start, 2)} K/start</span></div>
+              <div class="data-row"><span class="data-label">ERA L3 / L5 / Season</span><span class="data-value"><span style="color:${numberOr(recent.era_last3) <= 3 ? "var(--good)" : numberOr(recent.era_last3) >= 5 ? "var(--bad)" : "inherit"}">${formatNumber(recent.era_last3, 2)}</span> / <span style="color:${numberOr(recent.era_last5) <= 3 ? "var(--good)" : numberOr(recent.era_last5) >= 5 ? "var(--bad)" : "inherit"}">${formatNumber(recent.era_last5, 2)}</span> / <span style="color:${numberOr(recent.season_era) <= 3 ? "var(--good)" : numberOr(recent.season_era) >= 5 ? "var(--bad)" : "inherit"}">${formatNumber(recent.season_era, 2)}</span></span></div>
+              <div class="data-row"><span class="data-label">Whiff / CSW</span><span class="data-value">${formatPercent(recent.whiff_pct, 1)} / ${formatPercent(recent.csw_pct, 1)}</span></div>
+              <div class="data-row"><span class="data-label">Lineup Handedness</span><span class="data-value">R ${projection.lineup_handedness?.counts?.R ?? 0} · L ${projection.lineup_handedness?.counts?.L ?? 0} · S ${projection.lineup_handedness?.counts?.S ?? 0}</span></div>
             </div>
           </article>
         `;
@@ -1685,6 +1978,10 @@
           ? `${rows.length} market-backed pitchers ranked for ${targetDateInput.value}. ${state.rows.length - marketBackedCount} additional starters are still waiting on K markets.`
           : `${rows.length} pitchers ranked for ${targetDateInput.value}. ${marketBackedCount} of ${state.rows.length} have live strikeout lines${hideStartedOnlyInput.checked && isTodayTarget() ? ` and ${startedCount} started pitchers are hidden.` : "."}`;
         cardsGrid.innerHTML = rows.map(renderCard).join("");
+        const pitcherIds = rows
+          .map((r) => String(r.pitcher_id || ""))
+          .filter(Boolean);
+        if (pitcherIds.length) _ptFetchBios(pitcherIds);
       }
 
       async function loadPitchers() {
@@ -1769,6 +2066,8 @@
       marketBackedOnlyInput.addEventListener("change", renderRows);
       probableOnlyInput.addEventListener("change", renderRows);
       hideStartedOnlyInput.addEventListener("change", renderRows);
+      handFilterInput?.addEventListener("change", renderRows);
+      eraMaxFilterInput?.addEventListener("change", renderRows);
       targetDateInput.addEventListener("change", refreshPage);
       cardsGrid.addEventListener("click", (event) => {
         const filterButton = event.target.closest("[data-history-filter]");

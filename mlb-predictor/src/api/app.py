@@ -24,24 +24,29 @@ from pydantic import BaseModel, Field
 
 from src.features.first5_totals_builder import main as build_first5_totals_features_main
 from src.features.hits_builder import main as build_hits_features_main
+from src.features.total_bases_builder import main as build_total_bases_features_main
 from src.features.strikeouts_builder import main as build_strikeouts_features_main
 from src.features.totals_builder import main as build_totals_features_main
 from src.ingestors.boxscores import main as ingest_boxscores_main
 from src.ingestors.games import main as ingest_games_main
 from src.ingestors.lineups import main as import_lineups_main
 from src.ingestors.market_totals import main as import_market_totals_main
+from src.ingestors.umpire import main as ingest_umpire_main
 from src.ingestors.player_batting import main as ingest_player_batting_main
 from src.ingestors.player_status import main as ingest_player_status_main
 from src.ingestors.prepare_slate_inputs import main as prepare_slate_inputs_main
 from src.ingestors.starters import main as ingest_starters_main
 from src.models.predict_first5_totals import main as predict_first5_totals_main
 from src.models.predict_hits import main as predict_hits_main
+from src.models.train_total_bases import main as train_total_bases_main
+from src.models.predict_total_bases import main as predict_total_bases_main
 from src.models.predict_strikeouts import main as predict_strikeouts_main
 from src.models.predict_totals import main as predict_totals_main
 from src.transforms.bullpens_daily import main as refresh_bullpens_daily_main
 from src.transforms.freeze_markets import main as freeze_markets_main
 from src.transforms.offense_daily import main as refresh_offense_daily_main
 from src.transforms.product_surfaces import main as refresh_product_surfaces_main
+from src.utils import best_bets as best_bets_utils
 from src.utils.db import get_dialect_name, query_df, table_exists, upsert_rows
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
@@ -67,6 +72,7 @@ UPDATE_MODULE_MAINS = {
     "src.ingestors.lineups": import_lineups_main,
     "src.ingestors.player_status": ingest_player_status_main,
     "src.ingestors.market_totals": import_market_totals_main,
+    "src.ingestors.umpire": ingest_umpire_main,
     "src.ingestors.boxscores": ingest_boxscores_main,
     "src.ingestors.player_batting": ingest_player_batting_main,
     "src.transforms.offense_daily": refresh_offense_daily_main,
@@ -76,11 +82,14 @@ UPDATE_MODULE_MAINS = {
     "src.features.totals_builder": build_totals_features_main,
     "src.features.first5_totals_builder": build_first5_totals_features_main,
     "src.features.hits_builder": build_hits_features_main,
+    "src.features.total_bases_builder": build_total_bases_features_main,
     "src.features.strikeouts_builder": build_strikeouts_features_main,
     "src.models.predict_totals": predict_totals_main,
     "src.models.predict_first5_totals": predict_first5_totals_main,
     "src.models.predict_hits": predict_hits_main,
     "src.models.predict_strikeouts": predict_strikeouts_main,
+    "src.models.train_total_bases": train_total_bases_main,
+    "src.models.predict_total_bases": predict_total_bases_main,
 }
 
 app = FastAPI(title="MLB Predictor", version="0.1.0")
@@ -97,6 +106,14 @@ HTML_SHELL_HEADERS = {
     "Pragma": "no-cache",
     "Expires": "0",
 }
+
+SUPPLEMENTAL_GAME_MARKET_TYPES = best_bets_utils.SUPPLEMENTAL_GAME_MARKET_TYPES
+BEST_BET_MARKET_KEYS = best_bets_utils.BEST_BET_MARKET_KEYS
+BEST_BET_SELECTION_LIMIT_PER_GAME = best_bets_utils.BEST_BET_SELECTION_LIMIT_PER_GAME
+BEST_BET_THRESHOLD_MAP = best_bets_utils.BEST_BET_THRESHOLD_MAP
+MARKET_SIM_MAX_RUNS = best_bets_utils.MARKET_SIM_MAX_RUNS
+EXPERIMENTAL_CAROUSEL_MARKETS = ("nrfi", "yrfi")
+TRACKED_RECOMMENDATION_MARKETS = BEST_BET_MARKET_KEYS + EXPERIMENTAL_CAROUSEL_MARKETS
 
 
 def _html_file_response(path: Path) -> FileResponse:
@@ -1258,7 +1275,9 @@ def _merge_strikeout_market_context(
     market_line = _to_float((market_context or {}).get("consensus_line"))
     if market_line is None:
         market_line = _to_float(current_market.get("consensus_line"))
-    projected = _to_float(merged.get("projected_strikeouts"))
+    projected = _to_float(merged.get("public_projected_strikeouts"))
+    if projected is None:
+        projected = _to_float(merged.get("projected_strikeouts"))
     merged["market"] = {
         "consensus_line": market_line,
         "line_min": None if market_context is None else market_context.get("line_min"),
@@ -1272,6 +1291,135 @@ def _merge_strikeout_market_context(
         "projection_delta": None if projected is None or market_line is None else round(projected - market_line, 2),
     }
     return merged
+
+
+def _strikeout_probability_sigmoid(value: float) -> float:
+    return 1.0 / (1.0 + math.exp(-value))
+
+
+def _stddev(values: list[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    variance = sum((value - mean) ** 2 for value in values) / len(values)
+    return math.sqrt(variance)
+
+
+def _derive_strikeout_probability_std(
+    calibrated_projection: float | None,
+    market_line: float | None,
+    over_probability: float | None,
+    under_probability: float | None,
+) -> float | None:
+    cal = _to_float(calibrated_projection)
+    line = _to_float(market_line)
+    over = _to_float(over_probability)
+    under = _to_float(under_probability)
+    if cal is None or line is None:
+        return None
+    if over is None and under is not None:
+        over = 1.0 - under
+    if over is None or not 0.0 < over < 1.0:
+        return None
+    delta = cal - line
+    if abs(delta) < 1e-9:
+        return None
+    clipped = min(max(over, 1e-4), 1.0 - 1e-4)
+    logit = math.log(clipped / (1.0 - clipped))
+    if abs(logit) < 1e-9:
+        return None
+    std = delta / logit
+    if not math.isfinite(std) or std <= 0:
+        return None
+    return float(std)
+
+
+def _detect_public_strikeout_slate_collapse(
+    prediction_map: dict[tuple[int, int], dict[str, Any]],
+) -> str | None:
+    paired: list[tuple[float, float, float]] = []
+    for projection in prediction_map.values():
+        calibrated = _to_float(projection.get("projected_strikeouts"))
+        fundamentals = _to_float(projection.get("projected_strikeouts_fundamentals"))
+        market_line = _to_float((projection.get("market") or {}).get("consensus_line"))
+        if calibrated is None or fundamentals is None or market_line is None:
+            continue
+        paired.append((calibrated, fundamentals, market_line))
+
+    if len(paired) < 8:
+        return None
+
+    calibrated_values = [calibrated for calibrated, _, _ in paired]
+    fundamentals_values = [fundamentals for _, fundamentals, _ in paired]
+    calibrated_sides = ["over" if calibrated >= market_line else "under" for calibrated, _, market_line in paired]
+    fundamentals_sides = ["over" if fundamentals >= market_line else "under" for _, fundamentals, market_line in paired]
+    calibrated_dominant_fraction = max(calibrated_sides.count("over"), calibrated_sides.count("under")) / len(calibrated_sides)
+    fundamentals_dominant_fraction = max(fundamentals_sides.count("over"), fundamentals_sides.count("under")) / len(fundamentals_sides)
+    rounded_counts = pd.Series([round(value, 2) for value in calibrated_values]).value_counts()
+    largest_bucket = int(rounded_counts.iloc[0]) if not rounded_counts.empty else 0
+    unique_bucket_count = int(len(rounded_counts))
+    calibrated_std = _stddev(calibrated_values)
+    fundamentals_std = _stddev(fundamentals_values)
+
+    if (
+        calibrated_dominant_fraction >= 0.9
+        and fundamentals_dominant_fraction < calibrated_dominant_fraction
+        and largest_bucket >= 3
+        and unique_bucket_count <= max(6, len(paired) // 2)
+    ):
+        return (
+            "public_fallback_one_sided_"
+            f"{calibrated_dominant_fraction:.0%}_bucket_{largest_bucket}"
+        )
+
+    if (
+        calibrated_dominant_fraction >= 0.95
+        and calibrated_std < max(0.55, fundamentals_std * 0.55)
+    ):
+        return (
+            "public_fallback_low_variance_"
+            f"std_{calibrated_std:.2f}_vs_{fundamentals_std:.2f}"
+        )
+
+    return None
+
+
+def _apply_public_strikeout_projection_fallback(
+    prediction_map: dict[tuple[int, int], dict[str, Any]],
+) -> dict[tuple[int, int], dict[str, Any]]:
+    collapse_reason = _detect_public_strikeout_slate_collapse(prediction_map)
+    if not collapse_reason:
+        return prediction_map
+
+    log.warning("Public strikeout slate fallback activated: %s", collapse_reason)
+    default_std = 1.35
+    for projection in prediction_map.values():
+        fundamentals = _to_float(projection.get("projected_strikeouts_fundamentals"))
+        calibrated = _to_float(projection.get("projected_strikeouts"))
+        market = dict(projection.get("market") or {})
+        market_line = _to_float(market.get("consensus_line"))
+        if fundamentals is None:
+            continue
+
+        projection["public_projection_mode"] = "fundamentals_fallback"
+        projection["public_projection_reason"] = collapse_reason
+        projection["public_projected_strikeouts"] = fundamentals
+
+        if market_line is None:
+            continue
+
+        effective_std = _derive_strikeout_probability_std(
+            calibrated,
+            market_line,
+            projection.get("over_probability"),
+            projection.get("under_probability"),
+        )
+        effective_std = max(float(effective_std or default_std), 0.35)
+        public_over_probability = _strikeout_probability_sigmoid((fundamentals - market_line) / effective_std)
+        projection["public_over_probability"] = public_over_probability
+        projection["public_under_probability"] = 1.0 - public_over_probability
+
+    return prediction_map
 
 
 def _fetch_pitcher_strikeout_prediction_map(
@@ -1410,7 +1558,7 @@ def _fetch_pitcher_strikeout_prediction_map(
             "over_probability": row.get("over_probability"),
             "under_probability": row.get("under_probability"),
         }
-    return prediction_map
+    return _apply_public_strikeout_projection_fallback(prediction_map)
 
 
 def _estimate_starter_strikeout_projection(
@@ -1886,6 +2034,12 @@ def _baseball_ip_to_outs(ip_value: Any) -> int:
     return max((whole_innings * 3) + partial_outs, 0)
 
 
+def _baseball_ip_from_outs(outs: Any) -> float:
+    outs_value = int(_coerce_float(outs) or 0)
+    whole_innings, partial_outs = divmod(max(outs_value, 0), 3)
+    return float(f"{whole_innings}.{partial_outs}")
+
+
 def _era_from_pitcher_history(frame: pd.DataFrame) -> float | None:
     if frame.empty:
         return None
@@ -2071,6 +2225,7 @@ def _fetch_hit_predictions(
         LEFT JOIN dim_players dp ON dp.player_id = p.player_id
         WHERE p.row_rank = 1
           AND p.predicted_hit_probability >= :min_probability
+          AND UPPER(COALESCE(dp.position, '')) NOT IN ('P', 'SP', 'RP', 'CP')
                 ORDER BY p.predicted_hit_probability DESC,
                                  {confirmed_order},
                                  {projected_pa_order},
@@ -2479,11 +2634,27 @@ def _fetch_game_board(
     pitcher_k_market_map = _fetch_pitcher_strikeout_market_map(target_date)
     pitcher_k_prediction_map = _fetch_pitcher_strikeout_prediction_map(target_date)
     first5_totals_map = _fetch_first5_totals_map(target_date)
+    latest_game_market_rows = _fetch_latest_game_market_rows(target_date)
+    supplemental_markets_map = _aggregate_supplemental_market_rows(latest_game_market_rows)
+    market_rows_by_game: dict[int, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    for market_row in latest_game_market_rows:
+        game_id = market_row.get("game_id")
+        market_type = str(market_row.get("market_type") or "")
+        if game_id is None or not market_type:
+            continue
+        market_rows_by_game[int(game_id)][market_type].append(market_row)
+    umpire_map = _fetch_umpire_map(target_date)
+    tb_prediction_map = _fetch_total_bases_prediction_map(target_date)
+    pitcher_prop_map = _fetch_pitcher_prop_map(target_date)
+    bullpen_context_map = _fetch_bullpen_context_map(target_date)
+    recent_bullpen_map = _fetch_recent_bullpen_map(target_date)
 
     games_by_id: dict[int, dict[str, Any]] = {}
     for record in game_records:
         game_id = int(record["game_id"])
         is_final = _is_final_game_status(record.get("status"))
+        away_recent_bullpen = recent_bullpen_map.get(str(record["away_team"]) or "", {}) or {}
+        home_recent_bullpen = recent_bullpen_map.get(str(record["home_team"]) or "", {}) or {}
         games_by_id[game_id] = {
             "game_id": game_id,
             "game_date": record["game_date"],
@@ -2525,30 +2696,36 @@ def _fetch_game_board(
                 "lane_status": record.get("lane_status", "research_only"),
                 "away_expected_runs": record["away_expected_runs"],
                 "home_expected_runs": record["home_expected_runs"],
-                "away_bullpen_pitches_last3": record["away_bullpen_pitches_last3"],
-                "home_bullpen_pitches_last3": record["home_bullpen_pitches_last3"],
-                "away_bullpen_innings_last3": record["away_bullpen_innings_last3"],
-                "home_bullpen_innings_last3": record["home_bullpen_innings_last3"],
-                "away_bullpen_b2b": record["away_bullpen_b2b"],
-                "home_bullpen_b2b": record["home_bullpen_b2b"],
-                "away_bullpen_runs_allowed_last3": record["away_bullpen_runs_allowed_last3"],
-                "home_bullpen_runs_allowed_last3": record["home_bullpen_runs_allowed_last3"],
-                "away_bullpen_earned_runs_last3": record["away_bullpen_earned_runs_last3"],
-                "home_bullpen_earned_runs_last3": record["home_bullpen_earned_runs_last3"],
-                "away_bullpen_hits_allowed_last3": record["away_bullpen_hits_allowed_last3"],
-                "home_bullpen_hits_allowed_last3": record["home_bullpen_hits_allowed_last3"],
-                "away_bullpen_era_last3": record["away_bullpen_era_last3"],
-                "home_bullpen_era_last3": record["home_bullpen_era_last3"],
-                "away_bullpen_late_innings_last3": record["away_bullpen_late_innings_last3"],
-                "home_bullpen_late_innings_last3": record["home_bullpen_late_innings_last3"],
-                "away_bullpen_late_runs_allowed_last3": record["away_bullpen_late_runs_allowed_last3"],
-                "home_bullpen_late_runs_allowed_last3": record["home_bullpen_late_runs_allowed_last3"],
-                "away_bullpen_late_earned_runs_last3": record["away_bullpen_late_earned_runs_last3"],
-                "home_bullpen_late_earned_runs_last3": record["home_bullpen_late_earned_runs_last3"],
-                "away_bullpen_late_hits_allowed_last3": record["away_bullpen_late_hits_allowed_last3"],
-                "home_bullpen_late_hits_allowed_last3": record["home_bullpen_late_hits_allowed_last3"],
-                "away_bullpen_late_era_last3": record["away_bullpen_late_era_last3"],
-                "home_bullpen_late_era_last3": record["home_bullpen_late_era_last3"],
+                "away_bullpen_pitches_last3": away_recent_bullpen.get("pitches_last3", record["away_bullpen_pitches_last3"]),
+                "home_bullpen_pitches_last3": home_recent_bullpen.get("pitches_last3", record["home_bullpen_pitches_last3"]),
+                "away_bullpen_innings_last3": away_recent_bullpen.get("innings_last3", record["away_bullpen_innings_last3"]),
+                "home_bullpen_innings_last3": home_recent_bullpen.get("innings_last3", record["home_bullpen_innings_last3"]),
+                "away_bullpen_b2b": away_recent_bullpen.get("b2b", record["away_bullpen_b2b"]),
+                "home_bullpen_b2b": home_recent_bullpen.get("b2b", record["home_bullpen_b2b"]),
+                "away_bullpen_runs_allowed_last3": away_recent_bullpen.get("runs_allowed_last3", record["away_bullpen_runs_allowed_last3"]),
+                "home_bullpen_runs_allowed_last3": home_recent_bullpen.get("runs_allowed_last3", record["home_bullpen_runs_allowed_last3"]),
+                "away_bullpen_earned_runs_last3": away_recent_bullpen.get("earned_runs_last3", record["away_bullpen_earned_runs_last3"]),
+                "home_bullpen_earned_runs_last3": home_recent_bullpen.get("earned_runs_last3", record["home_bullpen_earned_runs_last3"]),
+                "away_bullpen_hits_allowed_last3": away_recent_bullpen.get("hits_allowed_last3", record["away_bullpen_hits_allowed_last3"]),
+                "home_bullpen_hits_allowed_last3": home_recent_bullpen.get("hits_allowed_last3", record["home_bullpen_hits_allowed_last3"]),
+                "away_bullpen_era_last3": away_recent_bullpen.get("era_last3", record["away_bullpen_era_last3"]),
+                "home_bullpen_era_last3": home_recent_bullpen.get("era_last3", record["home_bullpen_era_last3"]),
+                "away_bullpen_late_innings_last3": away_recent_bullpen.get("late_innings_last3", record["away_bullpen_late_innings_last3"]),
+                "home_bullpen_late_innings_last3": home_recent_bullpen.get("late_innings_last3", record["home_bullpen_late_innings_last3"]),
+                "away_bullpen_late_runs_allowed_last3": away_recent_bullpen.get("late_runs_allowed_last3", record["away_bullpen_late_runs_allowed_last3"]),
+                "home_bullpen_late_runs_allowed_last3": home_recent_bullpen.get("late_runs_allowed_last3", record["home_bullpen_late_runs_allowed_last3"]),
+                "away_bullpen_late_earned_runs_last3": away_recent_bullpen.get("late_earned_runs_last3", record["away_bullpen_late_earned_runs_last3"]),
+                "home_bullpen_late_earned_runs_last3": home_recent_bullpen.get("late_earned_runs_last3", record["home_bullpen_late_earned_runs_last3"]),
+                "away_bullpen_late_hits_allowed_last3": away_recent_bullpen.get("late_hits_allowed_last3", record["away_bullpen_late_hits_allowed_last3"]),
+                "home_bullpen_late_hits_allowed_last3": home_recent_bullpen.get("late_hits_allowed_last3", record["home_bullpen_late_hits_allowed_last3"]),
+                "away_bullpen_late_era_last3": away_recent_bullpen.get("late_era_last3", record["away_bullpen_late_era_last3"]),
+                "home_bullpen_late_era_last3": home_recent_bullpen.get("late_era_last3", record["home_bullpen_late_era_last3"]),
+                "away_bullpen_season_era": (bullpen_context_map.get(str(record["away_team"]) or "", {}) or {}).get("season_era"),
+                "home_bullpen_season_era": (bullpen_context_map.get(str(record["home_team"]) or "", {}) or {}).get("season_era"),
+                "away_bullpen_late_season_era": (bullpen_context_map.get(str(record["away_team"]) or "", {}) or {}).get("late_season_era"),
+                "home_bullpen_late_season_era": (bullpen_context_map.get(str(record["home_team"]) or "", {}) or {}).get("late_season_era"),
+                "away_bullpen_season_games": (bullpen_context_map.get(str(record["away_team"]) or "", {}) or {}).get("season_games"),
+                "home_bullpen_season_games": (bullpen_context_map.get(str(record["home_team"]) or "", {}) or {}).get("season_games"),
                 "away_lineup_top5_xwoba": record["away_lineup_top5_xwoba"],
                 "home_lineup_top5_xwoba": record["home_lineup_top5_xwoba"],
                 "away_lineup_k_pct": record["away_lineup_k_pct"],
@@ -2578,6 +2755,8 @@ def _fetch_game_board(
                 record["home_team"]: [],
             },
             "first5_totals": first5_totals_map.get(game_id) or {"supported": False},
+            "supplemental_markets": supplemental_markets_map.get(game_id, {}),
+            "umpire": umpire_map.get(game_id),
         }
 
     for starter in starter_records:
@@ -2603,6 +2782,9 @@ def _fetch_game_board(
             "avg_fb_velo": starter["avg_fb_velo"],
             "whiff_pct": starter["whiff_pct"],
             "recent_form": _fetch_starter_recent_form(starter["pitcher_id"], target_date),
+            "pitcher_props": pitcher_prop_map.get(
+                (int(game["game_id"]), int(starter["pitcher_id"])), {}
+            ) if starter.get("pitcher_id") is not None else {},
         }
 
     for game in games_by_id.values():
@@ -2694,6 +2876,9 @@ def _fetch_game_board(
             "actual_total_bases": hit["actual_total_bases"],
             "opposing_pitcher_name": opposing_starter["pitcher_name"] if opposing_starter else None,
             "opposing_pitcher_throws": opposing_starter["throws"] if opposing_starter else None,
+            "total_bases": tb_prediction_map.get(
+                (int(hit["game_id"]), int(hit["player_id"]))
+            ),
             **actual_meta,
             },
             player_status_map,
@@ -2718,6 +2903,12 @@ def _fetch_game_board(
             market_freezes.get((int(game["game_id"]), "first_five_total"), {}),
         )
         game["data_quality"] = _compute_data_quality_badge(game, ingest_freshness, readiness_map)
+        market_cards, best_bets = _build_market_cards_for_game(
+            game,
+            market_rows_by_game.get(int(game["game_id"]), {}),
+        )
+        game["market_cards"] = market_cards
+        game["best_bets"] = best_bets
 
     return [games_by_id[game_id] for game_id in games_by_id]
 
@@ -2793,23 +2984,7 @@ def _scale_expected_run_split(
     away_weight: Any,
     home_weight: Any,
 ) -> tuple[float | None, float | None]:
-    total = _coerce_float(predicted_total)
-    away = _coerce_float(away_weight)
-    home = _coerce_float(home_weight)
-    if total is None:
-        return None, None
-    if away is None and home is None:
-        return None, None
-    if away is None or away <= 0:
-        away = home if home is not None and home > 0 else 1.0
-    if home is None or home <= 0:
-        home = away if away is not None and away > 0 else 1.0
-    denominator = away + home
-    if denominator <= 0:
-        return None, None
-    away_share = round(total * away / denominator, 3)
-    home_share = round(total - away_share, 3)
-    return away_share, home_share
+    return best_bets_utils.scale_expected_run_split(predicted_total, away_weight, home_weight)
 
 
 def _apply_market_freeze_payload(payload: dict[str, Any], freeze_row: dict[str, Any] | None) -> dict[str, Any]:
@@ -2858,6 +3033,8 @@ def _build_totals_rationale(detail: dict[str, Any]) -> dict[str, Any]:
     totals = detail.get("totals") or {}
     weather = detail.get("weather") or {}
     starters = detail.get("starters") or {}
+    away_team = str(detail.get("away_team") or "Away")
+    home_team = str(detail.get("home_team") or "Home")
     direction = _totals_lean_direction(totals)
     confidence = max(
         value
@@ -2874,17 +3051,24 @@ def _build_totals_rationale(detail: dict[str, Any]) -> dict[str, Any]:
         ]
     ) else None
     predicted_total = _coerce_float(totals.get("predicted_total_runs"))
+    if predicted_total is None:
+        predicted_total = _coerce_float(totals.get("predicted_total_fundamentals"))
     market_total = _coerce_float(totals.get("market_total"))
     edge_delta = None if predicted_total is None or market_total is None else predicted_total - market_total
     away_expected = _coerce_float(totals.get("away_expected_runs"))
     home_expected = _coerce_float(totals.get("home_expected_runs"))
     venue_run_factor = _coerce_float(totals.get("venue_run_factor"))
     temperature_f = _coerce_float(weather.get("temperature_f"))
+    wind_speed_mph = _coerce_float(weather.get("wind_speed_mph"))
     line_movement = _coerce_float(totals.get("line_movement"))
     away_top5 = _coerce_float(totals.get("away_lineup_top5_xwoba"))
     home_top5 = _coerce_float(totals.get("home_lineup_top5_xwoba"))
     away_lineup_k = _coerce_float(totals.get("away_lineup_k_pct"))
     home_lineup_k = _coerce_float(totals.get("home_lineup_k_pct"))
+    away_late_era = _coerce_float(totals.get("away_bullpen_late_era_last3"))
+    home_late_era = _coerce_float(totals.get("home_bullpen_late_era_last3"))
+    away_late_season_era = _coerce_float(totals.get("away_bullpen_late_season_era"))
+    home_late_season_era = _coerce_float(totals.get("home_bullpen_late_season_era"))
     bullpen_burden = sum(
         value or 0.0
         for value in [
@@ -2903,28 +3087,104 @@ def _build_totals_rationale(detail: dict[str, Any]) -> dict[str, Any]:
     signals: list[str] = []
     risks: list[str] = []
 
+    starter_profiles: list[dict[str, Any]] = []
+    for side_key, team_name in (("away", away_team), ("home", home_team)):
+        starter = starters.get(side_key) or {}
+        recent = starter.get("recent_form") or {}
+        starter_profiles.append(
+            {
+                "team": team_name,
+                "xwoba_against": _coerce_float(starter.get("xwoba_against")),
+                "csw_pct": _coerce_float(starter.get("csw_pct")),
+                "whiff_pct": _coerce_float(recent.get("whiff_pct") or starter.get("whiff_pct")),
+                "avg_ip": _coerce_float(recent.get("avg_ip")),
+            }
+        )
+
+    def _best_profile(metric_name: str, *, reverse: bool = False) -> dict[str, Any] | None:
+        candidates = [profile for profile in starter_profiles if profile.get(metric_name) is not None]
+        if not candidates:
+            return None
+        return sorted(candidates, key=lambda profile: float(profile.get(metric_name) or 0.0), reverse=reverse)[0]
+
     if edge_delta is not None:
         signals.append(f"Model total sits {abs(edge_delta):.1f} runs {direction or 'away from'} the market.")
     if direction == "over":
+        high_expected_teams = [
+            f"{team} ({expected_runs:.1f})"
+            for team, expected_runs in ((away_team, away_expected), (home_team, home_expected))
+            if expected_runs is not None and expected_runs >= 4.6
+        ]
+        if high_expected_teams:
+            signals.append(f"{', '.join(high_expected_teams)} are carrying strong implied team-run pressure.")
         if venue_run_factor is not None and venue_run_factor >= 1.03:
             signals.append(f"Park factor {venue_run_factor:.2f} points to a friendlier run environment.")
         if temperature_f is not None and temperature_f >= 78:
             signals.append(f"Warm {temperature_f:.0f}° weather boosts carry and run scoring.")
+        if wind_speed_mph is not None and wind_speed_mph >= 12:
+            signals.append(f"{wind_speed_mph:.0f} mph wind adds extra batted-ball volatility.")
         if max(value or 0.0 for value in [away_top5, home_top5]) >= 0.34:
             signals.append("At least one top-of-order group brings premium xwOBA form.")
+        vulnerable_starter = _best_profile("xwoba_against", reverse=True)
+        if vulnerable_starter is not None and (vulnerable_starter.get("xwoba_against") or 0.0) >= 0.325:
+            signals.append(
+                f"{vulnerable_starter['team']} starter contact quality is loose ({_format_metric(vulnerable_starter.get('xwoba_against'))} xwOBA allowed)."
+            )
+        short_starter = _best_profile("avg_ip")
+        if short_starter is not None and (short_starter.get("avg_ip") or 9.0) <= 5.0:
+            signals.append(
+                f"{short_starter['team']} is getting only {_format_metric(short_starter.get('avg_ip'), 1)} IP lately from its starter, exposing relief earlier."
+            )
+        shaky_late_pen = max(
+            (
+                (away_team, away_late_era, away_late_season_era),
+                (home_team, home_late_era, home_late_season_era),
+            ),
+            key=lambda item: float(item[1] or item[2] or -999.0),
+        )
+        if (shaky_late_pen[1] or shaky_late_pen[2] or 0.0) >= 4.40:
+            recent_text = _format_metric(shaky_late_pen[1], 2)
+            season_text = _format_metric(shaky_late_pen[2], 2)
+            signals.append(f"{shaky_late_pen[0]} late bullpen ERA is stretched (L3 {recent_text} / season {season_text}).")
         if bullpen_burden >= 165 or b2b_bullpens >= 1:
             signals.append("Recent bullpen workload suggests thinner late-inning coverage.")
         if line_movement is not None and line_movement > 0.15:
             signals.append("The market has already drifted upward toward the over.")
     elif direction == "under":
+        muted_offenses = [team for team, expected_runs in ((away_team, away_expected), (home_team, home_expected)) if expected_runs is not None and expected_runs <= 4.0]
+        if len(muted_offenses) == 2:
+            signals.append(f"Neither lineup is projected above 4.0 runs ({away_expected:.1f} / {home_expected:.1f}).")
         if venue_run_factor is not None and venue_run_factor <= 0.97:
             signals.append(f"Park factor {venue_run_factor:.2f} suppresses baseline scoring.")
         if temperature_f is not None and temperature_f <= 60:
             signals.append(f"Cooler {temperature_f:.0f}° weather leans run-suppressive.")
+        if wind_speed_mph is not None and wind_speed_mph >= 12 and temperature_f is not None and temperature_f <= 68:
+            signals.append(f"Cool air plus {wind_speed_mph:.0f} mph wind points to lower-quality run conditions.")
         if max(value or 0.0 for value in [away_lineup_k, home_lineup_k]) >= 0.24:
             signals.append("Strikeout-heavy lineup shape trims ball-in-play volume.")
         if max(value or 0.0 for value in [away_top5, home_top5]) <= 0.315:
             signals.append("Neither projected top-of-order group rates as especially dangerous.")
+        suppressive_starter = _best_profile("xwoba_against")
+        if suppressive_starter is not None and (suppressive_starter.get("xwoba_against") or 9.0) <= 0.295:
+            signals.append(
+                f"{suppressive_starter['team']} starter is suppressing contact ({_format_metric(suppressive_starter.get('xwoba_against'))} xwOBA allowed)."
+            )
+        bat_missing_starter = _best_profile("csw_pct", reverse=True)
+        if bat_missing_starter is not None and (bat_missing_starter.get("csw_pct") or 0.0) >= 0.30:
+            whiff_text = _format_rate(bat_missing_starter.get("whiff_pct"))
+            signals.append(
+                f"{bat_missing_starter['team']} starter brings bat-missing form ({_format_rate(bat_missing_starter.get('csw_pct'))} CSW, {whiff_text} whiff)."
+            )
+        stable_pens = [
+            team
+            for team, recent_era, season_era in (
+                (away_team, away_late_era, away_late_season_era),
+                (home_team, home_late_era, home_late_season_era),
+            )
+            if (recent_era is not None and recent_era <= 3.7) or (season_era is not None and season_era <= 3.8)
+        ]
+        if len(stable_pens) == 2:
+            signals.append("Both bullpens bring stable late-inning run prevention.")
         if line_movement is not None and line_movement < -0.15:
             signals.append("The market has already drifted downward toward the under.")
 
@@ -2941,6 +3201,9 @@ def _build_totals_rationale(detail: dict[str, Any]) -> dict[str, Any]:
     if line_movement is not None and direction == "under" and line_movement > 0.2:
         risks.append("market moved against the under lean")
 
+    signals = list(dict.fromkeys(signals))
+    risks = list(dict.fromkeys(risks))
+
     headline = signals[0] if signals else (
         f"Core projection leans {direction}." if direction else "No strong totals rationale is available yet."
     )
@@ -2948,7 +3211,7 @@ def _build_totals_rationale(detail: dict[str, Any]) -> dict[str, Any]:
         "direction": direction,
         "confidence": confidence,
         "headline": headline,
-        "signals": signals[:4],
+        "signals": signals[:6],
         "risk_flags": risks[:3],
     }
 
@@ -3203,6 +3466,253 @@ def _fetch_clv_review_payload(
         "summary": summary,
         "best_clv": best_clv,
         "worst_clv": worst_clv,
+    }
+
+
+def _best_bet_market_display_name(market: str | None) -> str:
+    mapping = {
+        "moneyline": "Moneyline",
+        "run_line": "Run Line",
+        "away_team_total": "Away Team Total",
+        "home_team_total": "Home Team Total",
+        "first_five_moneyline": "First 5 Moneyline",
+        "first_five_total": "First 5 Total",
+        "first_five_spread": "First 5 Run Line",
+        "first_five_team_total_away": "First 5 Away Team Total",
+        "first_five_team_total_home": "First 5 Home Team Total",
+    }
+    return mapping.get(str(market or ""), str(market or "Best Bet"))
+
+
+def _best_bet_selection_label(
+    market: str | None,
+    recommended_side: str | None,
+    away_team: str | None,
+    home_team: str | None,
+    line_value: float | None,
+) -> str:
+    market_key = str(market or "")
+    side = str(recommended_side or "")
+    away = away_team or "Away"
+    home = home_team or "Home"
+    if market_key == "moneyline":
+        return f"{away if side == 'away' else home} ML"
+    if market_key == "first_five_moneyline":
+        return f"F5 {away if side == 'away' else home} ML"
+    if market_key == "first_five_total":
+        suffix = f" {line_value:.1f}" if line_value is not None else ""
+        return f"F5 {str(side).title()}{suffix}".strip()
+    if market_key == "first_five_team_total_away":
+        suffix = f" {line_value:.1f}" if line_value is not None else ""
+        return f"F5 {away} TT {str(side).title()}{suffix}"
+    if market_key == "first_five_team_total_home":
+        suffix = f" {line_value:.1f}" if line_value is not None else ""
+        return f"F5 {home} TT {str(side).title()}{suffix}"
+    if market_key == "away_team_total":
+        suffix = f" {line_value:.1f}" if line_value is not None else ""
+        return f"{away} TT {str(side).title()}{suffix}"
+    if market_key == "home_team_total":
+        suffix = f" {line_value:.1f}" if line_value is not None else ""
+        return f"{home} TT {str(side).title()}{suffix}"
+    if market_key == "first_five_spread":
+        team = away if side == "away" else home
+        if line_value is None:
+            return f"F5 {team} Run Line"
+        display_line = line_value
+        if side == "away" and display_line > 0:
+            display_line = -display_line
+        if side == "home" and display_line < 0:
+            display_line = abs(display_line)
+        return f"F5 {team} {display_line:+.1f}"
+    if market_key == "run_line":
+        team = away if side == "away" else home
+        if line_value is None:
+            return f"{team} Run Line"
+        display_line = line_value
+        if side == "away" and display_line > 0:
+            display_line = -display_line
+        if side == "home" and display_line < 0:
+            display_line = abs(display_line)
+        return f"{team} {display_line:+.1f}"
+    return _best_bet_market_display_name(market_key)
+
+
+def _fetch_best_bet_history_payload(
+    target_date: date,
+    *,
+    window_days: int = 14,
+    limit: int = 12,
+    graded_only: bool = False,
+) -> dict[str, Any]:
+    if not _table_exists("prediction_outcomes_daily"):
+        return {
+            "target_date": str(target_date),
+            "start_date": str(target_date),
+            "end_date": str(target_date),
+            "window_days": window_days,
+            "summary": {},
+            "by_market": [],
+            "rows": [],
+        }
+
+    start_date = target_date - timedelta(days=max(window_days - 1, 0))
+    params: dict[str, Any] = {
+        "start_date": str(start_date),
+        "target_date": str(target_date),
+    }
+    market_conditions: list[str] = []
+    for index, market_key in enumerate(BEST_BET_MARKET_KEYS):
+        param_name = f"market_{index}"
+        params[param_name] = market_key
+        market_conditions.append(f"market = :{param_name}")
+
+    conditions = [
+        "game_date BETWEEN :start_date AND :target_date",
+        "entity_type = 'game'",
+        "recommended_side IS NOT NULL",
+        f"({' OR '.join(market_conditions)})",
+    ]
+    if graded_only:
+        conditions.append("graded = TRUE")
+    where = " AND ".join(conditions)
+
+    frame = _safe_frame(
+        f"""
+        SELECT game_date, game_id, market, recommended_side, actual_side,
+               graded, success, beat_market, probability, predicted_value,
+               market_line, actual_value, entry_market_sportsbook,
+               closing_market_sportsbook, closing_market_same_sportsbook,
+               closing_market_line, clv_line_delta, clv_side_value,
+               beat_closing_line, meta_payload
+        FROM prediction_outcomes_daily
+        WHERE {where}
+        ORDER BY game_date DESC, game_id DESC, market
+        """,
+        params,
+    )
+
+    rows: list[dict[str, Any]] = []
+    for record in _frame_records(frame):
+        meta = _review_meta_payload(record.get("meta_payload"))
+        away_team = meta.get("away_team")
+        home_team = meta.get("home_team")
+        market = str(record.get("market") or "")
+        line_value = _coerce_float(meta.get("line_value"))
+        rows.append(
+            {
+                "game_date": record.get("game_date"),
+                "game_id": int(record["game_id"]),
+                "market": market,
+                "market_label": meta.get("market_label") or _best_bet_market_display_name(market),
+                "selection_label": meta.get("selection_label")
+                or _best_bet_selection_label(
+                    market,
+                    record.get("recommended_side"),
+                    away_team,
+                    home_team,
+                    line_value,
+                ),
+                "away_team": away_team,
+                "home_team": home_team,
+                "recommended_side": record.get("recommended_side"),
+                "actual_side": record.get("actual_side"),
+                "result": _graded_pick_result(
+                    record.get("recommended_side"),
+                    record.get("actual_side"),
+                    bool(record.get("graded")),
+                ),
+                "graded": bool(record.get("graded")),
+                "success": record.get("success"),
+                "beat_market": record.get("beat_market"),
+                "model_probability": _coerce_float(record.get("probability")),
+                "predicted_value": _coerce_float(record.get("predicted_value")),
+                "no_vig_probability": _coerce_float(record.get("market_line")),
+                "actual_value": _coerce_float(record.get("actual_value")),
+                "line_value": line_value,
+                "sportsbook": meta.get("sportsbook") or record.get("entry_market_sportsbook"),
+                "price": meta.get("price"),
+                "opposing_price": meta.get("opposing_price"),
+                "probability_edge": _coerce_float(meta.get("probability_edge")),
+                "weighted_ev": _coerce_float(meta.get("weighted_ev")),
+                "entry_market_sportsbook": record.get("entry_market_sportsbook"),
+                "closing_market_sportsbook": record.get("closing_market_sportsbook"),
+                "closing_market_same_sportsbook": record.get("closing_market_same_sportsbook"),
+                "closing_market_line": _coerce_float(record.get("closing_market_line")),
+                "clv_line_delta": _coerce_float(record.get("clv_line_delta")),
+                "clv_side_value": _coerce_float(record.get("clv_side_value")),
+                "beat_closing_line": record.get("beat_closing_line"),
+            }
+        )
+
+    def _history_summary(history_rows: list[dict[str, Any]]) -> dict[str, Any]:
+        wins = sum(1 for row in history_rows if row.get("result") == "won")
+        losses = sum(1 for row in history_rows if row.get("result") == "lost")
+        pushes = sum(1 for row in history_rows if row.get("result") == "push")
+        pending = sum(1 for row in history_rows if row.get("result") == "pending")
+        decisions = wins + losses
+        weighted_evs = [
+            float(row["weighted_ev"])
+            for row in history_rows
+            if row.get("weighted_ev") is not None
+        ]
+        probability_edges = [
+            float(row["probability_edge"])
+            for row in history_rows
+            if row.get("probability_edge") is not None
+        ]
+        clv_values = [
+            float(row["clv_side_value"])
+            for row in history_rows
+            if row.get("clv_side_value") is not None
+        ]
+        beat_close_rows = [
+            row for row in history_rows if row.get("beat_closing_line") is not None
+        ]
+        return {
+            "total": len(history_rows),
+            "graded": wins + losses + pushes,
+            "pending": pending,
+            "wins": wins,
+            "losses": losses,
+            "pushes": pushes,
+            "win_rate": None if decisions <= 0 else float(wins / decisions),
+            "avg_weighted_ev": None if not weighted_evs else float(sum(weighted_evs) / len(weighted_evs)),
+            "avg_probability_edge": None if not probability_edges else float(sum(probability_edges) / len(probability_edges)),
+            "avg_clv_side_value": None if not clv_values else float(sum(clv_values) / len(clv_values)),
+            "positive_clv_rate": None
+            if not beat_close_rows
+            else float(sum(1 for row in beat_close_rows if row.get("beat_closing_line")) / len(beat_close_rows)),
+        }
+
+    summary = _history_summary(rows)
+    by_market = []
+    for market_key in BEST_BET_MARKET_KEYS:
+        market_rows = [row for row in rows if row.get("market") == market_key]
+        if not market_rows:
+            continue
+        by_market.append(
+            {
+                "market": market_key,
+                "market_label": _best_bet_market_display_name(market_key),
+                **_history_summary(market_rows),
+            }
+        )
+
+    by_market.sort(
+        key=lambda row: (
+            -(int(row.get("graded") or 0)),
+            -(int(row.get("total") or 0)),
+            str(row.get("market_label") or ""),
+        )
+    )
+    return {
+        "target_date": str(target_date),
+        "start_date": str(start_date),
+        "end_date": str(target_date),
+        "window_days": window_days,
+        "summary": summary,
+        "by_market": by_market,
+        "rows": rows[: max(1, min(limit, 100))],
     }
 
 
@@ -3874,6 +4384,637 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
     return payload_by_game
 
 
+def _fetch_supplemental_markets_map(target_date: date) -> dict[int, dict[str, Any]]:
+    """Team totals, moneyline, run line, F5 moneyline keyed by game_id."""
+    rows = _fetch_latest_game_market_rows(target_date)
+    return _aggregate_supplemental_market_rows(rows)
+
+
+def _fetch_latest_game_market_rows(
+    target_date: date,
+    game_id: int | None = None,
+    market_types: tuple[str, ...] = SUPPLEMENTAL_GAME_MARKET_TYPES,
+) -> list[dict[str, Any]]:
+    if not _table_exists("game_markets"):
+        return []
+
+    market_list = ", ".join(f"'{market_type}'" for market_type in market_types)
+    filters = ["gm.game_date = :target_date", f"gm.market_type IN ({market_list})"]
+    params: dict[str, Any] = {"target_date": target_date}
+    if game_id is not None:
+        filters.append("gm.game_id = :game_id")
+        params["game_id"] = game_id
+
+    frame = _safe_frame(
+        f"""
+        WITH ranked AS (
+            SELECT
+                gm.game_id,
+                gm.market_type,
+                gm.sportsbook,
+                gm.line_value,
+                gm.over_price,
+                gm.under_price,
+                gm.snapshot_ts,
+                gm.source_name,
+                ROW_NUMBER() OVER (
+                    PARTITION BY gm.game_id, gm.market_type, COALESCE(gm.sportsbook, '')
+                    ORDER BY gm.snapshot_ts DESC
+                ) AS row_rank
+            FROM game_markets gm
+            WHERE {' AND '.join(filters)}
+        )
+        SELECT
+            game_id,
+            market_type,
+            sportsbook,
+            line_value,
+            over_price,
+            under_price,
+            snapshot_ts,
+            source_name
+        FROM ranked
+        WHERE row_rank = 1
+        ORDER BY game_id, market_type, sportsbook
+        """,
+        params,
+    )
+    return _frame_records(frame)
+
+
+def _market_focus_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], float | None]:
+    return best_bets_utils.market_focus_rows(rows)
+
+
+def _aggregate_supplemental_market_rows(rows: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    return best_bets_utils.aggregate_supplemental_market_rows(rows)
+
+
+def _format_price_text(price: Any) -> str:
+    value = _to_float(price)
+    if value is None:
+        return "-"
+    rounded = int(round(value))
+    return f"+{rounded}" if rounded > 0 else str(rounded)
+
+
+def _format_market_line_text(value: Any) -> str:
+    line = _to_float(value)
+    if line is None:
+        return "-"
+    return f"{line:+.1f}" if abs(line) >= 0.05 else "0.0"
+
+
+def _american_implied_probability(price: Any) -> float | None:
+    value = _to_float(price)
+    if value is None or abs(value) < 1e-9:
+        return None
+    if value > 0:
+        return 100.0 / (value + 100.0)
+    return abs(value) / (abs(value) + 100.0)
+
+
+def _american_profit_per_unit(price: Any) -> float | None:
+    value = _to_float(price)
+    if value is None or abs(value) < 1e-9:
+        return None
+    if value > 0:
+        return value / 100.0
+    return 100.0 / abs(value)
+
+
+def _no_vig_pair(price_a: Any, price_b: Any) -> tuple[float | None, float | None]:
+    implied_a = _american_implied_probability(price_a)
+    implied_b = _american_implied_probability(price_b)
+    if implied_a is None or implied_b is None:
+        return None, None
+    total = implied_a + implied_b
+    if total <= 0:
+        return None, None
+    return implied_a / total, implied_b / total
+
+
+def _poisson_distribution(mean_runs: Any, max_runs: int = MARKET_SIM_MAX_RUNS) -> list[float] | None:
+    mean_value = _to_float(mean_runs)
+    if mean_value is None or mean_value < 0:
+        return None
+    probabilities = [math.exp(-mean_value)]
+    for run_total in range(1, max_runs + 1):
+        probabilities.append(probabilities[-1] * mean_value / float(run_total))
+    total_probability = sum(probabilities)
+    if total_probability <= 0:
+        return None
+    if total_probability < 1.0:
+        probabilities[-1] += 1.0 - total_probability
+    else:
+        probabilities = [probability / total_probability for probability in probabilities]
+    return probabilities
+
+
+def _joint_run_distribution(away_mean: Any, home_mean: Any) -> dict[str, float] | None:
+    away_probs = _poisson_distribution(away_mean)
+    home_probs = _poisson_distribution(home_mean)
+    if away_probs is None or home_probs is None:
+        return None
+    away_win = 0.0
+    home_win = 0.0
+    tie = 0.0
+    for away_runs, away_probability in enumerate(away_probs):
+        for home_runs, home_probability in enumerate(home_probs):
+            joint_probability = away_probability * home_probability
+            if away_runs > home_runs:
+                away_win += joint_probability
+            elif home_runs > away_runs:
+                home_win += joint_probability
+            else:
+                tie += joint_probability
+    total_probability = away_win + home_win + tie
+    if total_probability <= 0:
+        return None
+    scale = 1.0 / total_probability
+    return {
+        "away_win": away_win * scale,
+        "home_win": home_win * scale,
+        "tie": tie * scale,
+    }
+
+
+def _team_total_side_probabilities(team_mean: Any, line_value: Any) -> dict[str, dict[str, float]] | None:
+    distribution = _poisson_distribution(team_mean)
+    line = _to_float(line_value)
+    if distribution is None or line is None:
+        return None
+    over_win = 0.0
+    under_win = 0.0
+    push = 0.0
+    for runs, probability in enumerate(distribution):
+        if runs > line:
+            over_win += probability
+        elif runs < line:
+            under_win += probability
+        else:
+            push += probability
+    return {
+        "over": {
+            "win": over_win,
+            "loss": under_win,
+            "push": push,
+        },
+        "under": {
+            "win": under_win,
+            "loss": over_win,
+            "push": push,
+        },
+    }
+
+
+def _moneyline_side_probabilities(
+    away_mean: Any,
+    home_mean: Any,
+    *,
+    push_on_tie: bool,
+) -> dict[str, dict[str, float]] | None:
+    joint = _joint_run_distribution(away_mean, home_mean)
+    if joint is None:
+        return None
+    if push_on_tie:
+        return {
+            "away": {
+                "win": joint["away_win"],
+                "loss": joint["home_win"],
+                "push": joint["tie"],
+            },
+            "home": {
+                "win": joint["home_win"],
+                "loss": joint["away_win"],
+                "push": joint["tie"],
+            },
+        }
+    away_mean_value = _to_float(away_mean) or 0.0
+    home_mean_value = _to_float(home_mean) or 0.0
+    total_mean = away_mean_value + home_mean_value
+    home_tie_share = 0.5 if total_mean <= 0 else home_mean_value / total_mean
+    away_tie_share = 1.0 - home_tie_share
+    return {
+        "away": {
+            "win": joint["away_win"] + (joint["tie"] * away_tie_share),
+            "loss": joint["home_win"] + (joint["tie"] * home_tie_share),
+            "push": 0.0,
+        },
+        "home": {
+            "win": joint["home_win"] + (joint["tie"] * home_tie_share),
+            "loss": joint["away_win"] + (joint["tie"] * away_tie_share),
+            "push": 0.0,
+        },
+    }
+
+
+def _run_line_side_probabilities(
+    away_mean: Any,
+    home_mean: Any,
+    home_line_value: Any,
+) -> dict[str, dict[str, float]] | None:
+    joint = _joint_run_distribution(away_mean, home_mean)
+    home_line = _to_float(home_line_value)
+    away_probs = _poisson_distribution(away_mean)
+    home_probs = _poisson_distribution(home_mean)
+    if joint is None or home_line is None or away_probs is None or home_probs is None:
+        return None
+    home_cover = 0.0
+    away_cover = 0.0
+    push = 0.0
+    for away_runs, away_probability in enumerate(away_probs):
+        for home_runs, home_probability in enumerate(home_probs):
+            joint_probability = away_probability * home_probability
+            adjusted_home = float(home_runs) + home_line
+            if adjusted_home > float(away_runs):
+                home_cover += joint_probability
+            elif adjusted_home < float(away_runs):
+                away_cover += joint_probability
+            else:
+                push += joint_probability
+    total_probability = home_cover + away_cover + push
+    if total_probability <= 0:
+        return None
+    scale = 1.0 / total_probability
+    home_cover *= scale
+    away_cover *= scale
+    push *= scale
+    return {
+        "home": {"win": home_cover, "loss": away_cover, "push": push},
+        "away": {"win": away_cover, "loss": home_cover, "push": push},
+    }
+
+
+def _game_certainty_weight(certainty: dict[str, Any] | None) -> float:
+    certainty = certainty or {}
+    weighted_values = [
+        (_to_float(certainty.get("starter_certainty")), 0.30),
+        (_to_float(certainty.get("lineup_certainty")), 0.26),
+        (_to_float(certainty.get("market_freshness")), 0.18),
+        (_to_float(certainty.get("weather_freshness")), 0.12),
+        (_to_float(certainty.get("bullpen_completeness")), 0.14),
+    ]
+    numerator = 0.0
+    denominator = 0.0
+    for value, weight in weighted_values:
+        if value is None:
+            continue
+        numerator += max(0.0, min(1.0, value)) * weight
+        denominator += weight
+    if denominator <= 0:
+        return 0.6
+    return numerator / denominator
+
+
+def _market_thresholds(market_key: str) -> dict[str, float]:
+    return BEST_BET_THRESHOLD_MAP.get(
+        market_key,
+        {
+            "weighted_ev": 0.015,
+            "probability_edge": 0.025,
+            "certainty_weight": 0.80,
+            "model_probability": 0.57,
+        },
+    )
+
+
+def _passes_best_bet_thresholds(
+    market_key: str,
+    *,
+    weighted_ev: float,
+    probability_edge: float,
+    certainty_weight: float,
+    model_probability: float,
+) -> bool:
+    thresholds = _market_thresholds(market_key)
+    return bool(
+        weighted_ev >= float(thresholds["weighted_ev"])
+        and probability_edge >= float(thresholds["probability_edge"])
+        and certainty_weight >= float(thresholds["certainty_weight"])
+        and model_probability >= float(thresholds["model_probability"])
+    )
+
+
+def _build_market_candidate(
+    *,
+    game: dict[str, Any],
+    market_key: str,
+    market_label: str,
+    selection_label: str,
+    bet_side: str,
+    sportsbook: Any,
+    line_value: Any,
+    price: Any,
+    opposing_price: Any,
+    model_probability: float | None,
+    model_loss_probability: float | None,
+    push_probability: float | None,
+    certainty_weight: float,
+    market_summary: str,
+    model_summary: str,
+) -> dict[str, Any] | None:
+    fair_probability, _ = _no_vig_pair(price, opposing_price)
+    profit_per_unit = _american_profit_per_unit(price)
+    if fair_probability is None or profit_per_unit is None or model_probability is None:
+        return None
+    loss_probability = model_loss_probability
+    push_probability = 0.0 if push_probability is None else max(0.0, push_probability)
+    if loss_probability is None:
+        loss_probability = max(0.0, 1.0 - model_probability - push_probability)
+    raw_ev = (model_probability * profit_per_unit) - loss_probability
+    probability_edge = model_probability - fair_probability
+    weighted_ev = raw_ev * certainty_weight
+    positive = _passes_best_bet_thresholds(
+        market_key,
+        weighted_ev=weighted_ev,
+        probability_edge=probability_edge,
+        certainty_weight=certainty_weight,
+        model_probability=model_probability,
+    )
+    return {
+        "game_id": int(game.get("game_id") or 0),
+        "away_team": game.get("away_team"),
+        "home_team": game.get("home_team"),
+        "market_key": market_key,
+        "market_label": market_label,
+        "selection_label": selection_label,
+        "bet_side": bet_side,
+        "sportsbook": sportsbook,
+        "line_value": _to_float(line_value),
+        "price": None if price is None else int(price),
+        "opposing_price": None if opposing_price is None else int(opposing_price),
+        "model_probability": round(float(model_probability), 4),
+        "no_vig_probability": round(float(fair_probability), 4),
+        "probability_edge": round(float(probability_edge), 4),
+        "raw_ev": round(float(raw_ev), 4),
+        "weighted_ev": round(float(weighted_ev), 4),
+        "certainty_weight": round(float(certainty_weight), 4),
+        "push_probability": round(float(push_probability), 4),
+        "positive": positive,
+        "market_summary": market_summary,
+        "model_summary": model_summary,
+    }
+
+
+def _fallback_market_card(
+    *,
+    game: dict[str, Any],
+    market_key: str,
+    market_label: str,
+    market_summary: str,
+    model_summary: str,
+) -> dict[str, Any]:
+    return {
+        "game_id": int(game.get("game_id") or 0),
+        "away_team": game.get("away_team"),
+        "home_team": game.get("home_team"),
+        "market_key": market_key,
+        "market_label": market_label,
+        "selection_label": None,
+        "bet_side": None,
+        "sportsbook": None,
+        "line_value": None,
+        "price": None,
+        "opposing_price": None,
+        "model_probability": None,
+        "no_vig_probability": None,
+        "probability_edge": None,
+        "raw_ev": None,
+        "weighted_ev": None,
+        "certainty_weight": None,
+        "push_probability": None,
+        "positive": False,
+        "market_summary": market_summary,
+        "model_summary": model_summary,
+    }
+
+
+def _best_market_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda candidate: (
+            float(candidate.get("weighted_ev") or -999.0),
+            float(candidate.get("probability_edge") or -999.0),
+            float(candidate.get("raw_ev") or -999.0),
+            float(candidate.get("model_probability") or -999.0),
+        ),
+    )
+
+
+def _build_market_cards_for_game(
+    game: dict[str, Any],
+    market_rows_by_type: dict[str, list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    return best_bets_utils.build_market_cards_for_game(game, market_rows_by_type)
+
+
+def _flatten_best_bets(
+    rows: list[dict[str, Any]],
+    limit: int = best_bets_utils.BOARD_BEST_BET_LIMIT,
+) -> list[dict[str, Any]]:
+    return best_bets_utils.flatten_best_bets(rows, limit)
+
+
+def _flatten_watchlist_markets(
+    rows: list[dict[str, Any]],
+    limit: int = best_bets_utils.BOARD_WATCHLIST_LIMIT,
+) -> list[dict[str, Any]]:
+    return best_bets_utils.flatten_watchlist_markets(rows, limit)
+
+
+def _fetch_bullpen_context_map(target_date: date, team: str | None = None) -> dict[str, dict[str, Any]]:
+    if not _table_exists("bullpens_daily"):
+        return {}
+    filters = ["game_date < :target_date", "season = :season"]
+    params: dict[str, Any] = {"target_date": target_date, "season": target_date.year}
+    if team is not None:
+        filters.append("team = :team")
+        params["team"] = team
+    frame = _safe_frame(
+        f"""
+        SELECT
+            team,
+            game_date,
+            innings_pitched,
+            earned_runs,
+            late_innings_pitched,
+            late_earned_runs
+        FROM bullpens_daily
+        WHERE {' AND '.join(filters)}
+        ORDER BY team, game_date
+        """,
+        params,
+    )
+    if frame.empty:
+        return {}
+
+    context_map: dict[str, dict[str, Any]] = {}
+    for team_name, team_frame in frame.groupby("team", dropna=False):
+        outs = pd.to_numeric(team_frame.get("innings_pitched"), errors="coerce").apply(_baseball_ip_to_outs).sum()
+        late_outs = pd.to_numeric(team_frame.get("late_innings_pitched"), errors="coerce").apply(_baseball_ip_to_outs).sum()
+        earned_runs = pd.to_numeric(team_frame.get("earned_runs"), errors="coerce").fillna(0).sum()
+        late_earned_runs = pd.to_numeric(team_frame.get("late_earned_runs"), errors="coerce").fillna(0).sum()
+        season_era = None if outs <= 0 else float(earned_runs) * 27.0 / float(outs)
+        late_season_era = None if late_outs <= 0 else float(late_earned_runs) * 27.0 / float(late_outs)
+        context_map[str(team_name)] = {
+            "season_games": int(len(team_frame.index)),
+            "season_era": season_era,
+            "late_season_era": late_season_era,
+        }
+    return context_map
+
+
+def _fetch_recent_bullpen_map(target_date: date, team: str | None = None) -> dict[str, dict[str, Any]]:
+    if not _table_exists("bullpens_daily"):
+        return {}
+    filters = ["game_date < :target_date"]
+    params: dict[str, Any] = {"target_date": target_date}
+    if team is not None:
+        filters.append("team = :team")
+        params["team"] = team
+    frame = _safe_frame(
+        f"""
+        SELECT
+            team,
+            game_date,
+            innings_pitched,
+            pitches_thrown,
+            earned_runs,
+            hits_allowed,
+            late_innings_pitched,
+            late_runs_allowed,
+            late_earned_runs,
+            late_hits_allowed
+        FROM bullpens_daily
+        WHERE {' AND '.join(filters)}
+        ORDER BY team, game_date
+        """,
+        params,
+    )
+    if frame.empty:
+        return {}
+
+    snapshot_map: dict[str, dict[str, Any]] = {}
+    previous_day = target_date - timedelta(days=1)
+    for team_name, team_frame in frame.groupby("team", dropna=False):
+        ordered = team_frame.sort_values("game_date")
+        last3 = ordered.tail(3).copy()
+        outs = pd.to_numeric(last3.get("innings_pitched"), errors="coerce").apply(_baseball_ip_to_outs).sum()
+        late_outs = pd.to_numeric(last3.get("late_innings_pitched"), errors="coerce").apply(_baseball_ip_to_outs).sum()
+        earned_runs = pd.to_numeric(last3.get("earned_runs"), errors="coerce").fillna(0).sum()
+        hits_allowed = pd.to_numeric(last3.get("hits_allowed"), errors="coerce").fillna(0).sum()
+        late_runs_allowed = pd.to_numeric(last3.get("late_runs_allowed"), errors="coerce").fillna(0).sum()
+        late_earned_runs = pd.to_numeric(last3.get("late_earned_runs"), errors="coerce").fillna(0).sum()
+        late_hits_allowed = pd.to_numeric(last3.get("late_hits_allowed"), errors="coerce").fillna(0).sum()
+        innings_decimal = outs / 3 if outs else 0
+        late_innings_decimal = late_outs / 3 if late_outs else 0
+        game_dates = pd.to_datetime(ordered.get("game_date"), errors="coerce").dt.date
+        snapshot_map[str(team_name)] = {
+            "pitches_last3": int(pd.to_numeric(last3.get("pitches_thrown"), errors="coerce").fillna(0).sum()),
+            "innings_last3": _baseball_ip_from_outs(outs),
+            "b2b": int((game_dates == previous_day).any()) if not ordered.empty else 0,
+            "runs_allowed_last3": int(earned_runs),
+            "earned_runs_last3": int(earned_runs),
+            "hits_allowed_last3": int(hits_allowed),
+            "era_last3": None if innings_decimal <= 0 else float(earned_runs) * 9.0 / float(innings_decimal),
+            "late_innings_last3": _baseball_ip_from_outs(late_outs),
+            "late_runs_allowed_last3": int(late_runs_allowed),
+            "late_earned_runs_last3": int(late_earned_runs),
+            "late_hits_allowed_last3": int(late_hits_allowed),
+            "late_era_last3": None if late_innings_decimal <= 0 else float(late_earned_runs) * 9.0 / float(late_innings_decimal),
+        }
+    return snapshot_map
+
+
+def _fetch_umpire_map(target_date: date) -> dict[int, dict[str, Any]]:
+    """Home plate umpire keyed by game_id."""
+    if not _table_exists("umpire_assignments"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT ua.game_id, ua.umpire_name, ua.umpire_id
+        FROM umpire_assignments ua
+        INNER JOIN (
+            SELECT game_id, MAX(snapshot_ts) AS max_ts
+            FROM umpire_assignments
+            WHERE game_date = :target_date
+            GROUP BY game_id
+        ) latest ON ua.game_id = latest.game_id AND ua.snapshot_ts = latest.max_ts
+        WHERE ua.game_date = :target_date
+        """,
+        {"target_date": target_date},
+    )
+    return {
+        int(r["game_id"]): {"umpire_name": r.get("umpire_name"), "umpire_id": r.get("umpire_id")}
+        for r in _frame_records(frame)
+    }
+
+
+def _fetch_total_bases_prediction_map(target_date: date) -> dict[tuple[int, int], dict[str, Any]]:
+    """TB predictions keyed by (game_id, player_id)."""
+    if not _table_exists("predictions_total_bases"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT ptb.game_id, ptb.player_id, ptb.player_name, ptb.team,
+               ptb.predicted_tb, ptb.over_probability, ptb.under_probability,
+               ptb.market_line, ptb.market_over_price, ptb.market_under_price, ptb.edge
+        FROM predictions_total_bases ptb
+        INNER JOIN (
+            SELECT game_id, player_id, MAX(prediction_ts) AS max_ts
+            FROM predictions_total_bases
+            WHERE game_date = :target_date
+            GROUP BY game_id, player_id
+        ) latest ON ptb.game_id = latest.game_id
+               AND ptb.player_id = latest.player_id
+               AND ptb.prediction_ts = latest.max_ts
+        WHERE ptb.game_date = :target_date
+        """,
+        {"target_date": target_date},
+    )
+    return {(int(r["game_id"]), int(r["player_id"])): r for r in _frame_records(frame)}
+
+
+def _fetch_pitcher_prop_map(target_date: date) -> dict[tuple[int, int], dict[str, Any]]:
+    """Pitcher props (hits_allowed, earned_runs, walks) keyed by (game_id, player_id)."""
+    if not _table_exists("player_prop_markets"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT ppm.game_id, ppm.player_id, ppm.market_type,
+               ppm.line_value, ppm.over_price, ppm.under_price, ppm.sportsbook
+        FROM player_prop_markets ppm
+        INNER JOIN (
+            SELECT game_id, player_id, market_type, MAX(snapshot_ts) AS max_ts
+            FROM player_prop_markets
+            WHERE game_date = :target_date
+              AND market_type IN ('pitcher_hits_allowed', 'pitcher_earned_runs', 'pitcher_walks')
+            GROUP BY game_id, player_id, market_type
+        ) latest ON ppm.game_id = latest.game_id
+               AND ppm.player_id = latest.player_id
+               AND ppm.market_type = latest.market_type
+               AND ppm.snapshot_ts = latest.max_ts
+        WHERE ppm.game_date = :target_date
+        """,
+        {"target_date": target_date},
+    )
+    result: dict[tuple[int, int], dict] = {}
+    for row in _frame_records(frame):
+        key = (int(row["game_id"]), int(row["player_id"]))
+        if key not in result:
+            result[key] = {}
+        mt = str(row.get("market_type") or "")
+        result[key][mt] = {
+            "line": _to_float(row.get("line_value")),
+            "over_price": row.get("over_price"),
+            "under_price": row.get("under_price"),
+        }
+    return result
+
+
 def _fetch_totals_board(target_date: date) -> dict[str, Any]:
     board_rows = _fetch_game_board(
         target_date,
@@ -4136,6 +5277,15 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
     is_final = _is_final_game_status(game.get("status"))
     pitcher_k_market_map = _fetch_pitcher_strikeout_market_map(target_date, game_id=int(game["game_id"]))
     pitcher_k_prediction_map = _fetch_pitcher_strikeout_prediction_map(target_date, game_id=int(game["game_id"]))
+    supplemental_market_rows = _fetch_latest_game_market_rows(target_date, game_id=int(game_id))
+    supplemental_markets_map = _aggregate_supplemental_market_rows(supplemental_market_rows)
+    game_market_rows_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for market_row in supplemental_market_rows:
+        market_type = str(market_row.get("market_type") or "")
+        if market_type:
+            game_market_rows_by_type[market_type].append(market_row)
+    bullpen_context_map = _fetch_bullpen_context_map(target_date)
+    recent_bullpen_map = _fetch_recent_bullpen_map(target_date)
 
     starters_frame = _safe_frame(
         """
@@ -4461,30 +5611,36 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             "edge": game["edge"],
             "away_expected_runs": game["away_expected_runs"],
             "home_expected_runs": game["home_expected_runs"],
-            "away_bullpen_pitches_last3": game["away_bullpen_pitches_last3"],
-            "home_bullpen_pitches_last3": game["home_bullpen_pitches_last3"],
-            "away_bullpen_innings_last3": game["away_bullpen_innings_last3"],
-            "home_bullpen_innings_last3": game["home_bullpen_innings_last3"],
-            "away_bullpen_b2b": game["away_bullpen_b2b"],
-            "home_bullpen_b2b": game["home_bullpen_b2b"],
-            "away_bullpen_runs_allowed_last3": game["away_bullpen_runs_allowed_last3"],
-            "home_bullpen_runs_allowed_last3": game["home_bullpen_runs_allowed_last3"],
-            "away_bullpen_earned_runs_last3": game["away_bullpen_earned_runs_last3"],
-            "home_bullpen_earned_runs_last3": game["home_bullpen_earned_runs_last3"],
-            "away_bullpen_hits_allowed_last3": game["away_bullpen_hits_allowed_last3"],
-            "home_bullpen_hits_allowed_last3": game["home_bullpen_hits_allowed_last3"],
-            "away_bullpen_era_last3": game["away_bullpen_era_last3"],
-            "home_bullpen_era_last3": game["home_bullpen_era_last3"],
-            "away_bullpen_late_innings_last3": game["away_bullpen_late_innings_last3"],
-            "home_bullpen_late_innings_last3": game["home_bullpen_late_innings_last3"],
-            "away_bullpen_late_runs_allowed_last3": game["away_bullpen_late_runs_allowed_last3"],
-            "home_bullpen_late_runs_allowed_last3": game["home_bullpen_late_runs_allowed_last3"],
-            "away_bullpen_late_earned_runs_last3": game["away_bullpen_late_earned_runs_last3"],
-            "home_bullpen_late_earned_runs_last3": game["home_bullpen_late_earned_runs_last3"],
-            "away_bullpen_late_hits_allowed_last3": game["away_bullpen_late_hits_allowed_last3"],
-            "home_bullpen_late_hits_allowed_last3": game["home_bullpen_late_hits_allowed_last3"],
-            "away_bullpen_late_era_last3": game["away_bullpen_late_era_last3"],
-            "home_bullpen_late_era_last3": game["home_bullpen_late_era_last3"],
+            "away_bullpen_pitches_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("pitches_last3", game["away_bullpen_pitches_last3"]),
+            "home_bullpen_pitches_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("pitches_last3", game["home_bullpen_pitches_last3"]),
+            "away_bullpen_innings_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("innings_last3", game["away_bullpen_innings_last3"]),
+            "home_bullpen_innings_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("innings_last3", game["home_bullpen_innings_last3"]),
+            "away_bullpen_b2b": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("b2b", game["away_bullpen_b2b"]),
+            "home_bullpen_b2b": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("b2b", game["home_bullpen_b2b"]),
+            "away_bullpen_runs_allowed_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("runs_allowed_last3", game["away_bullpen_runs_allowed_last3"]),
+            "home_bullpen_runs_allowed_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("runs_allowed_last3", game["home_bullpen_runs_allowed_last3"]),
+            "away_bullpen_earned_runs_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("earned_runs_last3", game["away_bullpen_earned_runs_last3"]),
+            "home_bullpen_earned_runs_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("earned_runs_last3", game["home_bullpen_earned_runs_last3"]),
+            "away_bullpen_hits_allowed_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("hits_allowed_last3", game["away_bullpen_hits_allowed_last3"]),
+            "home_bullpen_hits_allowed_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("hits_allowed_last3", game["home_bullpen_hits_allowed_last3"]),
+            "away_bullpen_era_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("era_last3", game["away_bullpen_era_last3"]),
+            "home_bullpen_era_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("era_last3", game["home_bullpen_era_last3"]),
+            "away_bullpen_late_innings_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_innings_last3", game["away_bullpen_late_innings_last3"]),
+            "home_bullpen_late_innings_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_innings_last3", game["home_bullpen_late_innings_last3"]),
+            "away_bullpen_late_runs_allowed_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_runs_allowed_last3", game["away_bullpen_late_runs_allowed_last3"]),
+            "home_bullpen_late_runs_allowed_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_runs_allowed_last3", game["home_bullpen_late_runs_allowed_last3"]),
+            "away_bullpen_late_earned_runs_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_earned_runs_last3", game["away_bullpen_late_earned_runs_last3"]),
+            "home_bullpen_late_earned_runs_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_earned_runs_last3", game["home_bullpen_late_earned_runs_last3"]),
+            "away_bullpen_late_hits_allowed_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_hits_allowed_last3", game["away_bullpen_late_hits_allowed_last3"]),
+            "home_bullpen_late_hits_allowed_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_hits_allowed_last3", game["home_bullpen_late_hits_allowed_last3"]),
+            "away_bullpen_late_era_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_era_last3", game["away_bullpen_late_era_last3"]),
+            "home_bullpen_late_era_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_era_last3", game["home_bullpen_late_era_last3"]),
+            "away_bullpen_season_era": (bullpen_context_map.get(str(game["away_team"]) or "", {}) or {}).get("season_era"),
+            "home_bullpen_season_era": (bullpen_context_map.get(str(game["home_team"]) or "", {}) or {}).get("season_era"),
+            "away_bullpen_late_season_era": (bullpen_context_map.get(str(game["away_team"]) or "", {}) or {}).get("late_season_era"),
+            "home_bullpen_late_season_era": (bullpen_context_map.get(str(game["home_team"]) or "", {}) or {}).get("late_season_era"),
+            "away_bullpen_season_games": (bullpen_context_map.get(str(game["away_team"]) or "", {}) or {}).get("season_games"),
+            "home_bullpen_season_games": (bullpen_context_map.get(str(game["home_team"]) or "", {}) or {}).get("season_games"),
             "away_lineup_top5_xwoba": game["away_lineup_top5_xwoba"],
             "home_lineup_top5_xwoba": game["home_lineup_top5_xwoba"],
             "away_lineup_k_pct": game["away_lineup_k_pct"],
@@ -4519,6 +5675,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
                 "lineup": [],
             },
         },
+        "supplemental_markets": supplemental_markets_map.get(int(game_id), {}),
     }
 
     for starter in starter_records:
@@ -4530,6 +5687,34 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         if side is None:
             continue
         recent_form = _fetch_starter_recent_form(starter["pitcher_id"], target_date)
+        xwoba_source = (
+            "current_start_row"
+            if starter.get("xwoba_against") is not None
+            else "recent_average"
+            if recent_form.get("xwoba_against") is not None
+            else "missing"
+        )
+        csw_source = (
+            "current_start_row"
+            if starter.get("csw_pct") is not None
+            else "recent_average"
+            if recent_form.get("csw_pct") is not None
+            else "missing"
+        )
+        velo_source = (
+            "current_start_row"
+            if starter.get("avg_fb_velo") is not None
+            else "recent_average"
+            if recent_form.get("avg_fb_velo") is not None
+            else "missing"
+        )
+        whiff_source = (
+            "current_start_row"
+            if starter.get("whiff_pct") is not None
+            else "recent_average"
+            if recent_form.get("whiff_pct") is not None
+            else "missing"
+        )
         detail["starters"][side] = {
             "team": starter["team"],
             "pitcher_id": starter["pitcher_id"],
@@ -4545,6 +5730,12 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             "csw_pct": starter["csw_pct"] if starter.get("csw_pct") is not None else recent_form.get("csw_pct"),
             "avg_fb_velo": starter["avg_fb_velo"] if starter.get("avg_fb_velo") is not None else recent_form.get("avg_fb_velo"),
             "whiff_pct": starter["whiff_pct"] if starter.get("whiff_pct") is not None else recent_form.get("whiff_pct"),
+            "advanced_stats_source": {
+                "xwoba_against": xwoba_source,
+                "csw_pct": csw_source,
+                "avg_fb_velo": velo_source,
+                "whiff_pct": whiff_source,
+            },
             "recent_form": recent_form,
         }
 
@@ -4624,6 +5815,9 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         detail["first5_totals"],
         market_freezes.get((int(game_id), "first_five_total"), {}),
     )
+    market_cards, best_bets = _build_market_cards_for_game(detail, game_market_rows_by_type)
+    detail["market_cards"] = market_cards
+    detail["best_bets"] = best_bets
 
     return detail
 
@@ -4725,9 +5919,11 @@ def _fetch_hot_hitters(
             WHERE s.game_date = :target_date
         ),
         selected_players AS (
-            SELECT DISTINCT player_id
-            FROM ranked_features
-            WHERE row_rank = 1
+            SELECT DISTINCT rf.player_id
+            FROM ranked_features rf
+            LEFT JOIN dim_players dp ON dp.player_id = rf.player_id
+            WHERE rf.row_rank = 1
+              AND UPPER(COALESCE(dp.position, '')) NOT IN ('P', 'SP', 'RP', 'CP')
         ),
         recent_batting AS (
             SELECT
@@ -4895,6 +6091,7 @@ def _fetch_hot_hitters(
         target_date,
         [int(record["player_id"]) for record in records if record.get("player_id") is not None],
     )
+    tb_pred_map = _fetch_total_bases_prediction_map(target_date)
     bvp_matchups = [
         (int(record["player_id"]), int(record["opposing_pitcher_id"]))
         for record in records
@@ -4919,6 +6116,7 @@ def _fetch_hot_hitters(
             continue
         bvp_stats = bvp_map.get((player_id, pitcher_id)) if player_id and pitcher_id else None
         actual_meta = _build_hit_actual_meta(record.get("actual_hits"), _is_final_game_status(record.get("game_status")))
+        game_id_int = int(record["game_id"]) if record.get("game_id") is not None else None
         enriched = _attach_hitter_matchup_context(
             _attach_player_status_context(
                 {
@@ -4927,6 +6125,7 @@ def _fetch_hot_hitters(
                 "form": form,
                 "recent_hit_history": live_history[:10],
                 "bvp": bvp_stats,
+                "total_bases": tb_pred_map.get((game_id_int, player_id)) if game_id_int and player_id else None,
             },
                 player_status_map,
             ),
@@ -5173,6 +6372,577 @@ def _summarize_category(rows: list[dict[str, Any]], *, result_key: str = "result
         else:
             summary["pending"] += 1
     return summary
+
+
+def _daily_results_market_display_name(market: str | None) -> str:
+    market_key = str(market or "")
+    if market_key in BEST_BET_MARKET_KEYS:
+        return _best_bet_market_display_name(market_key)
+    if market_key in EXPERIMENTAL_CAROUSEL_MARKETS:
+        return _experimental_market_display_name(market_key)
+    mapping = {
+        "totals": "Game Totals",
+        "hits": "1+ Hits",
+        "pitcher_strikeouts": "Pitcher Strikeouts",
+        "first5": "First 5 Totals",
+    }
+    return mapping.get(market_key, market_key.replace("_", " ").title() or "AI Pick")
+
+
+def _daily_results_pick_label(
+    market: str,
+    recommended_side: str | None,
+    market_line: float | None,
+    line_value: float | None,
+    away_team: str | None,
+    home_team: str | None,
+    meta: dict[str, Any],
+) -> str:
+    if market in BEST_BET_MARKET_KEYS:
+        selection_label = meta.get("selection_label")
+        if selection_label:
+            return str(selection_label)
+        return _best_bet_selection_label(market, recommended_side, away_team, home_team, line_value)
+    if market in EXPERIMENTAL_CAROUSEL_MARKETS:
+        selection_label = meta.get("selection_label") or meta.get("market_label")
+        if selection_label:
+            return str(selection_label)
+        return _experimental_market_display_name(market)
+
+    side = str(recommended_side or "")
+    if market == "hits":
+        return "1+ Hit"
+    if market == "totals":
+        return f"{side.title()} {market_line:.1f}" if market_line is not None else side.title() or "No line"
+    if market == "first5":
+        if market_line is not None:
+            return f"F5 {side.title()} {market_line:.1f}"
+        return f"F5 {side.title()}".strip()
+    if market == "pitcher_strikeouts":
+        return f"{side.title()} {market_line:.1f} Ks" if market_line is not None else f"{side.title()} Ks".strip()
+    return _daily_results_market_display_name(market)
+
+
+def _daily_results_actual_display(
+    record: dict[str, Any],
+    market: str,
+    away_team: str | None,
+    home_team: str | None,
+    meta: dict[str, Any],
+) -> str:
+    result = _graded_pick_result(
+        record.get("recommended_side"),
+        record.get("actual_side"),
+        bool(record.get("graded")),
+    )
+    if result == "pending":
+        return "Pending"
+    if result == "missing":
+        return "Missing"
+
+    actual_side = str(record.get("actual_side") or "")
+    actual_value = _coerce_float(record.get("actual_value"))
+    actual_measure = _coerce_float(meta.get("actual_measure"))
+    display_value = actual_measure if actual_measure is not None else actual_value
+    if market == "hits":
+        actual_hits = _coerce_float(record.get("actual_hits"))
+        actual_at_bats = _coerce_float(record.get("actual_at_bats"))
+        if actual_hits is not None:
+            hits_text = f"{int(actual_hits)} hit" + ("" if int(actual_hits) == 1 else "s")
+            if actual_at_bats is not None:
+                return f"{hits_text} · {int(actual_at_bats)} AB"
+            return hits_text
+        if actual_side == "yes":
+            return "1+ hit"
+        if actual_side == "no":
+            return "No hit"
+        return "Pending"
+
+    if market in {"totals", "first5", "first_five_total"} and display_value is not None:
+        if actual_side:
+            return f"{display_value:.0f} runs · {actual_side.upper()}"
+        return f"{display_value:.0f} runs"
+
+    if market == "pitcher_strikeouts" and actual_value is not None:
+        if actual_side:
+            return f"{actual_value:.0f} Ks · {actual_side.upper()}"
+        return f"{actual_value:.0f} Ks"
+
+    if market in {"moneyline", "first_five_moneyline"}:
+        if actual_side == "away":
+            return f"{away_team or 'Away'} won"
+        if actual_side == "home":
+            return f"{home_team or 'Home'} won"
+        if actual_side == "push":
+            return "Push"
+
+    if market == "run_line":
+        if actual_side == "away":
+            return f"{away_team or 'Away'} covered"
+        if actual_side == "home":
+            return f"{home_team or 'Home'} covered"
+        if actual_side == "push":
+            return "Push"
+
+    if market == "first_five_spread":
+        if actual_side == "away":
+            return f"F5 {away_team or 'Away'} covered"
+        if actual_side == "home":
+            return f"F5 {home_team or 'Home'} covered"
+        if actual_side == "push":
+            return "Push"
+
+    if market in {"away_team_total", "home_team_total"}:
+        if display_value is not None and actual_side:
+            return f"{display_value:.0f} runs · {actual_side.upper()}"
+        if actual_side == "push":
+            return "Push"
+
+    if market in {"first_five_team_total_away", "first_five_team_total_home"}:
+        if display_value is not None and actual_side:
+            return f"{display_value:.0f} runs · {actual_side.upper()}"
+        if actual_side == "push":
+            return "Push"
+
+    if actual_side == "push":
+        return "Push"
+    return actual_side.replace("_", " ").title() or "Pending"
+
+
+def _daily_results_confidence(record: dict[str, Any], market: str) -> float | None:
+    recommended_side = str(record.get("recommended_side") or "")
+    probability = _coerce_float(record.get("probability"))
+    opposite_probability = _coerce_float(record.get("opposite_probability"))
+    if market in BEST_BET_MARKET_KEYS or market == "hits" or recommended_side == "yes":
+        return probability
+    if recommended_side == "under":
+        if opposite_probability is not None:
+            return opposite_probability
+        if probability is not None:
+            return max(0.0, min(1.0, 1.0 - probability))
+    return probability
+
+
+def _daily_results_edge_value(record: dict[str, Any], market: str, meta: dict[str, Any]) -> float | None:
+    if market in BEST_BET_MARKET_KEYS:
+        weighted_ev = _coerce_float(meta.get("weighted_ev"))
+        if weighted_ev is not None:
+            return weighted_ev
+        return _coerce_float(meta.get("probability_edge"))
+    if market == "hits":
+        return _coerce_float(meta.get("edge"))
+    predicted_value = _coerce_float(record.get("predicted_value"))
+    market_line = _coerce_float(record.get("market_line"))
+    if predicted_value is None or market_line is None:
+        return None
+    return float(predicted_value) - float(market_line)
+
+
+def _daily_results_model_display(record: dict[str, Any], market: str, confidence: float | None) -> str:
+    predicted_value = _coerce_float(record.get("predicted_value"))
+    if market == "hits":
+        return f"{confidence * 100:.0f}% yes" if confidence is not None else "-"
+    if market in BEST_BET_MARKET_KEYS:
+        return f"{confidence * 100:.0f}%" if confidence is not None else "-"
+    if market in EXPERIMENTAL_CAROUSEL_MARKETS:
+        return "-"
+    if market in {"totals", "first5"}:
+        return "-" if predicted_value is None else f"{predicted_value:.2f} runs"
+    if market == "pitcher_strikeouts":
+        return "-" if predicted_value is None else f"{predicted_value:.2f} Ks"
+    return "-" if predicted_value is None else f"{predicted_value:.2f}"
+
+
+def _daily_results_notes_display(
+    record: dict[str, Any],
+    market: str,
+    market_label: str,
+    confidence: float | None,
+    edge_value: float | None,
+    meta: dict[str, Any],
+) -> str:
+    details: list[str] = [market_label]
+    sportsbook = meta.get("sportsbook") or record.get("entry_market_sportsbook")
+    if sportsbook:
+        details.append(str(sportsbook))
+
+    if market in BEST_BET_MARKET_KEYS:
+        weighted_ev = _coerce_float(meta.get("weighted_ev"))
+        probability_edge = _coerce_float(meta.get("probability_edge"))
+        price = meta.get("price")
+        if price is not None:
+            details.append(f"Price {_format_price_text(price)}")
+        if weighted_ev is not None:
+            details.append(f"EV {weighted_ev * 100:+.1f}%")
+        if probability_edge is not None:
+            details.append(f"No-vig {probability_edge * 100:+.1f} pts")
+        return " · ".join(details)
+
+    if market in EXPERIMENTAL_CAROUSEL_MARKETS:
+        price = meta.get("price")
+        if price is not None:
+            details.append(f"Price {_format_price_text(price)}")
+        experimental_reason = meta.get("experimental_reason")
+        if experimental_reason:
+            details.append(str(experimental_reason))
+        else:
+            details.append("Tracked separately from the green board")
+        return " · ".join(details)
+
+    if market == "hits":
+        market_price = meta.get("market_price")
+        fair_price = meta.get("fair_price")
+        if market_price is not None:
+            details.append(f"Market {_format_price_text(market_price)}")
+        if fair_price is not None:
+            details.append(f"Fair {_format_price_text(fair_price)}")
+        if edge_value is not None:
+            details.append(f"Edge {edge_value:+.3f}")
+        return " · ".join(details)
+
+    if confidence is not None:
+        details.append(f"Pick {confidence * 100:.0f}%")
+    if edge_value is not None:
+        details.append(f"Edge {edge_value:+.2f}")
+    return " · ".join(details)
+
+
+def _recommendation_result_sort_key(row: dict[str, Any], rank_field: str | None = None) -> tuple[float, float, float, str, int]:
+    rank_value = _coerce_float(row.get(rank_field)) if rank_field else None
+    edge_value = _coerce_float(row.get("edge"))
+    confidence = _coerce_float(row.get("confidence"))
+    start_ts = str(row.get("game_start_ts") or "")
+    game_id = int(row.get("game_id") or 0)
+    return (
+        9999.0 if rank_value is None else -float(rank_value),
+        -999.0 if edge_value is None else float(edge_value),
+        -999.0 if confidence is None else float(confidence),
+        start_ts,
+        -game_id,
+    )
+
+
+def _fetch_game_recommendation_results(
+    target_date: date,
+    *,
+    bucket: str,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    if not _table_exists("prediction_outcomes_daily"):
+        return []
+
+    frame = _safe_frame(
+        """
+        SELECT
+            o.game_date,
+            o.game_id,
+            o.market,
+            o.entity_type,
+            o.player_id,
+            o.pitcher_id,
+            o.prediction_ts,
+            o.team,
+            o.opponent,
+            o.recommended_side,
+            o.actual_side,
+            o.graded,
+            o.success,
+            o.beat_market,
+            o.predicted_value,
+            o.actual_value,
+            o.market_line,
+            o.probability,
+            o.opposite_probability,
+            o.entry_market_sportsbook,
+            o.meta_payload,
+            g.game_start_ts,
+            g.status AS game_status,
+            g.away_team,
+            g.home_team,
+            batter.hits AS actual_hits,
+            batter.at_bats AS actual_at_bats,
+            dp.full_name AS player_name,
+            pitcher.full_name AS pitcher_name
+        FROM prediction_outcomes_daily o
+        LEFT JOIN games g
+            ON g.game_id = o.game_id
+           AND g.game_date = o.game_date
+        LEFT JOIN player_game_batting batter
+            ON batter.game_id = o.game_id
+           AND batter.player_id = o.player_id
+           AND batter.game_date = o.game_date
+        LEFT JOIN dim_players dp ON dp.player_id = o.player_id
+        LEFT JOIN dim_players pitcher ON pitcher.player_id = o.pitcher_id
+        WHERE o.game_date = :target_date
+                    AND o.entity_type = 'game'
+          AND o.recommended_side IS NOT NULL
+        ORDER BY
+            COALESCE(g.game_start_ts, o.prediction_ts),
+            o.game_id,
+            CASE o.market
+                WHEN 'totals' THEN 0
+                WHEN 'first5' THEN 1
+                WHEN 'hits' THEN 2
+                WHEN 'pitcher_strikeouts' THEN 3
+                ELSE 4
+            END,
+            COALESCE(dp.full_name, pitcher.full_name, '')
+        """,
+        {"target_date": str(target_date)},
+    )
+
+    rows: list[dict[str, Any]] = []
+    for record in _frame_records(frame):
+        meta = _review_meta_payload(record.get("meta_payload"))
+        market = str(record.get("market") or "")
+        if market not in TRACKED_RECOMMENDATION_MARKETS:
+            continue
+        away_team = meta.get("away_team") or record.get("away_team")
+        home_team = meta.get("home_team") or record.get("home_team")
+        matchup = None
+        if away_team or home_team:
+            matchup = f"{away_team or '?'} at {home_team or '?'}"
+
+        line_value = _coerce_float(meta.get("line_value"))
+        market_line = _coerce_float(record.get("market_line"))
+        market_label = _daily_results_market_display_name(market)
+        confidence = _daily_results_confidence(record, market)
+        edge_value = _daily_results_edge_value(record, market, meta)
+        result = _graded_pick_result(
+            record.get("recommended_side"),
+            record.get("actual_side"),
+            bool(record.get("graded")),
+        )
+        is_green_pick = bool(meta.get("is_board_green_pick") or meta.get("is_green_pick"))
+        is_watchlist_pick = bool(meta.get("is_board_watchlist_pick"))
+        is_experimental_pick = bool(meta.get("is_experimental_pick")) or market in EXPERIMENTAL_CAROUSEL_MARKETS
+        green_rank = meta.get("board_green_pick_rank") or meta.get("green_pick_rank")
+        watchlist_rank = meta.get("board_watchlist_rank")
+        recommendation_reason = meta.get("green_reason")
+        if not recommendation_reason and is_green_pick:
+            recommendation_reason = "Green board pick"
+        if not recommendation_reason and is_watchlist_pick:
+            recommendation_reason = "Watchlist pick"
+        if not recommendation_reason and is_experimental_pick:
+            recommendation_reason = str(meta.get("experimental_reason") or "Experimental first-inning tracking")
+        price = meta.get("price")
+        market_price = meta.get("market_price")
+        market_backed = any(
+            value is not None
+            for value in (
+                record.get("entry_market_sportsbook"),
+                market_line,
+                line_value,
+                price,
+                market_price,
+            )
+        )
+
+        if market == "hits":
+            subject_label = record.get("player_name") or meta.get("player_name") or f"Player {record.get('player_id') or '?'}"
+            subject_subtitle = f"{record.get('team') or '?'} vs {record.get('opponent') or 'TBD'}"
+        elif market == "pitcher_strikeouts":
+            subject_label = record.get("pitcher_name") or meta.get("pitcher_name") or f"Pitcher {record.get('pitcher_id') or '?'}"
+            subject_subtitle = f"{record.get('team') or '?'} vs {record.get('opponent') or 'TBD'}"
+        else:
+            subject_label = matchup or market_label
+            subject_subtitle = market_label
+
+        rows.append(
+            {
+                "game_id": record.get("game_id"),
+                "game_date": record.get("game_date"),
+                "game_start_ts": record.get("game_start_ts"),
+                "market": market,
+                "market_label": market_label,
+                "subject_label": subject_label,
+                "subject_subtitle": subject_subtitle,
+                "pick_label": _daily_results_pick_label(
+                    market,
+                    record.get("recommended_side"),
+                    market_line,
+                    line_value,
+                    away_team,
+                    home_team,
+                    meta,
+                ),
+                "model_display": _daily_results_model_display(record, market, confidence),
+                "actual_display": _daily_results_actual_display(record, market, away_team, home_team, meta),
+                "notes_display": _daily_results_notes_display(
+                    record,
+                    market,
+                    market_label,
+                    confidence,
+                    edge_value,
+                    meta,
+                ),
+                "confidence": confidence,
+                "edge": edge_value,
+                "result": result,
+                "market_backed": market_backed,
+                "is_green_pick": is_green_pick,
+                "is_watchlist_pick": is_watchlist_pick,
+                "is_experimental_pick": is_experimental_pick,
+                "green_rank": green_rank,
+                "watchlist_rank": watchlist_rank,
+                "green_reason": recommendation_reason,
+            }
+        )
+
+    if bucket == "experimental":
+        rows = [row for row in rows if row.get("is_experimental_pick")]
+        rows.sort(key=lambda row: _recommendation_result_sort_key(row))
+        return rows if limit is None else rows[:limit]
+
+    has_snapshot_flags = any(row.get("is_green_pick") or row.get("is_watchlist_pick") for row in rows)
+    if has_snapshot_flags:
+        if bucket == "green":
+            rows = [row for row in rows if row.get("is_green_pick")]
+            rows.sort(key=lambda row: _recommendation_result_sort_key(row, "green_rank"))
+        elif bucket == "watchlist":
+            rows = [row for row in rows if row.get("is_watchlist_pick")]
+            rows.sort(key=lambda row: _recommendation_result_sort_key(row, "watchlist_rank"))
+        else:
+            rows.sort(key=lambda row: _recommendation_result_sort_key(row))
+        return rows if limit is None else rows[:limit]
+
+    if bucket == "watchlist":
+        return []
+
+    if limit is None:
+        limit = _green_pick_board_limit(target_date)
+        if limit is None:
+            limit = best_bets_utils.BOARD_BEST_BET_LIMIT
+
+    def _row_rank_key(row: dict[str, Any]) -> tuple[float, float, str, int]:
+        edge_value = _coerce_float(row.get("edge"))
+        confidence = _coerce_float(row.get("confidence"))
+        start_ts = str(row.get("game_start_ts") or "")
+        game_id = int(row.get("game_id") or 0)
+        return (
+            -999.0 if edge_value is None else float(edge_value),
+            -999.0 if confidence is None else float(confidence),
+            start_ts,
+            -game_id,
+        )
+
+    best_by_game: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        game_id = row.get("game_id")
+        if game_id is None:
+            continue
+        game_id_int = int(game_id)
+        existing = best_by_game.get(game_id_int)
+        if existing is None or _row_rank_key(row) > _row_rank_key(existing):
+            best_by_game[game_id_int] = row
+
+    ranked_rows = sorted(best_by_game.values(), key=_row_rank_key, reverse=True)
+    return ranked_rows[:limit]
+
+
+def _fetch_ai_pick_results(target_date: date, limit: int | None = None) -> list[dict[str, Any]]:
+    return _fetch_game_recommendation_results(target_date, bucket="green", limit=limit)
+
+
+def _fetch_watchlist_pick_results(target_date: date, limit: int | None = None) -> list[dict[str, Any]]:
+    return _fetch_game_recommendation_results(target_date, bucket="watchlist", limit=limit)
+
+
+def _fetch_experimental_pick_results(target_date: date, limit: int | None = None) -> list[dict[str, Any]]:
+    return _fetch_game_recommendation_results(target_date, bucket="experimental", limit=limit)
+
+
+def _experimental_market_display_name(market: str | None) -> str:
+    mapping = {
+        "nrfi": "NRFI",
+        "yrfi": "YRFI",
+    }
+    return mapping.get(str(market or "").lower(), str(market or "Experimental"))
+
+
+def _fetch_experimental_market_cards(target_date: date, limit: int = 12) -> list[dict[str, Any]]:
+    if not _table_exists("game_markets"):
+        return []
+
+    params: dict[str, Any] = {"target_date": str(target_date)}
+    market_conditions: list[str] = []
+    for index, market_key in enumerate(EXPERIMENTAL_CAROUSEL_MARKETS):
+        param_name = f"experimental_market_{index}"
+        params[param_name] = market_key
+        market_conditions.append(f"gm.market_type = :{param_name}")
+
+    frame = _safe_frame(
+        f"""
+        WITH ranked AS (
+            SELECT
+                gm.game_id,
+                gm.market_type,
+                gm.sportsbook,
+                gm.over_price,
+                gm.under_price,
+                gm.snapshot_ts,
+                g.away_team,
+                g.home_team,
+                g.game_start_ts,
+                ROW_NUMBER() OVER (
+                    PARTITION BY gm.game_id, gm.market_type, COALESCE(gm.sportsbook, '')
+                    ORDER BY gm.snapshot_ts DESC
+                ) AS row_rank
+            FROM game_markets gm
+            JOIN games g ON g.game_id = gm.game_id AND g.game_date = gm.game_date
+            WHERE gm.game_date = :target_date
+              AND ({' OR '.join(market_conditions)})
+              AND (gm.over_price IS NOT NULL OR gm.under_price IS NOT NULL)
+        )
+        SELECT game_id, market_type, sportsbook, over_price, under_price, snapshot_ts, away_team, home_team, game_start_ts
+        FROM ranked
+        WHERE row_rank = 1
+        ORDER BY game_start_ts, game_id, market_type, sportsbook
+        """,
+        params,
+    )
+    if frame.empty:
+        return []
+
+    grouped: dict[tuple[int, str], list[dict[str, Any]]] = {}
+    for record in _frame_records(frame):
+        game_id = record.get("game_id")
+        market = str(record.get("market_type") or "").lower()
+        if game_id is None or not market:
+            continue
+        grouped.setdefault((int(game_id), market), []).append(record)
+
+    cards: list[dict[str, Any]] = []
+    for (game_id, market), market_rows in grouped.items():
+        chosen = max(
+            market_rows,
+            key=lambda row: (
+                -999999 if _coerce_float(row.get("over_price")) is None and _coerce_float(row.get("under_price")) is None else max(_coerce_float(row.get("over_price")) or -999999, _coerce_float(row.get("under_price")) or -999999),
+                str(row.get("snapshot_ts") or ""),
+            ),
+        )
+        price = chosen.get("over_price")
+        if price is None:
+            price = chosen.get("under_price")
+        market_label = _experimental_market_display_name(market)
+        away_team = chosen.get("away_team") or "Away"
+        home_team = chosen.get("home_team") or "Home"
+        cards.append(
+            {
+                "game_id": game_id,
+                "game_start_ts": chosen.get("game_start_ts"),
+                "market": market,
+                "market_label": market_label,
+                "subject_label": f"{away_team} at {home_team}",
+                "pick_label": market_label,
+                "sportsbook": chosen.get("sportsbook"),
+                "price": price,
+                "notes_display": "Experimental first-inning market only; not part of the green board.",
+            }
+        )
+
+    cards.sort(key=lambda card: (str(card.get("game_start_ts") or ""), str(card.get("subject_label") or ""), str(card.get("market_label") or "")))
+    return cards[: max(1, min(limit, 24))]
 
 
 def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[str, Any]:
@@ -5622,6 +7392,9 @@ def _fetch_experiment_daily_detail(target_date: date) -> dict[str, Any]:
 
 
 def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) -> dict[str, Any]:
+    ai_pick_rows = _fetch_ai_pick_results(target_date)
+    watchlist_rows = _fetch_watchlist_pick_results(target_date)
+    experimental_rows = _fetch_experimental_pick_results(target_date)
     totals_rows: list[dict[str, Any]] = []
     hitter_rows: list[dict[str, Any]] = []
     strikeout_rows: list[dict[str, Any]] = []
@@ -5944,16 +7717,26 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
 
     final_games = sum(1 for row in totals_rows if row.get("is_final"))
     total_games = len(totals_rows)
+    ai_pick_summary = _summarize_category(ai_pick_rows)
+    ai_pick_summary["green_picks"] = len(ai_pick_rows)
+    watchlist_summary = _summarize_category(watchlist_rows)
+    experimental_summary = _summarize_category(experimental_rows)
     return {
         "summary": {
             "final_games": final_games,
             "pending_games": max(total_games - final_games, 0),
             "total_games": total_games,
+            "ai_picks": ai_pick_summary,
+            "watchlist": watchlist_summary,
+            "experimental": experimental_summary,
             "totals": _summarize_category(totals_rows),
             "hitters": _summarize_category(hitter_rows),
             "strikeouts": _summarize_category(strikeout_rows),
             "first5": _summarize_category(first5_rows),
         },
+        "ai_picks": ai_pick_rows,
+        "watchlist": watchlist_rows,
+        "experimental": experimental_rows,
         "totals": totals_rows,
         "hitters": hitter_rows,
         "strikeouts": strikeout_rows,
@@ -6305,6 +8088,7 @@ def _publish_target_date_sequence(
                 ("src.features.totals_builder", ["--target-date", target_date]),
                 ("src.features.first5_totals_builder", ["--target-date", target_date]),
                 ("src.features.hits_builder", ["--target-date", target_date]),
+                ("src.features.total_bases_builder", ["--target-date", target_date]),
                 ("src.features.strikeouts_builder", ["--target-date", target_date]),
             ]
         )
@@ -6313,6 +8097,7 @@ def _publish_target_date_sequence(
             ("src.models.predict_totals", ["--target-date", target_date]),
             ("src.models.predict_first5_totals", ["--target-date", target_date]),
             ("src.models.predict_hits", ["--target-date", target_date]),
+            ("src.models.predict_total_bases", ["--target-date", target_date]),
             ("src.models.predict_strikeouts", ["--target-date", target_date]),
             ("src.transforms.product_surfaces", ["--target-date", target_date]),
         ]
@@ -6364,6 +8149,7 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.ingestors.player_status", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
             ("src.ingestors.weather", ["--target-date", target_date]),
+            ("src.ingestors.umpire", ["--target-date", target_date]),
             ("src.ingestors.matchup_splits", ["--target-date", target_date]),
             ("src.transforms.freeze_markets", ["--target-date", target_date]),
             ("src.ingestors.validator", ["--target-date", target_date]),
@@ -6377,10 +8163,12 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.features.totals_builder", ["--target-date", target_date]),
             ("src.features.first5_totals_builder", ["--target-date", target_date]),
             ("src.features.hits_builder", ["--target-date", target_date]),
+            ("src.features.total_bases_builder", ["--target-date", target_date]),
             ("src.features.strikeouts_builder", ["--target-date", target_date]),
             ("src.models.predict_totals", ["--target-date", target_date]),
             ("src.models.predict_first5_totals", ["--target-date", target_date]),
             ("src.models.predict_hits", ["--target-date", target_date]),
+            ("src.models.predict_total_bases", ["--target-date", target_date]),
             ("src.models.predict_strikeouts", ["--target-date", target_date]),
             ("src.transforms.product_surfaces", ["--target-date", target_date]),
         ]
@@ -6393,6 +8181,7 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.ingestors.player_status", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
             ("src.ingestors.weather", ["--target-date", target_date]),
+            ("src.ingestors.umpire", ["--target-date", target_date]),
             ("src.ingestors.matchup_splits", ["--target-date", target_date]),
             ("src.transforms.freeze_markets", ["--target-date", target_date]),
             ("src.ingestors.validator", ["--target-date", target_date]),
@@ -6408,6 +8197,7 @@ def _update_job_sequence(action: UpdateAction, target_date: str) -> list[tuple[s
             ("src.ingestors.lineups", ["--target-date", target_date]),
             ("src.ingestors.player_status", ["--target-date", target_date]),
             ("src.ingestors.market_totals", ["--target-date", target_date]),
+            ("src.ingestors.umpire", ["--target-date", target_date]),
             ("src.transforms.freeze_markets", ["--target-date", target_date]),
             ("src.ingestors.validator", ["--target-date", target_date]),
             *_publish_target_date_sequence(
@@ -6781,13 +8571,27 @@ def games_board(
     include_inferred: bool = Query(default=True),
 ) -> JSONResponse:
     rows = _fetch_game_board(target_date, hit_limit_per_team, min_probability, confirmed_only, include_inferred)
+    green_pick_limit = _green_pick_board_limit(target_date)
     return _json_response(
         {
             "target_date": target_date.isoformat(),
             "summary": _summarize_board_rows(rows, target_date),
+            "best_bets": _flatten_best_bets(rows),
+            "watchlist_markets": _flatten_watchlist_markets(rows),
+            "experimental_markets": _fetch_experimental_market_cards(target_date),
+            "green_picks": _fetch_ai_pick_results(
+                target_date,
+                limit=green_pick_limit,
+            ),
             "games": rows,
         }
     )
+
+
+def _green_pick_board_limit(target_date: date) -> int | None:
+    if target_date < date.today():
+        return None
+    return best_bets_utils.BOARD_BEST_BET_LIMIT
 
 
 @app.get("/api/games/{game_id}/detail")
@@ -7210,6 +9014,23 @@ def recommendation_history_endpoint(
         "losses": sum(1 for r in records if r.get("success") is False),
     }
     return _json_response({"recommendations": records, "summary": summary})
+
+
+@app.get("/api/recommendations/best-bets-history")
+def best_bet_history_endpoint(
+    target_date: date = Query(default_factory=date.today),
+    window_days: int = Query(default=14, ge=1, le=60),
+    limit: int = Query(default=12, ge=1, le=100),
+    graded_only: bool = Query(default=False),
+) -> JSONResponse:
+    return _json_response(
+        _fetch_best_bet_history_payload(
+            target_date,
+            window_days=window_days,
+            limit=limit,
+            graded_only=graded_only,
+        )
+    )
 
 
 _load_persisted_update_jobs()

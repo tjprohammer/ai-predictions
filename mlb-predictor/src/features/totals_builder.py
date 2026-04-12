@@ -109,8 +109,62 @@ def _load_frames(start_date, end_date, settings):
         if table_exists("market_selection_freezes")
         else pd.DataFrame(),
         "parks": query_df("SELECT * FROM park_factors"),
+        "umpire_assignments": query_df(
+            """
+            SELECT ua.game_id, ua.game_date, ua.umpire_name, ua.umpire_id
+            FROM umpire_assignments ua
+            INNER JOIN (
+                SELECT game_id, MAX(snapshot_ts) AS max_ts
+                FROM umpire_assignments GROUP BY game_id
+            ) latest ON ua.game_id = latest.game_id AND ua.snapshot_ts = latest.max_ts
+            """
+        ) if table_exists("umpire_assignments") else pd.DataFrame(),
+        "games_history": query_df(
+            """
+            SELECT game_id, game_date, total_runs
+            FROM games
+            WHERE game_date >= :history_start AND game_date <= :end_date
+              AND total_runs IS NOT NULL
+            """,
+            {"history_start": history_start, "end_date": end_date},
+        ),
     }
     return frames
+
+
+def _umpire_run_value(
+    umpire_name: str | None,
+    game_date,
+    umpire_assignments: pd.DataFrame,
+    games_history: pd.DataFrame,
+    min_games: int = 15,
+) -> float | None:
+    """Umpire's average game total vs league average (signed difference, >0 = more runs).
+
+    Uses only games *before* game_date to avoid leakage.
+    Returns None when sample is too small or umpire data is missing.
+    """
+    if not umpire_name or umpire_assignments.empty or games_history.empty:
+        return None
+    ua = umpire_assignments.copy()
+    gh = games_history.copy()
+    if "game_date" in ua.columns:
+        ua["game_date"] = pd.to_datetime(ua["game_date"]).dt.date
+    if "game_date" in gh.columns:
+        gh["game_date"] = pd.to_datetime(gh["game_date"]).dt.date
+    past_ump = ua[(ua["umpire_name"] == umpire_name) & (ua["game_date"] < game_date)]
+    if len(past_ump) < min_games:
+        return None
+    ump_game_ids = set(past_ump["game_id"].tolist())
+    gh["total_runs"] = pd.to_numeric(gh["total_runs"], errors="coerce")
+    gh = gh.dropna(subset=["total_runs"])
+    past_games = gh[gh["game_date"] < game_date]
+    if past_games.empty:
+        return None
+    ump_games = past_games[past_games["game_id"].isin(ump_game_ids)]
+    if ump_games.empty:
+        return None
+    return round(float(ump_games["total_runs"].mean()) - float(past_games["total_runs"].mean()), 4)
 
 
 def main() -> int:
@@ -230,6 +284,14 @@ def main() -> int:
         )
         weather = latest_weather_snapshot(game.game_id, cutoff_ts, frames["weather"])
         park = park_snapshot(game.home_team, int(game.season or game.game_date.year), frames["parks"], settings.prior_season)
+        ump_row = frames["umpire_assignments"][
+            frames["umpire_assignments"]["game_id"] == int(game.game_id)
+        ] if not frames["umpire_assignments"].empty else pd.DataFrame()
+        ump_name = str(ump_row.iloc[0]["umpire_name"]) if not ump_row.empty else None
+        ump_run_val = _umpire_run_value(
+            ump_name, game.game_date,
+            frames["umpire_assignments"], frames["games_history"],
+        )
 
         game_start = game.game_start_ts.to_pydatetime() if pd.notna(game.game_start_ts) else None
         starter_certainty = (
@@ -324,6 +386,8 @@ def main() -> int:
                 "wind_speed_mph": weather["wind_speed_mph"],
                 "wind_direction_deg": weather["wind_direction_deg"],
                 "humidity_pct": weather["humidity_pct"],
+                "ump_name": ump_name,
+                "ump_run_value": ump_run_val,
                 "market_sportsbook": market.get("market_sportsbook"),
                 "market_total": market["market_total"],
                 "market_over_price": market["market_over_price"],

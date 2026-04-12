@@ -30,8 +30,9 @@ from src.features.contracts import (
     STRIKEOUTS_TARGET_COLUMN,
     validate_columns,
 )
+from src.models.common import add_strikeout_derived_features
 from src.utils.cli import add_date_range_args, resolve_date_range
-from src.utils.db import query_df
+from src.utils.db import query_df, table_exists
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -107,6 +108,16 @@ def _load_frames(start_date, end_date, settings):
             """,
             {"start_date": start_date, "end_date": end_date},
         ),
+        "umpire_assignments": query_df(
+            """
+            SELECT ua.game_id, ua.game_date, ua.umpire_name, ua.umpire_id
+            FROM umpire_assignments ua
+            INNER JOIN (
+                SELECT game_id, MAX(snapshot_ts) AS max_ts
+                FROM umpire_assignments GROUP BY game_id
+            ) latest ON ua.game_id = latest.game_id AND ua.snapshot_ts = latest.max_ts
+            """
+        ) if table_exists("umpire_assignments") else pd.DataFrame(),
     }
 
 
@@ -382,6 +393,47 @@ def _venue_k_factor(
     return round(venue_k_per_start / league_k_per_start, 4)
 
 
+def _umpire_k_rate_adj(
+    umpire_name: str | None,
+    game_date,
+    umpire_assignments: pd.DataFrame,
+    pitcher_starts: pd.DataFrame,
+    min_games: int = 15,
+) -> float | None:
+    """Return umpire's K/9 relative to league average as a ratio (>1 = more Ks).
+
+    Uses only games *before* game_date to avoid leakage.
+    Returns None when sample is too small or umpire data is missing.
+    """
+    if not umpire_name or umpire_assignments.empty or pitcher_starts.empty:
+        return None
+    ua = umpire_assignments.copy()
+    if "game_date" in ua.columns:
+        ua["game_date"] = pd.to_datetime(ua["game_date"]).dt.date
+    past_ump = ua[(ua["umpire_name"] == umpire_name) & (ua["game_date"] < game_date)]
+    if len(past_ump) < min_games:
+        return None
+    ump_game_ids = set(past_ump["game_id"].tolist())
+    ps = pitcher_starts[pitcher_starts["game_date"].dt.date < game_date].copy()
+    if ps.empty:
+        return None
+    ps["strikeouts"] = pd.to_numeric(ps.get("strikeouts"), errors="coerce")
+    ps["innings_pitched"] = pd.to_numeric(ps.get("innings_pitched"), errors="coerce")
+    ump_starts = ps[ps["game_id"].isin(ump_game_ids)].dropna(subset=["strikeouts", "innings_pitched"])
+    all_starts = ps.dropna(subset=["strikeouts", "innings_pitched"])
+    if ump_starts.empty or all_starts.empty:
+        return None
+    ump_outs = (ump_starts["innings_pitched"] * 3).sum()
+    league_outs = (all_starts["innings_pitched"] * 3).sum()
+    if ump_outs <= 0 or league_outs <= 0:
+        return None
+    ump_k_per_27 = (ump_starts["strikeouts"].sum() / ump_outs) * 27
+    league_k_per_27 = (all_starts["strikeouts"].sum() / league_outs) * 27
+    if league_k_per_27 <= 0:
+        return None
+    return round(ump_k_per_27 / league_k_per_27, 4)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build historical pitcher strikeout feature rows")
     add_date_range_args(parser)
@@ -521,6 +573,15 @@ def main() -> int:
                 venue_map.get(int(game.game_id)), game.game_date,
                 frames["pitcher_starts"], frames["games_history"],
             )
+            # Umpire K-rate adjustment
+            ump_row = frames["umpire_assignments"][
+                frames["umpire_assignments"]["game_id"] == int(game.game_id)
+            ] if not frames["umpire_assignments"].empty else pd.DataFrame()
+            ump_name = str(ump_row.iloc[0]["umpire_name"]) if not ump_row.empty else None
+            ump_k_adj = _umpire_k_rate_adj(
+                ump_name, game.game_date,
+                frames["umpire_assignments"], frames["pitcher_starts"],
+            )
 
             rows.append(
                 {
@@ -560,6 +621,8 @@ def main() -> int:
                     "pitcher_vs_team_k_rate": pvt_k_rate,
                     "opponent_lineup_k_pct_recent": opp_lineup_k_recent,
                     "venue_k_factor": v_k_factor,
+                    "ump_name": ump_name,
+                    "ump_k_rate_adj": ump_k_adj,
                     "same_hand_share": shares["same_hand_share"],
                     "opposite_hand_share": shares["opposite_hand_share"],
                     "switch_share": shares["switch_share"],
@@ -614,6 +677,8 @@ def main() -> int:
         computed_k_pct = feature_frame["opponent_lineup_k_pct_computed"]
         feature_frame["opponent_lineup_k_pct"] = computed_k_pct.where(computed_k_pct.notna(), feature_frame["opponent_lineup_k_pct"])
         feature_frame = feature_frame.drop(columns=["opponent_lineup_k_pct_computed"])
+
+    feature_frame = add_strikeout_derived_features(feature_frame)
 
     validate_columns(
         feature_frame,
