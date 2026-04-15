@@ -16,6 +16,7 @@ from src.features.contracts import (
 )
 from src.models.common import load_feature_snapshots
 from src.utils.cli import add_date_range_args, resolve_date_range
+from src.utils.db import query_df
 from src.utils.logging import get_logger
 
 from src.features.common import write_feature_snapshot
