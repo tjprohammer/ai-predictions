@@ -4,6 +4,8 @@ import math
 from statistics import median
 from typing import Any
 
+from src.utils.input_trust import ACTIONABLE_TRUST_GRADES
+
 
 SUPPLEMENTAL_GAME_MARKET_TYPES = (
     "team_total",
@@ -32,9 +34,24 @@ BEST_BET_MARKET_KEYS = (
 )
 
 BEST_BET_SELECTION_LIMIT_PER_GAME = 1
-WATCHLIST_SELECTION_LIMIT_PER_GAME = 1
+# Legacy tests may pass limit=5 explicitly. Board/API default is no fixed cap (use one green per game
+# up to slate size — see ``flatten_best_bets``).
 BOARD_BEST_BET_LIMIT = 5
-BOARD_WATCHLIST_LIMIT = 12
+# Slate-wide green strip: at most this many picks per game total (first and second pass).
+BOARD_GREEN_STRIP_MAX_PER_GAME_FIRST_PASS = 1
+# Main-board watchlist: include all per-game candidates up to this slate-wide cap.
+BOARD_WATCHLIST_LIMIT = 500
+
+# When strict `positive` is rare (slates, recalibrated models), still show meaningful edges on the green strip.
+# These sit between "watchlist noise" and full `passes_best_bet_thresholds` gates — old values were so loose
+# that the top-5 strip was often 100% soft picks with poor realized results.
+BOARD_GREEN_SOFT_MIN_WEIGHTED_EV = 0.028
+BOARD_GREEN_SOFT_MIN_PROB_EDGE = 0.045
+BOARD_GREEN_SOFT_MIN_CERTAINTY = 0.70
+BOARD_GREEN_SOFT_MIN_MODEL_PROB = 0.53
+
+# First-inning experimental lines: at most one row per game across these keys (prefer nrfi if both exist).
+EXPERIMENTAL_FIRST_INNING_MARKETS_ORDER = ("nrfi", "yrfi")
 
 BEST_BET_THRESHOLD_MAP: dict[str, dict[str, float]] = {
     "moneyline": {
@@ -403,6 +420,27 @@ def game_certainty_weight(certainty: dict[str, Any] | None) -> float:
     return numerator / denominator
 
 
+def card_input_trust_from_game(game: dict[str, Any]) -> dict[str, Any]:
+    cert = game.get("certainty")
+    if isinstance(cert, dict):
+        nested = cert.get("input_trust")
+        if isinstance(nested, dict) and nested:
+            return dict(nested)
+    it = game.get("input_trust")
+    if isinstance(it, dict) and it:
+        return dict(it)
+    return {}
+
+
+def promotion_tier_for_card(*, positive: bool, input_trust: dict[str, Any]) -> str:
+    if not positive:
+        return "none"
+    grade = str((input_trust or {}).get("grade") or "").strip().upper()
+    if grade in ACTIONABLE_TRUST_GRADES:
+        return "actionable"
+    return "edge_only"
+
+
 def market_thresholds(market_key: str) -> dict[str, float]:
     return BEST_BET_THRESHOLD_MAP.get(
         market_key,
@@ -429,6 +467,99 @@ def passes_best_bet_thresholds(
         and probability_edge >= float(thresholds["probability_edge"])
         and certainty_weight >= float(thresholds["certainty_weight"])
         and model_probability >= float(thresholds["model_probability"])
+    )
+
+
+def _strict_ev_gate_hints(card: dict[str, Any]) -> list[str]:
+    """Human-readable reasons a card is not `positive` (full gates), for game-detail UI."""
+    market_key = str(card.get("market_key") or "")
+    if market_key not in BEST_BET_MARKET_KEYS or card.get("positive"):
+        return []
+    thresholds = market_thresholds(market_key)
+    wev = to_float(card.get("weighted_ev"))
+    pe = to_float(card.get("probability_edge"))
+    cw = to_float(card.get("certainty_weight"))
+    mp = to_float(card.get("model_probability"))
+    t_wev = float(thresholds["weighted_ev"])
+    t_pe = float(thresholds["probability_edge"])
+    t_cw = float(thresholds["certainty_weight"])
+    t_mp = float(thresholds["model_probability"])
+    hints: list[str] = []
+    if wev is None or wev < t_wev:
+        hints.append(
+            f"Weighted EV {('—' if wev is None else f'{wev * 100:.1f}%')} vs gate {t_wev * 100:.0f}%"
+        )
+    if pe is None or pe < t_pe:
+        hints.append(
+            f"No-vig edge {('—' if pe is None else f'{pe * 100:.1f} pts')} vs gate {t_pe * 100:.0f} pts"
+        )
+    if cw is None or cw < t_cw:
+        hints.append(
+            f"Input certainty {('—' if cw is None else f'{cw * 100:.0f}%')} vs gate {t_cw * 100:.0f}%"
+        )
+    if mp is None or mp < t_mp:
+        hints.append(
+            f"Model prob {('—' if mp is None else f'{mp * 100:.1f}%')} vs gate {t_mp * 100:.0f}%"
+        )
+    return hints
+
+
+def annotate_market_card_for_display(card: dict[str, Any]) -> dict[str, Any]:
+    """Add `board_pick_tier`, `board_badges`, and optional `ev_gate_hints` for UI transparency."""
+    if not card:
+        return card
+    mk = str(card.get("market_key") or "")
+    badges: list[dict[str, str]] = []
+    tier = "monitor"
+
+    if card.get("positive"):
+        tier = "strict"
+        badges.append({"key": "strict", "label": "Full EV gates"})
+    elif mk in BEST_BET_MARKET_KEYS and qualifies_board_green_strip(card):
+        tier = "soft_green"
+        badges.append({"key": "soft_green", "label": "Soft green strip"})
+    elif _is_watchlist_candidate(card):
+        tier = "watchlist"
+        badges.append({"key": "watchlist", "label": "Watchlist"})
+    else:
+        wev = to_float(card.get("weighted_ev"))
+        pe = to_float(card.get("probability_edge"))
+        if wev is not None and wev > 0:
+            tier = "raw_edge"
+            badges.append({"key": "raw_edge", "label": "Raw EV only"})
+        elif pe is not None and pe >= 0.015:
+            tier = "lean"
+            badges.append({"key": "lean", "label": "Lean vs no-vig"})
+        if not badges and (card.get("weighted_ev") is None and card.get("model_probability") is None):
+            badges.append({"key": "incomplete", "label": "Incomplete line"})
+
+    out = dict(card)
+    out["board_pick_tier"] = tier
+    out["board_badges"] = badges
+    if not card.get("positive") and mk in BEST_BET_MARKET_KEYS:
+        hints = _strict_ev_gate_hints(card)
+        if hints:
+            out["ev_gate_hints"] = hints
+    return out
+
+
+def qualifies_board_green_strip(card: dict[str, Any]) -> bool:
+    """Strict green (`positive`) or softer edge band so the main board is not empty on thin slates."""
+    if not card or str(card.get("market_key") or "") not in BEST_BET_MARKET_KEYS:
+        return False
+    if card.get("positive"):
+        return True
+    wev = to_float(card.get("weighted_ev"))
+    pe = to_float(card.get("probability_edge"))
+    cw = to_float(card.get("certainty_weight"))
+    mp = to_float(card.get("model_probability"))
+    if wev is None or pe is None or cw is None or mp is None:
+        return False
+    return bool(
+        cw >= BOARD_GREEN_SOFT_MIN_CERTAINTY
+        and wev >= BOARD_GREEN_SOFT_MIN_WEIGHTED_EV
+        and pe >= BOARD_GREEN_SOFT_MIN_PROB_EDGE
+        and mp >= BOARD_GREEN_SOFT_MIN_MODEL_PROB
     )
 
 
@@ -468,6 +599,7 @@ def build_market_candidate(
         certainty_weight=certainty_weight,
         model_probability=model_probability,
     )
+    it = card_input_trust_from_game(game)
     return {
         "game_id": int(game.get("game_id") or 0),
         "away_team": game.get("away_team"),
@@ -488,6 +620,8 @@ def build_market_candidate(
         "certainty_weight": round(float(certainty_weight), 4),
         "push_probability": round(float(push_probability), 4),
         "positive": positive,
+        "input_trust": it,
+        "promotion_tier": promotion_tier_for_card(positive=positive, input_trust=it),
         "market_summary": market_summary,
         "model_summary": model_summary,
     }
@@ -521,6 +655,8 @@ def fallback_market_card(
         "certainty_weight": None,
         "push_probability": None,
         "positive": False,
+        "input_trust": card_input_trust_from_game(game),
+        "promotion_tier": "none",
         "market_summary": market_summary,
         "model_summary": model_summary,
     }
@@ -729,19 +865,138 @@ def build_market_cards_for_game(
         cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key=market_key, market_label="First 5 Away Team Total" if market_key == "first_five_team_total_away" else "First 5 Home Team Total", market_summary=f"F5 {team_name} team total", model_summary="First-five team-total probability unavailable."))
 
     cards = [card for card in cards if card.get("market_key") in BEST_BET_MARKET_KEYS]
+    cards = [annotate_market_card_for_display(card) for card in cards]
     positive_cards = [card for card in cards if card.get("positive")]
     positive_cards.sort(key=lambda card: (float(card.get("weighted_ev") or -999.0), float(card.get("probability_edge") or -999.0)), reverse=True)
     return cards, positive_cards[:BEST_BET_SELECTION_LIMIT_PER_GAME]
 
 
-def flatten_best_bets(rows: list[dict[str, Any]], limit: int = BOARD_BEST_BET_LIMIT) -> list[dict[str, Any]]:
-    flattened = [bet for row in rows for bet in (row.get("best_bets") or []) if bet.get("positive")]
-    flattened.sort(key=lambda bet: (float(bet.get("weighted_ev") or -999.0), float(bet.get("probability_edge") or -999.0)), reverse=True)
-    return flattened[:limit]
+def _green_strip_row_key(card: dict[str, Any]) -> tuple[int, str, str]:
+    return (
+        int(card.get("game_id") or 0),
+        str(card.get("market_key") or ""),
+        str(card.get("selection_label") or ""),
+    )
+
+
+def _select_green_strip_with_slate_spread(
+    sorted_candidates: list[dict[str, Any]],
+    *,
+    limit: int,
+    max_per_game_first_pass: int,
+    seed: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Prefer one pick per matchup (by EV order) before allowing multiple markets from the same game."""
+    if limit <= 0:
+        return []
+    if max_per_game_first_pass <= 0:
+        base = list(seed) if seed else []
+        return (base + sorted_candidates)[:limit]
+
+    picked_keys: set[tuple[int, str, str]] = set()
+    per_game_counts: dict[int, int] = {}
+    selected: list[dict[str, Any]] = []
+    if seed:
+        for bet in seed:
+            key = _green_strip_row_key(bet)
+            picked_keys.add(key)
+            gid = int(bet.get("game_id") or 0)
+            per_game_counts[gid] = per_game_counts.get(gid, 0) + 1
+        selected = list(seed)
+        if len(selected) >= limit:
+            return selected[:limit]
+
+    for bet in sorted_candidates:
+        key = _green_strip_row_key(bet)
+        if key in picked_keys:
+            continue
+        gid = int(bet.get("game_id") or 0)
+        if per_game_counts.get(gid, 0) >= max_per_game_first_pass:
+            continue
+        selected.append(bet)
+        picked_keys.add(key)
+        per_game_counts[gid] = per_game_counts.get(gid, 0) + 1
+        if len(selected) >= limit:
+            return selected
+
+    for bet in sorted_candidates:
+        if len(selected) >= limit:
+            break
+        key = _green_strip_row_key(bet)
+        if key in picked_keys:
+            continue
+        gid = int(bet.get("game_id") or 0)
+        # Second pass used to fill the strip without a per-game cap, so one matchup could
+        # dominate (3-4 greens). Keep the same max-per-game rule as the first pass.
+        if per_game_counts.get(gid, 0) >= max_per_game_first_pass:
+            continue
+        selected.append(bet)
+        picked_keys.add(key)
+        per_game_counts[gid] = per_game_counts.get(gid, 0) + 1
+    return selected[:limit]
+
+
+def flatten_best_bets(rows: list[dict[str, Any]], limit: int | None = None) -> list[dict[str, Any]]:
+    """Board green strip: full-gate (`positive`) picks first, then soft-qualified backfill.
+
+    Strict picks are used first; only the remainder can come from softer edge bands
+    (see ``BOARD_GREEN_SOFT_*``). Within each band, candidates are ranked by EV, then we spread
+    across games: **at most one green per game**. By default ``limit`` is the slate size
+    (``len(rows)``), so every matchup can contribute its best qualifying green — not a fixed N.
+
+    Pass an explicit ``limit`` to cap the strip (tests use small limits).
+    """
+    if limit is None:
+        limit = len(rows)
+    seen: set[tuple[int, str, str]] = set()
+    flattened: list[dict[str, Any]] = []
+    for row in rows:
+        gid = int(row.get("game_id") or 0)
+
+        def _add(card: dict[str, Any]) -> None:
+            if not qualifies_board_green_strip(card):
+                return
+            key = (gid, str(card.get("market_key") or ""), str(card.get("selection_label") or ""))
+            if key in seen:
+                return
+            seen.add(key)
+            tier = "strict" if card.get("positive") else "soft"
+            flattened.append({**card, "green_strip_tier": tier})
+
+        for bet in row.get("best_bets") or []:
+            _add(bet)
+        for card in row.get("market_cards") or []:
+            _add(card)
+
+    ev_key = lambda bet: (
+        float(bet.get("weighted_ev") or -999.0),
+        float(bet.get("probability_edge") or -999.0),
+    )
+    strict_flat = [b for b in flattened if b.get("positive")]
+    soft_flat = [b for b in flattened if not b.get("positive")]
+    strict_flat.sort(key=ev_key, reverse=True)
+    soft_flat.sort(key=ev_key, reverse=True)
+
+    # Prefer full-gate picks for every strip slot; only backfill with soft-qualified cards if needed.
+    from_strict = _select_green_strip_with_slate_spread(
+        strict_flat,
+        limit=limit,
+        max_per_game_first_pass=BOARD_GREEN_STRIP_MAX_PER_GAME_FIRST_PASS,
+    )
+    if len(from_strict) >= limit:
+        return from_strict
+    return _select_green_strip_with_slate_spread(
+        soft_flat,
+        limit=limit,
+        max_per_game_first_pass=BOARD_GREEN_STRIP_MAX_PER_GAME_FIRST_PASS,
+        seed=from_strict,
+    )
 
 
 def _is_watchlist_candidate(card: dict[str, Any]) -> bool:
     if not card or card.get("positive"):
+        return False
+    if str(card.get("market_key") or "") not in BEST_BET_MARKET_KEYS:
         return False
     model_probability = to_float(card.get("model_probability"))
     certainty_weight = to_float(card.get("certainty_weight"))
@@ -749,11 +1004,11 @@ def _is_watchlist_candidate(card: dict[str, Any]) -> bool:
     probability_edge = to_float(card.get("probability_edge"))
     if model_probability is None or certainty_weight is None:
         return False
-    if certainty_weight < 0.70:
+    if certainty_weight < 0.58:
         return False
     if weighted_ev is not None and weighted_ev > 0:
         return True
-    if probability_edge is not None and probability_edge >= 0.035 and model_probability >= 0.54:
+    if probability_edge is not None and probability_edge >= 0.025 and model_probability >= 0.52:
         return True
     return False
 
@@ -765,15 +1020,19 @@ def flatten_watchlist_markets(
     selected: list[dict[str, Any]] = []
     green_game_ids = {
         int(card.get("game_id"))
-        for card in flatten_best_bets(rows, limit=BOARD_BEST_BET_LIMIT)
+        for card in flatten_best_bets(rows, limit=None)
         if card.get("game_id") is not None
     }
     for row in rows:
         game_id = row.get("game_id")
         if game_id is not None and int(game_id) in green_game_ids:
             continue
-        market_cards = list(row.get("best_bets") or [])
-        if not market_cards:
+        # Per-game `best_bets` are strict positives (≤1/game). If present, they are the game's
+        # primary pick even when they miss the global green strip top-N — still show on watchlist.
+        raw_best = list(row.get("best_bets") or [])
+        if raw_best:
+            market_cards = raw_best
+        else:
             market_cards = [
                 card for card in (row.get("market_cards") or []) if _is_watchlist_candidate(card)
             ]
@@ -788,7 +1047,7 @@ def flatten_watchlist_markets(
             ),
             reverse=True,
         )
-        selected.extend(market_cards[:WATCHLIST_SELECTION_LIMIT_PER_GAME])
+        selected.extend(market_cards)
     selected.sort(
         key=lambda card: (
             float(card.get("weighted_ev") or -999.0),
@@ -813,7 +1072,7 @@ def recommendation_card_identity(card: dict[str, Any]) -> tuple[int, str, str, s
 def snapshot_recommendation_tiers(
     rows: list[dict[str, Any]],
     *,
-    green_limit: int = BOARD_BEST_BET_LIMIT,
+    green_limit: int | None = None,
     watchlist_limit: int = BOARD_WATCHLIST_LIMIT,
 ) -> dict[str, Any]:
     green_cards = flatten_best_bets(rows, limit=green_limit)
@@ -830,6 +1089,38 @@ def snapshot_recommendation_tiers(
             for index, card in enumerate(watchlist_cards)
         },
     }
+
+
+def dedupe_experimental_first_inning_by_game(
+    rows: list[dict[str, Any]],
+    *,
+    market_field: str = "market_type",
+    game_id_field: str = "game_id",
+) -> list[dict[str, Any]]:
+    """Keep at most one nrfi/yrfi row per game_id; prefer nrfi when both exist."""
+    order = {m: i for i, m in enumerate(EXPERIMENTAL_FIRST_INNING_MARKETS_ORDER)}
+    best_by_game: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        gid_raw = row.get(game_id_field)
+        if gid_raw is None:
+            continue
+        gid = int(gid_raw)
+        mkt = str(row.get(market_field) or "").lower()
+        if mkt not in order:
+            continue
+        existing = best_by_game.get(gid)
+        if existing is None:
+            best_by_game[gid] = row
+            continue
+        cur_m = str(existing.get(market_field) or "").lower()
+        if order[mkt] < order[cur_m]:
+            best_by_game[gid] = row
+
+    def _sort_key(r: dict[str, Any]) -> tuple[str, int]:
+        ts = r.get("game_start_ts") or r.get("snapshot_ts") or r.get("game_date") or ""
+        return (str(ts), int(r.get(game_id_field) or 0))
+
+    return sorted(best_by_game.values(), key=_sort_key)
 
 
 def selected_team_for_card(card: dict[str, Any]) -> str | None:

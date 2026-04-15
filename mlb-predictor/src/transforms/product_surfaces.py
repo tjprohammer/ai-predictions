@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import math
 from typing import Any
 
 import numpy as np
 import pandas as pd
+from sqlalchemy import inspect
 
 from src.utils import best_bets as best_bets_utils
+from src.utils.input_trust import input_trust_from_certainty
 from src.utils.cli import add_date_range_args, resolve_date_range
-from src.utils.db import delete_for_date_range, query_df, table_exists, upsert_rows
+from src.utils.db import delete_for_date_range, get_engine, query_df, table_exists, upsert_rows
 from src.utils.logging import get_logger
 
 
@@ -25,6 +28,49 @@ def _is_final_game_status(status: Any) -> bool:
     if not normalized:
         return False
     return any(marker in normalized for marker in ("final", "completed", "game over", "closed"))
+
+
+def _games_table_has_column(column_name: str) -> bool:
+    """True if ``games`` has been migrated (e.g. 024_inning1_runs) to include the column."""
+    if not table_exists("games"):
+        return False
+    try:
+        names = {c["name"] for c in inspect(get_engine()).get_columns("games")}
+    except Exception:
+        return False
+    return column_name in names
+
+
+def _grade_experimental_first_inning(
+    *,
+    game_status: Any,
+    total_runs_inning1: Any,
+    line_value: Any,
+    market_key: str,
+) -> tuple[bool, float | None, str | None, bool | None]:
+    """Grade NRFI/YRFI vs ``totals_1st_1_innings`` line (actual 1st-inning combined runs).
+
+    Returns ``(graded, actual_value, actual_side, success)``.
+    """
+    if not _is_final_game_status(game_status):
+        return False, None, None, None
+    actual = best_bets_utils.to_float(total_runs_inning1)
+    if actual is None or (isinstance(actual, float) and math.isnan(actual)):
+        return False, None, None, None
+    line = best_bets_utils.to_float(line_value)
+    if line is None:
+        line = 0.5
+    if actual > line:
+        actual_side = "over"
+    elif actual < line:
+        actual_side = "under"
+    else:
+        actual_side = "push"
+    recommended = "under" if str(market_key or "").lower() == "nrfi" else "over"
+    if actual_side == "push":
+        return True, float(actual), actual_side, None
+    success = recommended == actual_side
+    return True, float(actual), actual_side, success
 
 
 def _hit_streak(values: pd.Series) -> list[int]:
@@ -393,6 +439,9 @@ def _fetch_latest_experimental_market_rows(start_date, end_date) -> list[dict[st
     if not table_exists("game_markets"):
         return []
 
+    # Migration 024 adds this column; SQLite/local DBs may not have it yet.
+    inning1_runs_expr = "g.total_runs_inning1" if _games_table_has_column("total_runs_inning1") else "NULL"
+
     market_list = ", ".join(f"'{market_type}'" for market_type in EXPERIMENTAL_TRACKED_MARKETS)
     frame = query_df(
         f"""
@@ -410,6 +459,7 @@ def _fetch_latest_experimental_market_rows(start_date, end_date) -> list[dict[st
                 g.home_team,
                 g.game_start_ts,
                 g.status AS game_status,
+                {inning1_runs_expr} AS total_runs_inning1,
                 ROW_NUMBER() OVER (
                     PARTITION BY gm.game_id, gm.market_type, COALESCE(gm.sportsbook, '')
                     ORDER BY gm.snapshot_ts DESC
@@ -432,7 +482,8 @@ def _fetch_latest_experimental_market_rows(start_date, end_date) -> list[dict[st
             away_team,
             home_team,
             game_start_ts,
-            game_status
+            game_status,
+            total_runs_inning1
         FROM ranked
         WHERE row_rank = 1
         ORDER BY game_date, game_start_ts, game_id, market_type, sportsbook
@@ -464,15 +515,15 @@ def _fetch_latest_experimental_market_rows(start_date, end_date) -> list[dict[st
         chosen["selected_price"] = _experimental_selected_price(market_key, chosen)
         rows.append(chosen)
 
-    rows.sort(
+    deduped = best_bets_utils.dedupe_experimental_first_inning_by_game(rows, market_field="market_type")
+    deduped.sort(
         key=lambda row: (
             str(row.get("game_date") or ""),
             str(row.get("game_start_ts") or ""),
             int(row.get("game_id") or 0),
-            str(row.get("market_type") or ""),
         )
     )
-    return rows
+    return deduped
 
 
 def _build_experimental_market_outcomes(start_date, end_date) -> list[dict[str, Any]]:
@@ -485,6 +536,12 @@ def _build_experimental_market_outcomes(start_date, end_date) -> list[dict[str, 
         market_key = str(record.get("market_type") or "").lower()
         selected_price = _experimental_selected_price(market_key, record)
         selection_label = _experimental_market_display_name(market_key)
+        graded, actual_value, actual_side, success = _grade_experimental_first_inning(
+            game_status=record.get("game_status"),
+            total_runs_inning1=record.get("total_runs_inning1"),
+            line_value=record.get("line_value"),
+            market_key=market_key,
+        )
         rows.append(
             {
                 "game_date": pd.to_datetime(record["game_date"]).date(),
@@ -500,7 +557,7 @@ def _build_experimental_market_outcomes(start_date, end_date) -> list[dict[str, 
                 "model_version": EXPERIMENTAL_TRACKING_MODEL_VERSION,
                 "prediction_ts": record.get("snapshot_ts"),
                 "predicted_value": None,
-                "actual_value": None,
+                "actual_value": actual_value,
                 "market_line": best_bets_utils.to_float(record.get("line_value")),
                 "entry_market_sportsbook": record.get("sportsbook"),
                 "entry_market_snapshot_ts": record.get("snapshot_ts"),
@@ -514,9 +571,9 @@ def _build_experimental_market_outcomes(start_date, end_date) -> list[dict[str, 
                 "probability": None,
                 "opposite_probability": None,
                 "recommended_side": "under" if market_key == "nrfi" else "over",
-                "actual_side": None,
-                "graded": False,
-                "success": None,
+                "actual_side": actual_side,
+                "graded": graded,
+                "success": success,
                 "beat_market": None,
                 "absolute_error": None,
                 "squared_error": None,
@@ -534,6 +591,7 @@ def _build_experimental_market_outcomes(start_date, end_date) -> list[dict[str, 
                     "is_experimental_pick": True,
                     "experimental_rank": rank,
                     "experimental_reason": "Experimental first-inning market tracked separately from the green board.",
+                    "first_inning_runs": actual_value,
                 },
             }
         )
@@ -581,7 +639,9 @@ def _fetch_best_bet_totals_inputs(start_date, end_date) -> list[dict[str, Any]]:
             CAST(f.feature_payload ->> 'lineup_certainty_score' AS DOUBLE PRECISION) AS lineup_certainty_score,
             CAST(f.feature_payload ->> 'weather_freshness_score' AS DOUBLE PRECISION) AS weather_freshness_score,
             CAST(f.feature_payload ->> 'market_freshness_score' AS DOUBLE PRECISION) AS market_freshness_score,
-            CAST(f.feature_payload ->> 'bullpen_completeness_score' AS DOUBLE PRECISION) AS bullpen_completeness_score
+            CAST(f.feature_payload ->> 'bullpen_completeness_score' AS DOUBLE PRECISION) AS bullpen_completeness_score,
+            CAST(f.feature_payload ->> 'missing_fallback_count' AS INTEGER) AS missing_fallback_count,
+            f.feature_payload ->> 'board_state' AS board_state
         FROM games g
         LEFT JOIN ranked_predictions p
             ON p.game_id = g.game_id
@@ -833,17 +893,22 @@ def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[s
             continue
         game_id = int(game_id)
         game_date = pd.to_datetime(record["game_date"]).date()
+        certainty_base = {
+            "starter_certainty": record.get("starter_certainty_score"),
+            "lineup_certainty": record.get("lineup_certainty_score"),
+            "weather_freshness": record.get("weather_freshness_score"),
+            "market_freshness": record.get("market_freshness_score"),
+            "bullpen_completeness": record.get("bullpen_completeness_score"),
+            "missing_fallback_count": record.get("missing_fallback_count"),
+            "board_state": record.get("board_state"),
+        }
+        input_trust_snapshot = input_trust_from_certainty(certainty_base)
         game = {
             "game_id": game_id,
             "away_team": record.get("away_team"),
             "home_team": record.get("home_team"),
-            "certainty": {
-                "starter_certainty": record.get("starter_certainty_score"),
-                "lineup_certainty": record.get("lineup_certainty_score"),
-                "weather_freshness": record.get("weather_freshness_score"),
-                "market_freshness": record.get("market_freshness_score"),
-                "bullpen_completeness": record.get("bullpen_completeness_score"),
-            },
+            "certainty": {**certainty_base, "input_trust": input_trust_snapshot},
+            "input_trust": input_trust_snapshot,
             "totals": {
                 "away_expected_runs": record.get("away_expected_runs"),
                 "home_expected_runs": record.get("home_expected_runs"),
@@ -1043,6 +1108,10 @@ def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[s
                     "opposing_price": card.get("opposing_price"),
                     "probability_edge": card.get("probability_edge"),
                     "weighted_ev": card.get("weighted_ev"),
+                    "input_trust_grade": (card.get("input_trust") or {}).get("grade"),
+                    "input_trust_score": (card.get("input_trust") or {}).get("score"),
+                    "promotion_tier": card.get("promotion_tier"),
+                    "green_strip_tier": card.get("green_strip_tier"),
                     "is_green_pick": bool(green_rank is not None),
                     "green_reason": None if green_rank is None else f"Green board pick #{green_rank}",
                     "green_pick_rank": green_rank,

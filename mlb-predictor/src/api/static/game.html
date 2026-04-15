@@ -217,8 +217,153 @@
         grid-template-columns: 1.3fr 0.9fr;
       }
       .summary-grid {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         margin-bottom: 18px;
+      }
+      .wind-field-banner {
+        margin: 0 0 20px;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(22, 36, 29, 0.1);
+        background: linear-gradient(
+          165deg,
+          rgba(255, 255, 255, 0.96),
+          rgba(11, 106, 88, 0.06)
+        );
+      }
+      .wind-field-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .wind-field-title {
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .wind-field-meta {
+        font-size: 0.78rem;
+        color: var(--muted);
+      }
+      .wind-field-body {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 18px;
+      }
+      .wind-field-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 120px;
+      }
+      .wind-field-temp {
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1;
+      }
+      .wind-field-windline {
+        font-size: 0.95rem;
+        font-weight: 700;
+      }
+      .wind-field-skyline {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.3;
+      }
+      .wind-field-legend {
+        font-size: 0.72rem;
+        color: var(--muted);
+        max-width: 340px;
+        line-height: 1.35;
+        margin: 0;
+      }
+      .wind-field-note {
+        font-size: 0.72rem;
+        color: var(--muted);
+        max-width: 520px;
+        line-height: 1.35;
+      }
+      .wind-field-svgwrap {
+        flex: 1;
+        min-width: 220px;
+        max-width: 340px;
+      }
+      .wind-field-svgwrap svg {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      .summary-card.summary-card--run .run-context-split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(22, 36, 29, 0.08);
+      }
+      .summary-card .rc-sub {
+        display: block;
+        font-size: 0.65rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .summary-card .rc-block {
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(11, 106, 88, 0.06);
+        border: 1px solid rgba(11, 106, 88, 0.1);
+        font-size: 0.88rem;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+      .lineup-matchup-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .lm-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        border: 1px solid rgba(22, 36, 29, 0.08);
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.95),
+          rgba(11, 106, 88, 0.07)
+        );
+        color: var(--fg);
+      }
+      .lm-chip-bvp {
+        border-color: rgba(11, 106, 88, 0.22);
+      }
+      .lm-chip-platoon {
+        border-color: rgba(183, 121, 31, 0.25);
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.95),
+          rgba(183, 121, 31, 0.08)
+        );
+      }
+      .lm-chip .lm-stat {
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
       }
       .starter-grid,
       .lineup-grid {
@@ -630,6 +775,96 @@
         margin-top: 14px;
       }
 
+      .team-recent-section {
+        margin-bottom: 18px;
+      }
+
+      .team-recent-split {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+        margin-top: 14px;
+      }
+
+      @media (max-width: 900px) {
+        .team-recent-split {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .recent-team-block {
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.74);
+        padding: 14px 16px;
+      }
+
+      .recent-team-title {
+        font-size: 0.78rem;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--accent-deep);
+        margin: 0 0 10px;
+      }
+
+      .recent-games-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.82rem;
+      }
+
+      .recent-games-table th {
+        text-align: left;
+        font-size: 0.65rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 800;
+        padding: 6px 8px 8px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .recent-games-table td {
+        padding: 8px 8px 8px 0;
+        border-bottom: 1px solid rgba(20, 33, 25, 0.06);
+        vertical-align: top;
+      }
+
+      .recent-games-table td.wl {
+        font-weight: 800;
+        color: var(--accent-deep);
+        width: 1.5rem;
+      }
+
+      .recent-games-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .recent-games-scroll {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .recent-team-avg {
+        margin-bottom: 12px;
+      }
+
+      .recent-avg-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 14px;
+        font-size: 0.82rem;
+        line-height: 1.45;
+        color: var(--ink);
+      }
+
+      .recent-avg-note {
+        margin: 6px 0 0;
+        font-size: 0.76rem;
+        line-height: 1.4;
+      }
+
       .pitcher-chart-section {
         margin-bottom: 18px;
       }
@@ -858,6 +1093,13 @@
         text-align: left;
         font-weight: 600;
       }
+      .matchup-table th:nth-child(2),
+      .matchup-table td:nth-child(2) {
+        text-align: center;
+      }
+      .matchup-table th:nth-child(2) {
+        font-size: 0.62rem;
+      }
       .matchup-table tr:last-child td {
         border-bottom: none;
       }
@@ -1003,6 +1245,57 @@
         opacity: 0.25;
       }
 
+      /* API sample_tier (low / adequate / strong) */
+      .matchup-tier-legend {
+        font-size: 0.72rem;
+        color: var(--muted);
+        line-height: 1.45;
+        padding: 10px 12px;
+        margin-bottom: 12px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line);
+        background: rgba(20, 33, 25, 0.03);
+      }
+      .matchup-tier-legend .mtl-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .matchup-tier-legend .mtl-row:last-child {
+        margin-bottom: 0;
+      }
+      .st-chip {
+        display: inline-block;
+        font-size: 0.6rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        border-radius: 4px;
+        padding: 2px 6px;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .st-chip.st-low {
+        color: #b45309;
+        background: rgba(180, 83, 9, 0.12);
+      }
+      .st-chip.st-adequate {
+        color: #1d4ed8;
+        background: rgba(29, 78, 216, 0.1);
+      }
+      .st-chip.st-strong {
+        color: var(--good);
+        background: rgba(22, 101, 52, 0.12);
+      }
+      .matchup-h2h-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+
       .term-grid,
       .market-grid {
         display: grid;
@@ -1090,6 +1383,44 @@
       .market-badge.good {
         background: rgba(22, 101, 52, 0.12);
         color: var(--good);
+      }
+
+      .market-badge.warn {
+        background: rgba(245, 158, 11, 0.16);
+        color: var(--warn);
+      }
+
+      .market-badge.info {
+        background: rgba(11, 106, 88, 0.1);
+        color: var(--accent-deep);
+      }
+
+      .market-badge-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+        max-width: 72%;
+      }
+
+      .market-card.tier-soft_green {
+        border-color: rgba(180, 83, 9, 0.22);
+      }
+
+      .market-card.tier-watchlist {
+        border-color: rgba(11, 106, 88, 0.18);
+      }
+
+      .market-card.tier-raw_edge,
+      .market-card.tier-lean {
+        border-color: rgba(183, 121, 31, 0.2);
+      }
+
+      .market-gate-hint {
+        font-size: 0.78rem;
+        color: var(--muted);
+        line-height: 1.45;
+        margin-top: 4px;
       }
 
       .market-card-title {
@@ -1302,6 +1633,25 @@
         gap: 6px;
         align-items: center;
       }
+      .card-season-line {
+        font-size: 0.88rem;
+        font-weight: 700;
+        color: var(--fg);
+        margin-top: 4px;
+        letter-spacing: -0.01em;
+      }
+      .card-matchup-line {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin-top: 3px;
+        line-height: 1.4;
+      }
+      .starter-spotlight-line {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: var(--fg);
+        margin-top: 6px;
+      }
       .card-pos-badge {
         display: inline-flex;
         align-items: center;
@@ -1483,6 +1833,7 @@
       </section>
 
       <section class="summary-grid" id="summaryGrid"></section>
+      <section class="wind-field-banner" id="windFieldSection" hidden></section>
       <section class="panel">
         <div class="lineup-head">
           <div>
@@ -1561,6 +1912,18 @@
         </div>
         <div class="first5-grid" id="first5Grid"></div>
       </section>
+      <section class="panel team-recent-section" id="teamRecentSection" style="display: none">
+        <div class="lineup-head">
+          <div>
+            <div class="section-tag">Recent games</div>
+            <h2>Last 10 games (each team)</h2>
+          </div>
+          <span class="muted" id="teamRecentSummary"
+            >Final games in your database before this matchup</span
+          >
+        </div>
+        <div class="team-recent-split" id="teamRecentGrid"></div>
+      </section>
       <section
         class="pitcher-chart-section"
         id="pitcherChartSection"
@@ -1623,8 +1986,11 @@
       const pageState = {
         detail: null,
         pitcherVsTeam: {},
+        matchupByBatter: {},
+        platoonByBatter: {},
         historyFilters: {},
         statFilters: {},
+        venueFieldGeometry: null,
       };
 
       function appUrl(path = "") {
@@ -1707,6 +2073,40 @@
       function formatBattingAverage(value) {
         const number = numberOr(value);
         return number == null ? "-" : number.toFixed(3).replace(/^0/, "");
+      }
+
+      function formatOps(value) {
+        const n = numberOr(value);
+        return n == null ? "—" : n.toFixed(3);
+      }
+
+      function renderInlineMatchupRow(player) {
+        const pid = String(player.player_id || "");
+        const bvp = pageState.matchupByBatter[pid];
+        const pl = pageState.platoonByBatter[pid];
+        const chips = [];
+        const pa = bvp ? numberOr(bvp.plate_appearances, 0) : 0;
+        if (bvp && pa > 0) {
+          const tier = bvp.sample_tier
+            ? `<span class="slot-badge" style="font-size:0.6rem">${escapeHtml(String(bvp.sample_tier))}</span>`
+            : "";
+          chips.push(
+            `<span class="lm-chip lm-chip-bvp" title="Career vs today's starter">BvP ${tier}<span class="lm-stat">${formatBattingAverage(bvp.batting_avg)}</span> · ${formatInteger(pa)} PA · OPS <span class="lm-stat">${formatOps(bvp.ops)}</span>${bvp.source === "game_logs" ? ' <span class="slot-badge" title="Game logs">GL</span>' : ""}</span>`,
+          );
+        }
+        if (pl && numberOr(pl.plate_appearances, 0) > 0) {
+          const hand =
+            pl.split_type === "platoon_lhp"
+              ? "LHP"
+              : pl.split_type === "platoon_rhp"
+                ? "RHP"
+                : "Platoon";
+          chips.push(
+            `<span class="lm-chip lm-chip-platoon" title="Season platoon split">vs ${hand} <span class="lm-stat">${formatBattingAverage(pl.batting_avg)}</span> · ${formatInteger(pl.plate_appearances)} PA · OPS <span class="lm-stat">${formatOps(pl.ops)}</span></span>`,
+          );
+        }
+        if (!chips.length) return "";
+        return `<div class="lineup-matchup-strip">${chips.join("")}</div>`;
       }
 
       function parseDisplayDate(value) {
@@ -2040,6 +2440,30 @@
       }
 
       function starterPitcherVsTeamContext(starter) {
+        const embedded = starter?.pitcher_vs_opponent_team;
+        if (embedded && (embedded.era != null || embedded.innings_pitched != null)) {
+          const opp = embedded.opponent_team_abbr || "opponent";
+          const bits = [];
+          if (numberOr(embedded.era) != null) {
+            bits.push(`${formatNumber(embedded.era, 2)} ERA`);
+          }
+          if (numberOr(embedded.innings_pitched) != null) {
+            bits.push(`${formatNumber(embedded.innings_pitched, 1)} IP`);
+          }
+          if (numberOr(embedded.strikeouts) != null) {
+            bits.push(`${formatInteger(embedded.strikeouts)} K`);
+          }
+          if (numberOr(embedded.hits) != null) {
+            bits.push(`${formatInteger(embedded.hits)} H`);
+          }
+          if (numberOr(embedded.walks) != null) {
+            bits.push(`${formatInteger(embedded.walks)} BB`);
+          }
+          if (numberOr(embedded.whip) != null) {
+            bits.push(`${formatNumber(embedded.whip, 3)} WHIP`);
+          }
+          return `Against ${escapeHtml(opp)} batters: ${bits.join(" · ")}`;
+        }
         const pitcherId = String(starter?.pitcher_id || "");
         if (!pitcherId) {
           return "Pitcher-vs-team history pending";
@@ -2148,6 +2572,21 @@
               <div>
                 <div class="section-tag">${escapeHtml(starter.team || fallbackTeam)}</div>
                 <h3>${escapeHtml(starter.pitcher_name || "Starter")}</h3>
+                ${(() => {
+                  const rf = starter.recent_form || {};
+                  const era = numberOr(rf.season_era);
+                  const kStart = numberOr(rf.avg_strikeouts);
+                  const ss = numberOr(rf.season_starts);
+                  const bits = [];
+                  if (era != null) bits.push(`${formatNumber(era, 2)} ERA`);
+                  if (kStart != null && ss != null && ss > 0) {
+                    bits.push(
+                      `${formatNumber(kStart, 1)} K/start · ${formatInteger(ss)} GS`,
+                    );
+                  }
+                  if (!bits.length) return "";
+                  return `<div class="starter-spotlight-line">${escapeHtml(bits.join(" · "))}</div>`;
+                })()}
               </div>
               <span class="chip ${starter.is_probable ? "good" : "warn"}">${starter.throws ? `${escapeHtml(starter.throws)}HP` : "Hand -"}${starter.days_rest == null ? "" : ` · ${starter.days_rest}d rest`}</span>
             </div>
@@ -2449,6 +2888,41 @@
                   ${player.bats ? `<span>${player.bats}HB</span>` : ""}
                   ${pitcherName ? `<span>vs ${escapeHtml(pitcherName)}</span>` : ""}
                 </div>
+                ${(() => {
+                  const sh = numberOr(player.season_hits);
+                  const sab = numberOr(player.season_at_bats);
+                  const avg = numberOr(player.batting_avg_season);
+                  if (avg == null && (sh == null || sab == null)) return "";
+                  const avgS = avg != null ? formatBattingAverage(avg) : "—";
+                  const hAb =
+                    sh != null && sab != null ? ` · ${formatInteger(sh)}/${formatInteger(sab)}` : "";
+                  return `<div class="card-season-line">Season ${avgS}${hAb}</div>`;
+                })()}
+                ${renderInlineMatchupRow(player)}
+                ${(() => {
+                  const pid = String(player.player_id || "");
+                  if (numberOr(pageState.matchupByBatter[pid]?.plate_appearances, 0) > 0)
+                    return "";
+                  const b = player.bvp_vs_today_starter;
+                  if (!b || !b.opposing_pitcher_name) return "";
+                  const pn = escapeHtml(b.opposing_pitcher_name);
+                  if (!b.has_sample) {
+                    return `<div class="card-matchup-line">Against ${pn}: no career PA vs this pitcher yet</div>`;
+                  }
+                  const h = b.hits ?? 0;
+                  const ab = b.at_bats ?? 0;
+                  const k = b.strikeouts ?? 0;
+                  const hr = b.home_runs ?? 0;
+                  const avgw =
+                    b.batting_avg != null
+                      ? formatBattingAverage(b.batting_avg)
+                      : "—";
+                  const src =
+                    b.source === "game_logs"
+                      ? ' <span class="slot-badge" title="From game logs">GL</span>'
+                      : "";
+                  return `<div class="card-matchup-line">Against ${pn}: ${avgw} · ${h}/${ab} · ${k} K · ${hr} HR${src}</div>`;
+                })()}
                 <div class="card-bio-line" id="player-bio-${playerId}">Loading…</div>
               </div>
             </div>
@@ -2597,6 +3071,240 @@
         return dirs[Math.round(num / 22.5) % 16];
       }
 
+      function normalizeAngleDelta(deg) {
+        let d = deg;
+        while (d > 180) d -= 360;
+        while (d < -180) d += 360;
+        return d;
+      }
+
+      function windTowardFieldCaption(wfromDeg, cfDeg) {
+        if (wfromDeg == null || cfDeg == null) return "";
+        const wto = (Number(wfromDeg) + 180) % 360;
+        const d = normalizeAngleDelta(wto - Number(cfDeg));
+        const ad = Math.abs(d);
+        if (ad <= 28) {
+          return "Ticks aim toward center field (out); strong out-breeze can help carry.";
+        }
+        if (ad >= 152) {
+          return "Ticks aim from center field toward home (in); often holds fly balls shorter.";
+        }
+        return "Ticks show a crosswind across the diamond (neither pure in nor pure out).";
+      }
+
+      function formatSkySnapshot(weather) {
+        const c = numberOr(weather.cloud_cover_pct);
+        const p = numberOr(weather.precipitation_pct);
+        const parts = [];
+        if (c != null) parts.push(`Cloud cover ${Math.round(c)}%`);
+        if (p != null) parts.push(`Rain chance ${Math.round(p)}%`);
+        return parts.length ? parts.join(" · ") : "";
+      }
+
+      async function ensureVenueFieldGeometry() {
+        if (pageState.venueFieldGeometry) return pageState.venueFieldGeometry;
+        const fallback = {
+          default: {
+            cf_bearing_deg: 85,
+            fence_ft: { lf: 330, lc: 375, cf: 400, rc: 375, rf: 330 },
+          },
+          by_home_team: {},
+        };
+        try {
+          const r = await fetch(appUrl("data/venue_field_geometry.json"));
+          pageState.venueFieldGeometry = r.ok ? await r.json() : fallback;
+        } catch {
+          pageState.venueFieldGeometry = fallback;
+        }
+        if (!pageState.venueFieldGeometry || !pageState.venueFieldGeometry.default) {
+          pageState.venueFieldGeometry = fallback;
+        }
+        return pageState.venueFieldGeometry;
+      }
+
+      function resolveParkGeometry(homeTeam, geom) {
+        const team = String(homeTeam || "").toUpperCase();
+        const map = geom.by_home_team || {};
+        return map[team] || geom.default;
+      }
+
+      function buildWindFieldInnerHtml(detail, geom) {
+        const weather = detail.weather || {};
+        const venue = detail.venue || {};
+        const roof = String(venue.roof_type || "").toLowerCase();
+        const spd = numberOr(weather.wind_speed_mph);
+        const wfrom = numberOr(weather.wind_direction_deg);
+        const temp = numberOr(weather.temperature_f);
+        const skyLine = formatSkySnapshot(weather);
+        if (
+          spd == null &&
+          wfrom == null &&
+          temp == null &&
+          skyLine === ""
+        ) {
+          return "";
+        }
+
+        const cityState = [venue.city, venue.state].filter(Boolean).join(", ");
+        const outdoor =
+          roof.includes("dome") || roof.includes("fixed")
+            ? "Roof / enclosure"
+            : "Outdoor";
+        const venueLine = [outdoor, cityState].filter(Boolean).join(" · ");
+
+        const isDomeInterior =
+          roof.includes("dome") &&
+          !roof.includes("retractable") &&
+          !roof.includes("open");
+
+        if (isDomeInterior) {
+          return `
+            <div class="wind-field-head">
+              <div class="wind-field-title">Park wind</div>
+              <div class="wind-field-meta">${escapeHtml(venue.name || "Venue")}</div>
+            </div>
+            <div class="wind-field-body">
+              <div class="wind-field-stats">
+                <div class="wind-field-temp">${temp != null ? `${formatNumber(temp, 0)}°F` : "—"}</div>
+                <div class="wind-field-windline">Wind ${spd != null ? `${formatNumber(spd, 0)} mph` : "—"}</div>
+                ${skyLine ? `<div class="wind-field-skyline">${escapeHtml(skyLine)}</div>` : ""}
+              </div>
+              <p class="wind-field-note">
+                This venue is a fixed dome; on-field conditions are climate-controlled. The numbers above are
+                still the model&rsquo;s game-time snapshot for context, not open-air flow across the diamond.
+              </p>
+            </div>`;
+        }
+
+        const park = resolveParkGeometry(detail.home_team, geom);
+        const cf = numberOr(park.cf_bearing_deg) ?? 85;
+        const fence = park.fence_ft || {};
+        let rotate = 0;
+        if (wfrom != null) {
+          const wto = (wfrom + 180) % 360;
+          rotate = normalizeAngleDelta(wto - cf);
+        }
+
+        // Fair-territory wedge: single vertex = home plate; arc = outfield fence (SVG y increases downward).
+        const hp = { x: 120, y: 170 };
+        const lfFoul = { x: 44, y: 80 };
+        const rfFoul = { x: 196, y: 80 };
+        const cfTip = { x: 120, y: 22 };
+        const fairPath = `M ${hp.x} ${hp.y} L ${lfFoul.x} ${lfFoul.y} Q ${cfTip.x} ${cfTip.y} ${rfFoul.x} ${rfFoul.y} Z`;
+        const streakCx = 120;
+        const streakCy = 108;
+
+        const streakRows = [];
+        for (let row = 0; row < 12; row++) {
+          for (let col = 0; col < 16; col++) {
+            const x = 22 + col * 12 + (row % 2) * 6;
+            const y = 36 + row * 11;
+            streakRows.push(
+              `<line x1="${x}" y1="${y + 5}" x2="${x}" y2="${y - 5}" stroke="rgba(22,36,29,0.32)" stroke-width="1.35" stroke-linecap="round" marker-end="url(#wfWindArrow)" />`,
+            );
+          }
+        }
+
+        const flowCaption = windTowardFieldCaption(wfrom, cf);
+
+        const lf = fence.lf != null ? String(fence.lf) : "";
+        const lc = fence.lc != null ? String(fence.lc) : "";
+        const cfFt = fence.cf != null ? String(fence.cf) : "";
+        const rc = fence.rc != null ? String(fence.rc) : "";
+        const rf = fence.rf != null ? String(fence.rf) : "";
+
+        const fromLbl = wfrom != null ? windDirectionLabel(wfrom) : "";
+
+        return `
+          <div class="wind-field-head">
+            <div class="wind-field-title">Park wind (model snapshot)</div>
+            <div class="wind-field-meta">${escapeHtml(venueLine)} · ${escapeHtml(venue.name || "")}</div>
+          </div>
+          <div class="wind-field-body">
+            <div class="wind-field-stats">
+              <div class="wind-field-temp">${temp != null ? `${formatNumber(temp, 0)}°F` : "—"}</div>
+              <div class="wind-field-windline">${
+                spd != null && fromLbl
+                  ? `${formatNumber(spd, 1)} mph from ${fromLbl}`
+                  : spd != null
+                    ? `${formatNumber(spd, 1)} mph`
+                    : "Wind —"
+              }</div>
+              ${skyLine ? `<div class="wind-field-skyline">${escapeHtml(skyLine)}</div>` : ""}
+            </div>
+            <div class="wind-field-svgwrap" aria-hidden="true">
+              <svg viewBox="0 0 240 200" role="img">
+                <title>Fair territory with wind: home plate at bottom, center field at top; arrow ticks show air movement</title>
+                <defs>
+                  <linearGradient id="wfGrass" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#d9f4df" />
+                    <stop offset="100%" stop-color="#bfe8c9" />
+                  </linearGradient>
+                  <marker
+                    id="wfWindArrow"
+                    markerWidth="5"
+                    markerHeight="5"
+                    refX="4.2"
+                    refY="2.5"
+                    orient="auto"
+                    markerUnits="userSpaceOnUse"
+                  >
+                    <path d="M0,0 L5,2.5 L0,5 Z" fill="rgba(22,36,29,0.42)" />
+                  </marker>
+                  <clipPath id="wfFairClip">
+                    <path d="${fairPath}" />
+                  </clipPath>
+                </defs>
+                <rect x="0" y="0" width="240" height="200" fill="url(#wfGrass)" rx="14" />
+                <path d="${fairPath}" fill="rgba(255,255,255,0.2)" stroke="rgba(22,36,29,0.35)" stroke-width="2" />
+                <path
+                  d="M 120 162 L 52 88 Q 120 34 188 88 Z"
+                  fill="none"
+                  stroke="rgba(22,36,29,0.22)"
+                  stroke-width="1.3"
+                />
+                <g clip-path="url(#wfFairClip)">
+                  <g transform="translate(${streakCx} ${streakCy}) rotate(${rotate}) translate(${-streakCx} ${-streakCy})">
+                    ${streakRows.join("")}
+                  </g>
+                </g>
+                <path
+                  d="M 120 166.2 L 126.8 172.5 L 124.4 176.2 L 115.6 176.2 L 113.2 172.5 Z"
+                  fill="#f4faf6"
+                  stroke="rgba(22,36,29,0.45)"
+                  stroke-width="0.85"
+                />
+                <text x="120" y="188" text-anchor="middle" font-size="8" font-weight="600" fill="#3d524a">Home plate</text>
+                <circle cx="120" cy="105" r="22" fill="rgba(255,255,255,0.92)" stroke="rgba(22,36,29,0.12)" />
+                <text x="120" y="101" text-anchor="middle" font-size="11" font-weight="700" fill="#1a2b24">${spd != null ? `${formatNumber(spd, 0)} mph` : ""}</text>
+                <text x="120" y="115" text-anchor="middle" font-size="9" fill="#5c6f68">${fromLbl ? `from ${fromLbl}` : ""}</text>
+                ${lf ? `<text x="58" y="138" font-size="9" font-weight="700" fill="#3d524a" transform="rotate(-56 58 138)">${escapeHtml(lf)}</text>` : ""}
+                ${lc ? `<text x="72" y="52" font-size="9" font-weight="700" fill="#3d524a">${escapeHtml(lc)}</text>` : ""}
+                ${cfFt ? `<text x="120" y="18" font-size="9" font-weight="700" fill="#3d524a">${escapeHtml(cfFt)}</text>` : ""}
+                ${rc ? `<text x="174" y="52" font-size="9" font-weight="700" fill="#3d524a">${escapeHtml(rc)}</text>` : ""}
+                ${rf ? `<text x="182" y="138" font-size="9" font-weight="700" fill="#3d524a" transform="rotate(56 182 138)">${escapeHtml(rf)}</text>` : ""}
+              </svg>
+            </div>
+            <p class="wind-field-legend">
+              <strong>How to read:</strong> labeled wind is meteorological &ldquo;from&rdquo; (e.g. from WSW). Arrow ticks show where air is moving toward on this diagram.
+              ${flowCaption ? ` ${escapeHtml(flowCaption)}` : ""}
+            </p>
+            <p class="wind-field-note">
+              Direction, speed${skyLine ? ", cloud cover, and rain probability" : ""} come from the same hourly snapshot (Open-Meteo at the venue&rsquo;s coordinates, hour closest to first pitch).
+              Ticks are rotated using an approximate center-field compass bearing for this park (${Math.round(cf)}°) so &ldquo;out&rdquo; aligns with toward center. For stadium-grade wind you&rsquo;d need in-park sensors.
+            </p>
+          </div>`;
+      }
+
+      async function renderWindFieldSection(detail) {
+        const section = document.getElementById("windFieldSection");
+        if (!section) return;
+        const geom = await ensureVenueFieldGeometry();
+        const html = buildWindFieldInnerHtml(detail, geom);
+        section.innerHTML = html;
+        section.hidden = !html;
+      }
+
       function renderFirst5Section(detail) {
         const first5 = detail.first5_totals || {};
         const section = document.getElementById("first5Section");
@@ -2634,6 +3342,130 @@
         `;
       }
 
+      function formatRecentAvg(v) {
+        if (v == null || v === "") return "—";
+        return formatNumber(v, 2);
+      }
+
+      function recentTeamSummaryBlock(summary) {
+        if (!summary || !summary.games) return "";
+        return `
+          <div class="recent-team-avg">
+            <div class="recent-avg-grid">
+              <span><strong>${summary.games}</strong> games sample</span>
+              <span title="This team vs opponent per game">Team ${formatRecentAvg(summary.avg_team_runs)} · Opp ${formatRecentAvg(summary.avg_opponent_runs)}</span>
+              <span title="Combined runs both teams">Game tot ${formatRecentAvg(summary.avg_game_total_runs)}</span>
+              <span title="Combined runs through inning 5 (both teams)">F5 Σ ${formatRecentAvg(summary.avg_first5_combined_runs)} · 6+ Σ ${formatRecentAvg(summary.avg_six_plus_combined_runs)}</span>
+              <span title="This team’s runs in innings 1–5 vs 6+">Team F5 ${formatRecentAvg(summary.avg_team_first5_runs)} · Team 6+ ${formatRecentAvg(summary.avg_team_six_plus_runs)}</span>
+            </div>
+            <p class="recent-avg-note muted">Σ = both teams combined for that game. Team F5 / Team 6+ = this club’s scoring in innings 1–5 and from the 6th on (full game minus team F5). Averages include only games where the underlying boxscore field exists.</p>
+          </div>`;
+      }
+
+      function renderTeamRecentSection(detail) {
+        const section = document.getElementById("teamRecentSection");
+        const grid = document.getElementById("teamRecentGrid");
+        const summary = document.getElementById("teamRecentSummary");
+        const pack = detail.team_recent_games || {};
+        const awayRows = Array.isArray(pack.away) ? pack.away : [];
+        const homeRows = Array.isArray(pack.home) ? pack.home : [];
+        if (!awayRows.length && !homeRows.length) {
+          section.style.display = "none";
+          return;
+        }
+        section.style.display = "";
+        const fc = pack.f5_coverage || {};
+        const awayFc = fc.away || {};
+        const homeFc = fc.home || {};
+        const covBits = [];
+        if (awayFc.games) {
+          covBits.push(
+            `${detail.away_team || "Away"}: F5 ${awayFc.with_combined_f5 ?? 0}/${awayFc.games} · T F5 ${awayFc.with_team_f5 ?? 0}/${awayFc.games}`,
+          );
+        }
+        if (homeFc.games) {
+          covBits.push(
+            `${detail.home_team || "Home"}: F5 ${homeFc.with_combined_f5 ?? 0}/${homeFc.games} · T F5 ${homeFc.with_team_f5 ?? 0}/${homeFc.games}`,
+          );
+        }
+        summary.textContent = covBits.length
+          ? `${covBits.join(" · ")} — empty cells need boxscore linescore (Update Scores & boxes).`
+          : "Per-game lines + sample averages.";
+        const col = (teamLabel, rows, roll) => {
+          if (!rows.length) {
+            return `
+            <div class="recent-team-block">
+              <h3 class="recent-team-title">${escapeHtml(teamLabel)}</h3>
+              <p class="muted" style="margin:0;font-size:0.84rem">No prior final games found in the database for this team before this date.</p>
+            </div>`;
+          }
+          const body = rows
+            .map((r) => {
+              const wl =
+                r.result === "W"
+                  ? "W"
+                  : r.result === "L"
+                    ? "L"
+                    : r.result === "T"
+                      ? "T"
+                      : "—";
+              const loc = r.was_home ? "Home" : "Away";
+              const score =
+                r.team_runs != null && r.opponent_runs != null
+                  ? `${r.team_runs}–${r.opponent_runs}`
+                  : "—";
+              const cell = (v) =>
+                v != null && v !== "" ? String(v) : "—";
+              return `<tr>
+                <td>${escapeHtml(formatShortDate(r.game_date))}</td>
+                <td class="wl">${escapeHtml(wl)}</td>
+                <td>${escapeHtml(loc)}</td>
+                <td>${escapeHtml(r.opponent || "—")}</td>
+                <td>${escapeHtml(score)}</td>
+                <td>${escapeHtml(cell(r.total_runs))}</td>
+                <td title="Combined runs, innings 1–5">${escapeHtml(cell(r.first5_total_runs))}</td>
+                <td title="Combined runs from 6th inning on">${escapeHtml(cell(r.six_plus_combined_runs))}</td>
+                <td title="This team’s runs, innings 1–5">${escapeHtml(cell(r.team_runs_first5))}</td>
+                <td title="This team’s runs, 6th inning or later">${escapeHtml(cell(r.team_runs_late))}</td>
+              </tr>`;
+            })
+            .join("");
+          return `
+            <div class="recent-team-block">
+              <h3 class="recent-team-title">${escapeHtml(teamLabel)}</h3>
+              ${recentTeamSummaryBlock(roll)}
+              <div class="recent-games-scroll">
+              <table class="recent-games-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th></th>
+                    <th>Loc</th>
+                    <th>Opp</th>
+                    <th>Score</th>
+                    <th title="Final combined score (both teams)">Tot</th>
+                    <th title="First five innings — combined runs (both teams)">F5&nbsp;Σ</th>
+                    <th title="Sixth inning onward — combined runs (both teams)">6+&nbsp;Σ</th>
+                    <th title="This team’s runs, innings 1–5">T&nbsp;F5</th>
+                    <th title="This team’s runs from the 6th inning on">T&nbsp;6+</th>
+                  </tr>
+                </thead>
+                <tbody>${body}</tbody>
+              </table>
+              </div>
+            </div>`;
+        };
+        grid.innerHTML = `${col(detail.away_team || "Away", awayRows, pack.away_summary)}${col(detail.home_team || "Home", homeRows, pack.home_summary)}`;
+      }
+
+      function marketBoardBadgeClass(key) {
+        if (key === "strict") return "good";
+        if (key === "soft_green" || key === "raw_edge") return "warn";
+        if (key === "watchlist") return "info";
+        if (key === "lean") return "warn";
+        return "";
+      }
+
       function renderMarketsSection(detail) {
         const section = document.getElementById("marketsSection");
         const grid = document.getElementById("marketsGrid");
@@ -2654,51 +3486,94 @@
           return;
         }
         section.style.display = "";
-        summary.textContent = `${bestBets.length} positive EV market${bestBets.length === 1 ? "" : "s"} after no-vig and certainty weighting`;
-        lead.innerHTML = bestBets.length
-          ? bestBets
-              .slice(0, 3)
-              .map(
-                (bet) =>
-                  `<span class="market-badge good">${escapeHtml(bet.selection_label || bet.market_label || "Best Bet")}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""}</span>`,
-              )
-              .join("")
-          : `<span class="market-badge">No positive EV picks yet</span>`;
+        const countTier = (t) =>
+          cards.filter((c) => (c.board_pick_tier || "monitor") === t).length;
+        const nStrict = countTier("strict");
+        const nSoft = countTier("soft_green");
+        const nWatch = countTier("watchlist");
+        const nRaw = countTier("raw_edge");
+        const nLean = countTier("lean");
+        const parts = [];
+        if (nStrict)
+          parts.push(
+            `${nStrict} full-gate${nStrict === 1 ? "" : "s"}`,
+          );
+        if (nSoft) parts.push(`${nSoft} soft green`);
+        if (nWatch) parts.push(`${nWatch} watchlist`);
+        if (nRaw) parts.push(`${nRaw} raw EV only (gates not met)`);
+        if (nLean) parts.push(`${nLean} lean vs no-vig`);
+        summary.textContent = parts.length
+          ? `${parts.join(" · ")} · weighted EV uses price × model, then certainty weight`
+          : "Market context · compare tiers on each card";
+        const leadChips = [];
+        bestBets.slice(0, 3).forEach((bet) => {
+          leadChips.push(
+            `<span class="market-badge good">${escapeHtml(bet.selection_label || bet.market_label || "Best Bet")}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""}</span>`,
+          );
+        });
+        cards
+          .filter((c) => c.board_pick_tier === "soft_green")
+          .slice(0, 2)
+          .forEach((c) => {
+            leadChips.push(
+              `<span class="market-badge warn">${escapeHtml(c.selection_label || c.market_label || "Soft green")}${c.price != null ? ` ${formatPrice(c.price)}` : ""}</span>`,
+            );
+          });
+        lead.innerHTML = leadChips.length
+          ? leadChips.join("")
+          : `<span class="market-badge">No full-gate or soft-green highlights yet — see card badges</span>`;
         grid.innerHTML = cards
           .map((card) => {
+            const tier = card.board_pick_tier || "monitor";
             const toneClass = card.positive ? "positive" : "";
-            const badge = card.positive
-              ? `<span class="market-badge good">Positive EV</span>`
-              : `<span class="market-badge">Watchlist</span>`;
+            const tierClass = tier !== "monitor" ? ` tier-${tier}` : "";
+            const badges = Array.isArray(card.board_badges)
+              ? card.board_badges
+              : [];
+            const badgeHtml = badges.length
+              ? `<div class="market-badge-row">${badges
+                  .map((b) => {
+                    const cls = marketBoardBadgeClass(b.key);
+                    return `<span class="market-badge ${cls ? escapeHtml(cls) : ""}">${escapeHtml(b.label || b.key)}</span>`;
+                  })
+                  .join("")}</div>`
+              : `<span class="market-badge">Context</span>`;
             const selectionText = card.selection_label
               ? `${escapeHtml(card.selection_label)}${card.price != null ? ` ${formatPrice(card.price)}` : ""}`
-              : "No positive edge yet";
+              : "Line pending";
             const metricParts = [];
             if (card.weighted_ev != null) {
               metricParts.push(
-                `EV ${formatSigned(card.weighted_ev * 100, 1)}%`,
+                `Weighted EV ${formatSigned(card.weighted_ev * 100, 1)}%`,
               );
             }
             if (card.probability_edge != null) {
               metricParts.push(
-                `No-vig ${formatSigned(card.probability_edge * 100, 1)} pts`,
+                `No-vig edge ${formatSigned(card.probability_edge * 100, 1)} pts`,
               );
             }
             if (card.certainty_weight != null) {
               metricParts.push(
-                `Cert ${formatPercent(card.certainty_weight, 0)}`,
+                `Certainty ${formatPercent(card.certainty_weight, 0)}`,
               );
             }
+            const hints = Array.isArray(card.ev_gate_hints)
+              ? card.ev_gate_hints
+              : [];
+            const hintBlock = hints.length
+              ? `<div class="market-gate-hint">Not full-gate yet: ${hints.map((h) => escapeHtml(h)).join(" · ")}</div>`
+              : "";
             return `
-              <article class="market-card ${toneClass}">
+              <article class="market-card ${toneClass}${tierClass}">
                 <div class="market-card-head">
                   <div class="data-label">${escapeHtml(card.market_label || "Market")}</div>
-                  ${badge}
+                  ${badgeHtml}
                 </div>
                 <div class="market-card-title">${selectionText}</div>
                 <div class="market-card-copy">${escapeHtml(card.market_summary || "Market snapshot pending")}</div>
                 <div class="market-card-copy">${escapeHtml(card.model_summary || "Model context pending")}</div>
                 <div class="market-card-meta">${metricParts.join(" · ") || "Model edge unavailable"}${card.sportsbook ? ` · ${escapeHtml(card.sportsbook)}` : ""}</div>
+                ${hintBlock}
               </article>
             `;
           })
@@ -3224,14 +4099,19 @@
           const earnedRuns = numberOr(
             totals[`${side}_bullpen_earned_runs_last3`],
           );
-          const lateEra = numberOr(totals[`${side}_bullpen_late_era_last3`]);
+          const lateEra = numberOr(
+            totals[`${side}_bullpen_late_era_last5`],
+            totals[`${side}_bullpen_late_era_last3`],
+          );
           const lateSeasonEra = numberOr(
             totals[`${side}_bullpen_late_season_era`],
           );
           const lateInnings = numberOr(
+            totals[`${side}_bullpen_late_innings_last5`],
             totals[`${side}_bullpen_late_innings_last3`],
           );
           const lateEarnedRuns = numberOr(
+            totals[`${side}_bullpen_late_earned_runs_last5`],
             totals[`${side}_bullpen_late_earned_runs_last3`],
           );
           if (
@@ -3245,7 +4125,7 @@
               strength: lateEra >= 7 ? 3 : 2,
               category: `${team} Late Bullpen`,
               icon: "\u{1F6A8}",
-              copy: `${team}'s relievers have given up ${formatNumber(lateEarnedRuns, 0)} earned runs in ${formatNumber(lateInnings, 1)} innings from the 7th inning on over their last 3 bullpen games (${formatNumber(lateEra, 2)} ERA${lateSeasonEra != null ? ` vs ${formatNumber(lateSeasonEra, 2)} for the season in those late innings` : ""}). In plain terms: if this game is close late, that bullpen has recently been more likely to give up extra runs.`,
+              copy: `${team}'s relievers have given up ${formatNumber(lateEarnedRuns, 0)} earned runs in ${formatNumber(lateInnings, 1)} innings from the 7th inning on over their last five bullpen games (${formatNumber(lateEra, 2)} ERA${lateSeasonEra != null ? ` vs ${formatNumber(lateSeasonEra, 2)} for the season in those late innings` : ""}). In plain terms: if this game is close late, that bullpen has recently been more likely to give up extra runs.`,
             });
           } else if (era != null && era >= 5.0) {
             addSignal({
@@ -3492,6 +4372,47 @@
       }
 
       // ── Matchup Splits ───────────────────────────────────────
+      function formatSampleTierChip(tier, titleHint) {
+        const t = String(tier || "low").toLowerCase();
+        const cls =
+          t === "strong" ? "st-strong" : t === "adequate" ? "st-adequate" : "st-low";
+        const label =
+          t === "strong" ? "Strong" : t === "adequate" ? "Adequate" : "Low";
+        const tip = titleHint
+          ? String(titleHint)
+          : "Sample tier: combine with xwOBA, lineup, park.";
+        return `<span class="st-chip ${cls}" title="${escapeHtml(tip)}">${label}</span>`;
+      }
+
+      function tierTooltip(legendObj, tier) {
+        const t = String(tier || "low").toLowerCase();
+        if (legendObj && typeof legendObj === "object" && legendObj[t])
+          return String(legendObj[t]);
+        return "";
+      }
+
+      /** 0 = low, 1 = adequate, 2 = strong — for sort order (not display). */
+      function matchupTierOrder(tier) {
+        const t = String(tier || "low").toLowerCase();
+        if (t === "strong") return 2;
+        if (t === "adequate") return 1;
+        return 0;
+      }
+
+      function renderMatchupTierLegend(legend) {
+        if (!legend || typeof legend !== "object") return "";
+        const keys = ["low", "adequate", "strong"];
+        const parts = keys
+          .map((k) => {
+            const text = legend[k];
+            if (!text) return "";
+            return `<div class="mtl-row">${formatSampleTierChip(k, text)}<span>${escapeHtml(text)}</span></div>`;
+          })
+          .filter(Boolean);
+        if (!parts.length) return "";
+        return `<div class="matchup-tier-legend">${parts.join("")}</div>`;
+      }
+
       async function loadMatchupSplits(gameId) {
         const section = document.getElementById("matchupSection");
         try {
@@ -3500,6 +4421,7 @@
           );
           if (!response.ok) return;
           const data = await response.json();
+          const tierLegend = data.sample_tier_legend || null;
           const bvp = data.batter_vs_pitcher || [];
           const pvt = data.pitcher_vs_team || [];
           const platoon = data.platoon_splits || [];
@@ -3509,8 +4431,19 @@
               .filter((row) => row?.pitcher_id != null)
               .map((row) => [String(row.pitcher_id), row]),
           );
+          pageState.matchupByBatter = Object.fromEntries(
+            bvp
+              .filter((row) => row?.batter_id != null)
+              .map((row) => [String(row.batter_id), row]),
+          );
+          pageState.platoonByBatter = Object.fromEntries(
+            platoon
+              .filter((row) => row?.batter_id != null)
+              .map((row) => [String(row.batter_id), row]),
+          );
           if (pageState.detail) {
             renderStarterCards(pageState.detail);
+            renderLineupPanels(pageState.detail);
           }
           if (
             !bvp.length &&
@@ -3521,10 +4454,11 @@
             return;
           section.style.display = "";
           document.getElementById("matchupContent").innerHTML = [
-            renderBvpTable(bvp),
-            renderPvtTable(pvt),
-            renderPlatoonTable(platoon),
-            renderH2hCards(h2h),
+            renderMatchupTierLegend(tierLegend),
+            renderBvpTable(bvp, tierLegend),
+            renderPvtTable(pvt, tierLegend),
+            renderPlatoonTable(platoon, tierLegend),
+            renderH2hCards(h2h, tierLegend),
           ].join("");
           // Wire up sortable headers after rendering
           document
@@ -3545,6 +4479,7 @@
         const idx = Array.from(th.parentElement.children).indexOf(th);
         const key = th.dataset.sort;
         const isNum = th.dataset.sortType === "num";
+        const isTier = th.dataset.sortType === "tier";
         const dir = th.classList.contains("sort-asc") ? "desc" : "asc";
         // Clear sort indicators on siblings
         th.parentElement.querySelectorAll("th").forEach((h) => {
@@ -3572,11 +4507,25 @@
           group.rows.sort((a, b) => {
             const cellA = a.children[idx];
             const cellB = b.children[idx];
-            let valA = cellA ? cellA.textContent.trim() : "";
-            let valB = cellB ? cellB.textContent.trim() : "";
-            if (isNum) {
-              valA = parseFloat(valA) || 0;
-              valB = parseFloat(valB) || 0;
+            let valA;
+            let valB;
+            if (isTier) {
+              const ord = (cell) => {
+                if (!cell || !cell.dataset) return 0;
+                const raw = cell.dataset.tierOrder;
+                if (raw === undefined || raw === "") return 0;
+                const n = parseInt(raw, 10);
+                return Number.isFinite(n) ? n : 0;
+              };
+              valA = ord(cellA);
+              valB = ord(cellB);
+            } else {
+              valA = cellA ? cellA.textContent.trim() : "";
+              valB = cellB ? cellB.textContent.trim() : "";
+              if (isNum) {
+                valA = parseFloat(valA) || 0;
+                valB = parseFloat(valB) || 0;
+              }
             }
             if (valA < valB) return dir === "asc" ? -1 : 1;
             if (valA > valB) return dir === "asc" ? 1 : -1;
@@ -3591,7 +4540,7 @@
         }
       }
 
-      function renderBvpTable(rows) {
+      function renderBvpTable(rows, legendObj) {
         if (!rows.length) return "";
         // Group rows by batter team — each group faces one opposing starter
         const teams = [...new Set(rows.map((r) => r.batter_team))];
@@ -3614,8 +4563,11 @@
             r.source === "game_logs"
               ? ' <span class="slot-badge" title="From game logs">GL</span>'
               : "";
+          const tt = tierTooltip(legendObj, r.sample_tier);
+          const to = matchupTierOrder(r.sample_tier);
           return `<tr class="${sampleCls}" data-team="${escapeHtml(r.batter_team || "")}">
             <td>${escapeHtml(r.batter_name || "-")}${r.lineup_slot ? ` <span class="slot-badge">#${r.lineup_slot}</span>` : ""}${srcTag}</td>
+            <td data-tier-order="${to}">${formatSampleTierChip(r.sample_tier, tt)}</td>
             <td>${hasData ? formatInteger(r.games) : "-"}</td>
             <td>${hasData ? formatInteger(r.plate_appearances) : "-"}</td>
             <td>${formatInteger(r.hits)}</td>
@@ -3632,7 +4584,7 @@
         let tbody = "";
         for (const team of teams) {
           const pitcher = pitcherByTeam[team];
-          tbody += `<tr class="matchup-team-header"><td colspan="11">${escapeHtml(team)} lineup vs. ${escapeHtml(pitcher)}</td></tr>`;
+          tbody += `<tr class="matchup-team-header"><td colspan="12">${escapeHtml(team)} lineup vs. ${escapeHtml(pitcher)}</td></tr>`;
           tbody += teamRows
             .filter((_, i) => rows[i].batter_team === team)
             .join("");
@@ -3644,6 +4596,7 @@
               <table class="matchup-table">
                 <thead><tr>
                   <th data-sort="batter" data-sort-type="str">Batter</th>
+                  <th data-sort="tier" data-sort-type="tier">Sample</th>
                   <th data-sort="g" data-sort-type="num">G</th>
                   <th data-sort="pa" data-sort-type="num">PA</th>
                   <th data-sort="h" data-sort-type="num">H</th>
@@ -3663,11 +4616,13 @@
               <span class="sample-dot sample-med"></span> 5–14 PA
               <span class="sample-dot sample-low"></span> &lt;5 PA
               <span class="sample-dot sample-none"></span> No PA
+              <span style="margin-left:10px;opacity:0.85"
+                >Row tint = plate appearances. <strong>Sample</strong> column = API tier (at-bats vs that pitcher).</span>
             </div>
           </div>`;
       }
 
-      function renderPvtTable(rows) {
+      function renderPvtTable(rows, legendObj) {
         if (!rows.length) return "";
         return `
           <div class="matchup-subsection">
@@ -3676,6 +4631,7 @@
               <table class="matchup-table">
                 <thead><tr>
                   <th data-sort="pitcher" data-sort-type="str">Pitcher</th>
+                  <th data-sort="tier" data-sort-type="tier">Sample</th>
                   <th data-sort="g" data-sort-type="num">G</th>
                   <th data-sort="ip" data-sort-type="num">IP</th>
                   <th data-sort="era" data-sort-type="num">ERA</th>
@@ -3690,6 +4646,7 @@
                   .map(
                     (r) => `<tr>
                   <td>${escapeHtml(r.pitcher_name || "-")}${r.pitcher_team ? ` <span class="slot-badge">${escapeHtml(r.pitcher_team)}</span>` : ""}</td>
+                  <td data-tier-order="${matchupTierOrder(r.sample_tier)}">${formatSampleTierChip(r.sample_tier, tierTooltip(legendObj, r.sample_tier))}</td>
                   <td>${formatInteger(r.games)}</td>
                   <td>${formatNumber(r.innings_pitched, 1)}</td>
                   <td>${formatNumber(r.era, 2)}</td>
@@ -3707,7 +4664,7 @@
           </div>`;
       }
 
-      function renderPlatoonTable(rows) {
+      function renderPlatoonTable(rows, legendObj) {
         if (!rows.length) return "";
         // All rows should be the same split type now (filtered server-side to opposing pitcher's hand)
         const splitLabel =
@@ -3722,7 +4679,7 @@
         let tbody = "";
         for (const team of teams) {
           const teamRows = rows.filter((r) => r.batter_team === team);
-          tbody += `<tr class="matchup-team-header"><td colspan="11">${escapeHtml(team)} ${escapeHtml(splitLabel)} (${seasonLabel})</td></tr>`;
+          tbody += `<tr class="matchup-team-header"><td colspan="12">${escapeHtml(team)} ${escapeHtml(splitLabel)} (${seasonLabel})</td></tr>`;
           tbody += teamRows
             .map((r) => {
               const pa = r.plate_appearances ?? 0;
@@ -3736,6 +4693,7 @@
                       : "sample-good";
               return `<tr class="${sampleCls}">
               <td>${escapeHtml(r.batter_name || "-")}${r.lineup_slot ? ` <span class="slot-badge">#${r.lineup_slot}</span>` : ""}</td>
+              <td data-tier-order="${matchupTierOrder(r.sample_tier)}">${formatSampleTierChip(r.sample_tier, tierTooltip(legendObj, r.sample_tier))}</td>
               <td>${formatInteger(r.games)}</td>
               <td>${formatInteger(r.plate_appearances)}</td>
               <td>${formatInteger(r.hits)}</td>
@@ -3757,6 +4715,7 @@
               <table class="matchup-table">
                 <thead><tr>
                   <th data-sort="batter" data-sort-type="str">Batter</th>
+                  <th data-sort="tier" data-sort-type="tier">Sample</th>
                   <th data-sort="g" data-sort-type="num">G</th>
                   <th data-sort="pa" data-sort-type="num">PA</th>
                   <th data-sort="h" data-sort-type="num">H</th>
@@ -3774,11 +4733,18 @@
           </div>`;
       }
 
-      function renderH2hCards(h2h) {
+      function renderH2hCards(h2h, legendObj) {
         if (!h2h || !h2h.games_played) return "";
+        const h2hTier = formatSampleTierChip(
+          h2h.sample_tier,
+          tierTooltip(legendObj, h2h.sample_tier),
+        );
         return `
           <div class="matchup-subsection">
-            <div class="matchup-sub-tag">${escapeHtml(h2h.away_team || "Away")} vs ${escapeHtml(h2h.home_team || "Home")} · Last 365 Days</div>
+            <div class="matchup-h2h-head">
+              <div class="matchup-sub-tag">${escapeHtml(h2h.away_team || "Away")} vs ${escapeHtml(h2h.home_team || "Home")} · Last 365 Days</div>
+              ${h2hTier}
+            </div>
             <div class="matchup-h2h-cards">
               <div class="h2h-card">
                 <div class="h2h-value">${formatInteger(h2h.games_played)}</div>
@@ -3802,6 +4768,7 @@
         const actual = detail.actual_result || {};
         const weather = detail.weather || {};
         const venue = detail.venue || {};
+        const weatherSkyExtra = formatSkySnapshot(weather);
 
         // ── Scoreboard hero ──────────────────────────────────
         const awayLogoUrl = mlbTeamLogoUrl(detail.away_team);
@@ -3923,12 +4890,38 @@
         ) {
           decisionCopyParts.push(`Raw ${formatNumber(rawPred, 2)}`);
         }
+        const inputTrust = detail.certainty?.input_trust;
+        const h2h = detail.h2h_totals || {};
+        const h2hAvg = numberOr(h2h.avg_total_runs);
+        const h2hGp = h2h.games_played;
+        const h2hOver = numberOr(h2h.over_pct);
+        const awayLateEra = numberOr(
+          totals.away_bullpen_late_era_last5,
+          totals.away_bullpen_late_era_last3,
+        );
+        const homeLateEra = numberOr(
+          totals.home_bullpen_late_era_last5,
+          totals.home_bullpen_late_era_last3,
+        );
+        const awayLateIp = numberOr(
+          totals.away_bullpen_late_innings_last5,
+          totals.away_bullpen_late_innings_last3,
+        );
+        const homeLateIp = numberOr(
+          totals.home_bullpen_late_innings_last5,
+          totals.home_bullpen_late_innings_last3,
+        );
+        const inputTrustCard =
+          inputTrust && inputTrust.grade
+            ? `<article class="summary-card"><div class="data-label">Input trust (vs projection)</div><div class="summary-value">Grade ${escapeHtml(String(inputTrust.grade))} · ${formatPercent(inputTrust.score, 0)} composite</div><div class="data-copy">${escapeHtml(inputTrust.summary || "")}</div></article>`
+            : "";
         document.getElementById("summaryGrid").innerHTML = `
           <article class="summary-card"><div class="data-label">Decision / Market</div><div class="summary-value">${formatNumber(statsPred, 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">${decisionCopyParts.join(" · ") || `Edge ${formatNumber(statsEdgeVal, 3)}`}</div></article>
+          ${inputTrustCard}
           <article class="summary-card"><div class="data-label">Best Market Odds</div><div class="summary-value">${bestOverPrice != null ? `Over ${formatPrice(bestOverPrice)}` : "Pending"} · ${bestUnderPrice != null ? `Under ${formatPrice(bestUnderPrice)}` : "Pending"}</div><div class="data-copy">${bookCount > 0 ? `${bookCount} book${bookCount > 1 ? "s" : ""} tracked · Line move ${formatNumber(totals.line_movement, 2)}${books ? ` · ${escapeHtml(books)}` : ""}` : "No market lines yet"}</div></article>
-          <article class="summary-card"><div class="data-label">Run Context</div><div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="data-copy">Team scoring context from blended lineup, starter, and park inputs</div></article>
-          <article class="summary-card"><div class="data-label">Bullpen From 7th On</div><div class="summary-value">L3 ${escapeHtml(detail.away_team)} ${formatNumber(totals.away_bullpen_late_era_last3, 2)} · ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_bullpen_late_era_last3, 2)}</div><div class="data-copy">Season ERA from the 7th inning on: ${escapeHtml(detail.away_team)} ${formatNumber(totals.away_bullpen_late_season_era, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_bullpen_late_season_era, 2)}</div></article>
-          <article class="summary-card"><div class="data-label">Weather (Game-Time Est.)</div><div class="summary-value">${formatNumber(weather.temperature_f, 0)}°F</div><div class="data-copy">Wind ${formatNumber(weather.wind_speed_mph, 0)} mph ${windDirectionLabel(weather.wind_direction_deg)} · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</div></article>
+          <article class="summary-card summary-card--run"><div class="data-label">Run Context</div><div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} · ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="run-context-split"><div class="rc-block"><span class="rc-sub">Model (expected)</span>${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="rc-block"><span class="rc-sub">H2H totals (365d)</span>${h2hGp != null && Number(h2hGp) > 0 ? `${formatNumber(h2hAvg, 1)} avg runs · ${formatInteger(h2hGp)} g${h2hOver != null ? ` · ${formatPercent(h2hOver, 0)} over` : ""}` : "No prior meetings in window"}</div></div><div class="data-copy">Model uses blended lineup, starter, bullpen, weather, and park. Historic row is same-team matchups in the last year.</div></article>
+          <article class="summary-card"><div class="data-label">Bullpen From 7th On</div><div class="summary-value">L5 ${escapeHtml(detail.away_team)} ${formatNumber(awayLateEra, 2)} · ${escapeHtml(detail.home_team)} ${formatNumber(homeLateEra, 2)}</div><div class="data-copy">Relievers from the 7th on — ERA over up to the last five bullpen days per side (${formatNumber(awayLateIp, 1)} IP ${escapeHtml(detail.away_team)} · ${formatNumber(homeLateIp, 1)} IP ${escapeHtml(detail.home_team)}). Season 7th+ ERA ${escapeHtml(detail.away_team)} ${formatNumber(totals.away_bullpen_late_season_era, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_bullpen_late_season_era, 2)}</div></article>
+          <article class="summary-card"><div class="data-label">Weather (Game-Time Est.)</div><div class="summary-value">${formatNumber(weather.temperature_f, 0)}°F</div><div class="data-copy">Wind ${formatNumber(weather.wind_speed_mph, 0)} mph from ${windDirectionLabel(weather.wind_direction_deg)} · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}${weatherSkyExtra ? ` · ${escapeHtml(weatherSkyExtra)}` : ""}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</div></article>
           <article class="summary-card"><div class="data-label">Lineup Quality</div><div class="summary-value">${formatPercent(totals.away_lineup_k_pct)} / ${formatPercent(totals.home_lineup_k_pct)}</div><div class="data-copy">Away / Home K% vs starter · xwOBA ${formatNumber(totals.away_lineup_top5_xwoba, 3)} / ${formatNumber(totals.home_lineup_top5_xwoba, 3)}</div></article>
         `;
         renderStarterCards(detail);
@@ -3936,12 +4929,13 @@
         renderMarketsSection(detail);
         renderPickSignals(detail);
         renderFirst5Section(detail);
+        renderTeamRecentSection(detail);
         renderPitcherChartsSection(detail);
         renderHitterHeatSection(detail);
         const notes = [
           `Venue run factor ${formatNumber(totals.venue_run_factor, 2)} and HR factor ${formatNumber(totals.venue_hr_factor, 2)} are already baked into the totals context.`,
           `Bullpen snapshot over the last 3 bullpen days: away ${formatNumber(totals.away_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.away_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_era_last3, 2)} ERA${totals.away_bullpen_b2b ? " · B2B" : ""}, home ${formatNumber(totals.home_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.home_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_era_last3, 2)} ERA${totals.home_bullpen_b2b ? " · B2B" : ""}.`,
-          `From the 7th inning on: away bullpen ${formatNumber(totals.away_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.away_bullpen_late_era_last3, 2)} ERA (${formatNumber(totals.away_bullpen_late_season_era, 2)} season), home bullpen ${formatNumber(totals.home_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.home_bullpen_late_era_last3, 2)} ERA (${formatNumber(totals.home_bullpen_late_season_era, 2)} season).`,
+          `From the 7th inning on (last up to five bullpen days each): away ${formatNumber(totals.away_bullpen_late_innings_last5 ?? totals.away_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_late_earned_runs_last5 ?? totals.away_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_late_hits_allowed_last5 ?? totals.away_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.away_bullpen_late_era_last5 ?? totals.away_bullpen_late_era_last3, 2)} ERA (${formatNumber(totals.away_bullpen_late_season_era, 2)} season), home ${formatNumber(totals.home_bullpen_late_innings_last5 ?? totals.home_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_late_earned_runs_last5 ?? totals.home_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_late_hits_allowed_last5 ?? totals.home_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.home_bullpen_late_era_last5 ?? totals.home_bullpen_late_era_last3, 2)} ERA (${formatNumber(totals.home_bullpen_late_season_era, 2)} season).`,
           `Top-5 hitter xwOBA: away ${formatNumber(totals.away_lineup_top5_xwoba, 3)}, home ${formatNumber(totals.home_lineup_top5_xwoba, 3)}. Lineup K%: away ${formatPercent(totals.away_lineup_k_pct)}, home ${formatPercent(totals.home_lineup_k_pct)}.`,
           `Market total ${formatNumber(totals.market_total, 1)}${totals.market_locked ? ` (locked at ${formatNumber(totals.locked_line_value, 1)} from ${escapeHtml(totals.locked_sportsbook || "sportsbook")})` : ""} · Line movement ${formatNumber(totals.line_movement, 2)}.`,
           actual.is_final
@@ -3954,6 +4948,7 @@
               `<div class="data-row"><span class="data-value">${escapeHtml(note)}</span></div>`,
           )
           .join("");
+        void renderWindFieldSection(detail);
       }
 
       async function loadDetail() {

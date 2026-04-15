@@ -87,6 +87,8 @@ TOTALS_FEATURE_COLUMNS = [
     "wind_speed_mph",
     "wind_direction_deg",
     "humidity_pct",
+    "precipitation_pct",
+    "cloud_cover_pct",
     "ump_run_value",
     "market_total",
     "market_over_price",
@@ -163,6 +165,8 @@ FIRST5_TOTALS_FEATURE_COLUMNS = [
     "wind_speed_mph",
     "wind_direction_deg",
     "humidity_pct",
+    "precipitation_pct",
+    "cloud_cover_pct",
     "ump_run_value",
     "market_total",
     "market_over_price",
@@ -177,6 +181,9 @@ FIRST5_TOTALS_FEATURE_COLUMNS = [
 ]
 
 FIRST5_TOTALS_TARGET_COLUMN = "actual_total_runs_first5"
+
+# Inning-1 NRFI: same feature matrix as first-five totals; label from games.total_runs_inning1 == 0.
+INNING1_NRFI_TARGET_COLUMN = "actual_nrfi"
 
 HITS_META_COLUMNS = [
     "game_id",
@@ -356,6 +363,8 @@ TOTALS_FIELD_ROLES = {
     "wind_speed_mph": FIELD_ROLE_ENVIRONMENT_CONTEXT,
     "wind_direction_deg": FIELD_ROLE_ENVIRONMENT_CONTEXT,
     "humidity_pct": FIELD_ROLE_ENVIRONMENT_CONTEXT,
+    "precipitation_pct": FIELD_ROLE_ENVIRONMENT_CONTEXT,
+    "cloud_cover_pct": FIELD_ROLE_ENVIRONMENT_CONTEXT,
     "ump_run_value": FIELD_ROLE_ENVIRONMENT_CONTEXT,
     "market_total": FIELD_ROLE_CALIBRATION_INPUT,
     "market_over_price": FIELD_ROLE_CALIBRATION_INPUT,
@@ -415,6 +424,8 @@ FIRST5_TOTALS_FIELD_ROLES = {
     "wind_speed_mph": FIELD_ROLE_ENVIRONMENT_CONTEXT,
     "wind_direction_deg": FIELD_ROLE_ENVIRONMENT_CONTEXT,
     "humidity_pct": FIELD_ROLE_ENVIRONMENT_CONTEXT,
+    "precipitation_pct": FIELD_ROLE_ENVIRONMENT_CONTEXT,
+    "cloud_cover_pct": FIELD_ROLE_ENVIRONMENT_CONTEXT,
     "ump_run_value": FIELD_ROLE_ENVIRONMENT_CONTEXT,
     "market_total": FIELD_ROLE_CALIBRATION_INPUT,
     "market_over_price": FIELD_ROLE_CALIBRATION_INPUT,
@@ -588,6 +599,7 @@ TOTAL_BASES_FIELD_ROLES = {
 LANE_FEATURE_COLUMNS = {
     "totals": TOTALS_FEATURE_COLUMNS,
     "first5_totals": FIRST5_TOTALS_FEATURE_COLUMNS,
+    "inning1_nrfi": FIRST5_TOTALS_FEATURE_COLUMNS,
     "hits": HITS_FEATURE_COLUMNS,
     "strikeouts": STRIKEOUTS_FEATURE_COLUMNS,
     "total_bases": TOTAL_BASES_FEATURE_COLUMNS,
@@ -596,6 +608,7 @@ LANE_FEATURE_COLUMNS = {
 LANE_FIELD_ROLES = {
     "totals": TOTALS_FIELD_ROLES,
     "first5_totals": FIRST5_TOTALS_FIELD_ROLES,
+    "inning1_nrfi": FIRST5_TOTALS_FIELD_ROLES,
     "hits": HITS_FIELD_ROLES,
     "strikeouts": STRIKEOUTS_FIELD_ROLES,
     "total_bases": TOTAL_BASES_FIELD_ROLES,

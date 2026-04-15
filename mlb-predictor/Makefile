@@ -60,6 +60,8 @@ ingest-today: ## Run all ingestors for today
 	"$(PYTHON_BIN)" -m src.ingestors.starters
 	"$(PYTHON_BIN)" -m src.ingestors.boxscores
 	"$(PYTHON_BIN)" -m src.ingestors.player_batting
+	"$(PYTHON_BIN)" -m src.ingestors.lineups_backfill
+	"$(PYTHON_BIN)" -m src.ingestors.matchup_splits
 	"$(PYTHON_BIN)" -m src.ingestors.pitcher_statcast
 	"$(PYTHON_BIN)" -m src.ingestors.lineups
 	"$(PYTHON_BIN)" -m src.ingestors.player_status
@@ -73,17 +75,22 @@ refresh-aggregates: ## Refresh daily shared-backbone aggregate tables
 features-today: ## Build features for today's slate
 	"$(PYTHON_BIN)" -m src.features.totals_builder
 	"$(PYTHON_BIN)" -m src.features.first5_totals_builder
+	"$(PYTHON_BIN)" -m src.features.inning1_nrfi_builder
 	"$(PYTHON_BIN)" -m src.features.hits_builder
 	"$(PYTHON_BIN)" -m src.features.strikeouts_builder
 
 predict-today: ## Generate predictions for today
 	"$(PYTHON_BIN)" -m src.models.predict_totals
 	"$(PYTHON_BIN)" -m src.models.predict_first5_totals
+	"$(PYTHON_BIN)" -m src.models.predict_inning1_nrfi
 	"$(PYTHON_BIN)" -m src.models.predict_hits
 	"$(PYTHON_BIN)" -m src.models.predict_strikeouts
 
 train-first5-totals: ## Train first-five totals baseline from feature snapshots
 	"$(PYTHON_BIN)" -m src.models.train_first5_totals
+
+train-inning1-nrfi: ## Train inning-1 NRFI/YRFI classifier from feature snapshots
+	"$(PYTHON_BIN)" -m src.models.train_inning1_nrfi
 
 product-surfaces: ## Build trend tables and model scorecards for today
 	"$(PYTHON_BIN)" -m src.transforms.product_surfaces
@@ -119,8 +126,11 @@ backtest: ## Run walk-forward backtest
 compare-prior-modes: ## Compare standard_tuned, reduced, and current_only prior modes
 	"$(PYTHON_BIN)" -m src.backtest.compare_prior_modes --train-start-date 2025-04-01 --train-end-date 2025-04-12 --target-date 2026-03-30
 
-start-app: ## Run the FastAPI app and dashboard locally
-	"$(UVICORN_BIN)" src.api.app:app --reload --host 0.0.0.0 --port 8000
+MLB_PREDICTOR_HOST ?= 127.0.0.1
+MLB_PREDICTOR_PORT ?= 8000
+
+start-app: ## Run FastAPI + dashboard locally with uvicorn --reload (loopback; MLB_PREDICTOR_HOST=0.0.0.0 for LAN)
+	"$(UVICORN_BIN)" src.api.app:app --reload --host $(MLB_PREDICTOR_HOST) --port $(MLB_PREDICTOR_PORT)
 
 run-desktop: ## Launch the desktop shell locally
 	"$(PYTHON_BIN)" -m src.desktop.launcher

@@ -1,6 +1,6 @@
 # MLB Predictor Rebuild
 
-This folder is the clean rebuild lane for the MLB prediction app. It keeps the new work isolated from the legacy codebase while preserving the parts of the current stack that are still useful: local Python, local Postgres, honest feature cutoffs, and model-ready parquet snapshots.
+This folder is the clean rebuild lane for the MLB prediction app. It keeps the new work isolated from the legacy codebase while preserving the parts of the current stack that are still useful: local Python, **SQLite by default** (optional Postgres for power-user dev), honest feature cutoffs, and model-ready parquet snapshots.
 
 ## Product Scope
 
@@ -18,13 +18,23 @@ The rebuild is intentionally narrow:
 
 For the longer-term product and UI roadmap, including compact game cards, expandable game detail,
 historical outcome review, hitter heat and streak tracking, richer starter context, and a future
-pitcher strikeout prediction lane, see `PRODUCT_EXCELLENCE_PLAN.md`.
+pitcher strikeout prediction lane, see [docs/PRODUCT_EXCELLENCE_PLAN.md](docs/PRODUCT_EXCELLENCE_PLAN.md).
 
 ## Architecture Docs
 
-- `PRODUCT_EXCELLENCE_PLAN.md` for long-term product and UX direction
-- `MODEL_REWORK_PLAN.md` for the certainty-aware modeling plan across totals, hits, first-five totals, and strikeouts
-- `FEATURE_DICTIONARY.md` for the seeded feature inventory and contract scaffold used by the rework audit
+- [docs/PRODUCT_EXCELLENCE_PLAN.md](docs/PRODUCT_EXCELLENCE_PLAN.md) for long-term product and UX direction
+- [docs/MODEL_REWORK_PLAN.md](docs/MODEL_REWORK_PLAN.md) for the certainty-aware modeling plan across totals, hits, first-five totals, and strikeouts
+- [docs/FEATURE_DICTIONARY.md](docs/FEATURE_DICTIONARY.md) for the seeded feature inventory and contract scaffold used by the rework audit
+- [docs/CALIBRATION_AND_PRODUCT.md](docs/CALIBRATION_AND_PRODUCT.md) for trust buckets, best-bet history verification, and Phase 5–6 operational checks
+- [docs/TOTALS_NARRATIVE.md](docs/TOTALS_NARRATIVE.md) for how board “totals lean” copy relates to model lane vs heuristics
+- [docs/TODOS.md](docs/TODOS.md) for the current engineering backlog (API routing cleanup, experimental markets, etc.)
+
+### API application layout
+
+- **`src/api/app_logic.py`** — Request helpers, SQL-backed fetchers, recommendation formatting, and shared constants used by routes and jobs.
+- **`src/api/app.py`** — Instantiates `FastAPI`, applies `security` middleware, re-exports `app_logic` symbols into `src.api.app` (so tests and direct helper calls keep one namespace), includes the aggregated router from `src/api/routers/http_routes.py` (which composes `meta`, `html`, `api_feed`, `games`, `jobs`, and `ops` sub-routers), and copies each route endpoint onto `src.api.app` for tests that call handlers by name.
+- **`src/api/security.py`** — Local middleware (host/CORS/API key) for the dev server.
+- **Static UI** — `src/api/static/` (HTML/JS/CSS) served by route handlers in the route definitions file.
 
 ## Opinionated Rules
 
@@ -38,6 +48,7 @@ pitcher strikeout prediction lane, see `PRODUCT_EXCELLENCE_PLAN.md`.
 
 ```text
 mlb-predictor/
+  docs/
   config/
     .env.example
   db/
@@ -82,15 +93,15 @@ The first-pass rebuild includes:
 1. Create a venv.
 2. Install dependencies.
 3. Copy `config/.env.example` to `config/.env` and adjust values.
-4. Start Postgres with Docker Compose or point `DATABASE_URL` at a local instance.
-5. Apply migrations.
+4. **SQLite (default):** run migrations; a project database file is created at `db/mlb_predictor.sqlite3` when needed.
+5. **Optional Postgres:** start Docker Compose and set `DATABASE_URL` in `.env`, then apply migrations.
 
 ```powershell
 cd S:\Projects\AI_Predictions\mlb-predictor
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 Copy-Item config\.env.example config\.env
-docker compose up -d
+# Optional: docker compose up -d
 make db-migrate
 ```
 
@@ -139,6 +150,16 @@ The rebuild now ships with one local FastAPI app that serves both the API and a 
 cd S:\Projects\AI_Predictions\mlb-predictor
 make start-app
 ```
+
+`make start-app` runs uvicorn with **`--reload`**, so edits to Python under `src/` (API, routers, `app_logic`, etc.) are picked up automatically after you save; you do not need to restart the process by hand unless reload fails or you change the environment outside the watched tree.
+
+If you start uvicorn yourself instead of Make, add **`--reload`** for the same behavior. For a one-off run without auto-reload (closer to production), omit `--reload` and restart the process after code changes.
+
+**Desktop shell (`make run-desktop`):** the embedded server does not use reload. Restart the desktop app to load API code changes.
+
+**Ingest logs** (for example Odds API lines about `totals_1st_1_innings` / NRFI–YRFI) appear in the terminal where **`market_totals`** or the pipeline runs (`make ingest-today`, dashboard jobs, etc.), not in the browser. Refresh the API or hit `/api/doctor` to see data that ingest has already written to the database.
+
+`make start-app` binds **127.0.0.1** by default so the JSON API is not exposed to your LAN. Override with `MLB_PREDICTOR_HOST=0.0.0.0` only if you intend to reach the API from other machines; in that case set `MLB_PREDICTOR_API_KEY` in the environment and send `Authorization: Bearer <key>` or `X-MLB-Predictor-Api-Key` on requests (see `config/.env.example`).
 
 Open `http://localhost:8000` for the dashboard.
 
@@ -270,7 +291,7 @@ python scripts\run_desktop_smoke.py --json --exercise-update-actions
 
 The portable bundle also includes `install_mlb_predictor.cmd` and `uninstall_mlb_predictor.cmd` so testers can launch install or uninstall by double-clicking on a typical Windows machine.
 
-For a repeatable beta ship flow, see `BETA_RELEASE_CHECKLIST.md`.
+For a repeatable beta ship flow, see [docs/BETA_RELEASE_CHECKLIST.md](docs/BETA_RELEASE_CHECKLIST.md).
 
 The desktop runtime now defaults to a per-user SQLite file under `%LOCALAPPDATA%\MLBPredictor\db\mlb_predictor.sqlite3` when no custom `DATABASE_URL` is configured. Explicit `DATABASE_URL` overrides are still respected for Postgres-based workflows.
 

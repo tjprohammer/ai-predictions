@@ -141,8 +141,13 @@ def upsert_rows(
     metadata = MetaData()
     table = Table(table_name, metadata, autoload_with=active_engine)
     column_map = {column.name: column for column in table.columns}
+    # Only keys that exist on the table (skip fields when migration not applied yet).
     row_list = [
-        {key: _coerce_value_for_column(value, column_map.get(key)) for key, value in row.items()}
+        {
+            key: _coerce_value_for_column(value, column_map[key])
+            for key, value in row.items()
+            if key in column_map
+        }
         for row in row_list
     ]
 

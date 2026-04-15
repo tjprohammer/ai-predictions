@@ -45,6 +45,25 @@ def _first_five_team_runs(linescore: dict[str, object] | None) -> tuple[int | No
     return home_runs, away_runs
 
 
+def _first_inning_team_runs(linescore: dict[str, object] | None) -> tuple[int | None, int | None]:
+    """Runs scored in the top and bottom of the 1st inning (NRFI/YRFI actuals).
+
+    Returns (None, None) if the first inning is not complete in the linescore
+    (e.g. suspended before the home half).
+    """
+    innings = (linescore or {}).get("innings") or []
+    if len(innings) < 1:
+        return None, None
+    inning = innings[0] or {}
+    away_half = (inning.get("away") or {})
+    home_half = (inning.get("home") or {})
+    away_inning_runs = away_half.get("runs")
+    home_inning_runs = home_half.get("runs")
+    if away_inning_runs is None or home_inning_runs is None:
+        return None, None
+    return int(away_inning_runs), int(home_inning_runs)
+
+
 def _player_row(
     player: dict[str, object],
     team: str,
@@ -286,6 +305,12 @@ def main() -> int:
             home_score = (teams_line.get("home") or {}).get("runs")
             away_score = (teams_line.get("away") or {}).get("runs")
         home_runs_first5, away_runs_first5 = _first_five_team_runs(linescore)
+        away_runs_inning1, home_runs_inning1 = _first_inning_team_runs(linescore)
+        total_runs_inning1 = (
+            None
+            if away_runs_inning1 is None or home_runs_inning1 is None
+            else int(away_runs_inning1) + int(home_runs_inning1)
+        )
 
         game_rows.append(
             {
@@ -305,6 +330,9 @@ def main() -> int:
                 "home_runs": home_score,
                 "away_runs": away_score,
                 "total_runs": None if home_score is None or away_score is None else int(home_score) + int(away_score),
+                "home_runs_inning1": home_runs_inning1,
+                "away_runs_inning1": away_runs_inning1,
+                "total_runs_inning1": total_runs_inning1,
                 "home_runs_first5": home_runs_first5,
                 "away_runs_first5": away_runs_first5,
                 "total_runs_first5": None

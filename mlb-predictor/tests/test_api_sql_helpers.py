@@ -4,6 +4,12 @@ import pandas as pd
 
 
 app_module = importlib.import_module("src.api.app")
+app_logic = importlib.import_module("src.api.app_logic")
+
+
+def _patch_pair(monkeypatch, name: str, value: object) -> None:
+    monkeypatch.setattr(app_module, name, value)
+    monkeypatch.setattr(app_logic, name, value)
 
 
 def test_sql_bind_list_populates_named_parameters():
@@ -140,8 +146,8 @@ def test_fetch_top_review_payload_sorts_losses_before_best_calls(monkeypatch):
         ]
     )
 
-    monkeypatch.setattr(app_module, "_table_exists", lambda _name: True)
-    monkeypatch.setattr(app_module, "_safe_frame", lambda *_args, **_kwargs: frame)
+    _patch_pair(monkeypatch, "_table_exists", lambda _name: True)
+    _patch_pair(monkeypatch, "_safe_frame", lambda *_args, **_kwargs: frame)
 
     payload = app_module._fetch_top_review_payload(app_module.date(2026, 4, 3), limit=2)
 
@@ -198,8 +204,8 @@ def test_fetch_clv_review_payload_sorts_best_and_worst(monkeypatch):
         ]
     )
 
-    monkeypatch.setattr(app_module, "_table_exists", lambda _name: True)
-    monkeypatch.setattr(app_module, "_safe_frame", lambda *_args, **_kwargs: frame)
+    _patch_pair(monkeypatch, "_table_exists", lambda _name: True)
+    _patch_pair(monkeypatch, "_safe_frame", lambda *_args, **_kwargs: frame)
 
     payload = app_module._fetch_clv_review_payload(app_module.date(2026, 4, 3), app_module.date(2026, 4, 3), limit=2)
 
@@ -374,8 +380,8 @@ def test_fetch_pitcher_recent_starts_returns_prior_outings(monkeypatch):
         ]
     )
 
-    monkeypatch.setattr(app_module, "_table_exists", lambda name: name in {"pitcher_starts", "games"})
-    monkeypatch.setattr(app_module, "_safe_frame", lambda *_args, **_kwargs: frame)
+    _patch_pair(monkeypatch, "_table_exists", lambda name: name in {"pitcher_starts", "games"})
+    _patch_pair(monkeypatch, "_safe_frame", lambda *_args, **_kwargs: frame)
 
     rows = app_module._fetch_pitcher_recent_starts(123, app_module.date(2026, 4, 4), limit=5)
 
@@ -384,3 +390,106 @@ def test_fetch_pitcher_recent_starts_returns_prior_outings(monkeypatch):
     assert rows[0]["strikeouts"] == 8
     assert rows[0]["pitch_count"] == 94
     assert rows[1]["opponent"] == "CLE"
+
+
+def test_fetch_pitcher_recent_starts_falls_back_to_player_game_pitching(monkeypatch):
+    outing_row = pd.DataFrame(
+        [
+            {
+                "game_date": "2026-04-02",
+                "game_id": 900,
+                "team": "TOR",
+                "ip": 1.0,
+                "earned_runs": 0,
+                "strikeouts": 2,
+                "walks": 0,
+                "pitch_count": 17,
+                "opponent": "NYY",
+            },
+        ]
+    )
+
+    def fake_safe(sql: str, params: object) -> pd.DataFrame:
+        if "FROM pitcher_starts" in sql:
+            return pd.DataFrame()
+        if "FROM player_game_pitching" in sql:
+            return outing_row
+        return pd.DataFrame()
+
+    _patch_pair(
+        monkeypatch,
+        "_table_exists",
+        lambda name: name in {"pitcher_starts", "games", "player_game_pitching"},
+    )
+    _patch_pair(monkeypatch, "_safe_frame", fake_safe)
+
+    rows = app_module._fetch_pitcher_recent_starts(55, app_module.date(2026, 4, 5), limit=5)
+
+    assert len(rows) == 1
+    assert rows[0]["opponent"] == "NYY"
+    assert rows[0]["pitch_count"] == 17
+
+
+def test_starter_records_prefer_boxscore_overrides_probable(monkeypatch):
+    ranked = [
+        {
+            "game_id": 1,
+            "team": "PHI",
+            "pitcher_id": 111,
+            "pitcher_name": "Reliever Listed",
+            "throws": "R",
+            "is_probable": True,
+            "days_rest": 1,
+            "xwoba_against": 0.4,
+            "csw_pct": 0.2,
+            "avg_fb_velo": 93.0,
+            "whiff_pct": 0.2,
+        }
+    ]
+    box_row = {
+        "game_id": 1,
+        "team": "PHI",
+        "pitcher_id": 222,
+        "pitcher_name": "Actual Starter",
+        "throws": "R",
+        "is_probable": False,
+        "days_rest": 5,
+        "ip": 6.0,
+        "strikeouts": 7,
+        "walks": 1,
+        "pitch_count": 95,
+        "xwoba_against": 0.31,
+        "csw_pct": 0.29,
+        "avg_fb_velo": 96.0,
+        "whiff_pct": 0.22,
+    }
+
+    def box_map(*_a, **_k):
+        return {(1, "PHI"): box_row}
+
+    _patch_pair(monkeypatch, "_fetch_boxscore_primary_starter_map", box_map)
+
+    out = app_module._starter_records_prefer_boxscore(
+        ranked,
+        app_module.date(2026, 4, 1),
+    )
+
+    assert out[0]["pitcher_id"] == 222
+    assert out[0]["pitcher_name"] == "Actual Starter"
+    assert out[0]["ip"] == 6.0
+
+
+def test_starter_records_prefer_boxscore_noop_when_no_box(monkeypatch):
+    ranked = [{"game_id": 1, "team": "PHI", "pitcher_id": 1, "pitcher_name": "A"}]
+
+    def empty_map(*_a, **_k):
+        return {}
+
+    _patch_pair(monkeypatch, "_fetch_boxscore_primary_starter_map", empty_map)
+
+    out = app_module._starter_records_prefer_boxscore(
+        ranked,
+        app_module.date(2026, 4, 1),
+    )
+
+    assert out == ranked

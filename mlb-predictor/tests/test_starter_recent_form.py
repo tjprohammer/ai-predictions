@@ -6,6 +6,12 @@ import pytest
 
 
 app_module = importlib.import_module("src.api.app")
+app_logic = importlib.import_module("src.api.app_logic")
+
+
+def _patch_pair(monkeypatch, name: str, value: object) -> None:
+    monkeypatch.setattr(app_module, name, value)
+    monkeypatch.setattr(app_logic, name, value)
 
 
 def test_fetch_starter_recent_form_reports_season_and_recent_era(monkeypatch):
@@ -87,16 +93,17 @@ def test_fetch_starter_recent_form_reports_season_and_recent_era(monkeypatch):
     )
     recent_starts = [{"game_date": "2026-04-05", "earned_runs": 1}]
 
-    monkeypatch.setattr(app_module, "_table_exists", lambda name: name == "pitcher_starts")
-    monkeypatch.setattr(app_module, "_safe_frame", lambda *_args, **_kwargs: frame)
-    monkeypatch.setattr(
-        app_module,
+    _patch_pair(monkeypatch, "_table_exists", lambda name: name == "pitcher_starts")
+    _patch_pair(monkeypatch, "_safe_frame", lambda *_args, **_kwargs: frame)
+    _patch_pair(
+        monkeypatch,
         "_fetch_pitcher_recent_starts",
-        lambda pitcher_id, target_date, limit=5: recent_starts,
+        lambda *args, **kwargs: recent_starts,
     )
 
     result = app_module._fetch_starter_recent_form(77, date(2026, 4, 7))
 
+    assert result["form_basis"] == "starts"
     assert result["sample_starts"] == 5
     assert result["season_starts"] == 5
     assert result["avg_earned_runs"] == pytest.approx(2.0)
@@ -105,3 +112,67 @@ def test_fetch_starter_recent_form_reports_season_and_recent_era(monkeypatch):
     assert result["era_last3"] == pytest.approx(3.0, rel=1e-4)
     assert result["era_last5"] == pytest.approx(3.06818, rel=1e-4)
     assert result["recent_starts"] == recent_starts
+
+
+def test_fetch_starter_recent_form_uses_appearances_when_no_starts(monkeypatch):
+    """Relievers often lack pitcher_starts rows; aggregate from player_game_pitching."""
+    pgp_frame = pd.DataFrame(
+        [
+            {
+                "game_date": "2026-04-05",
+                "ip": 1.0,
+                "earned_runs": 0,
+                "strikeouts": 2,
+                "walks": 0,
+                "pitch_count": 18,
+                "xwoba_against": 0.29,
+            },
+            {
+                "game_date": "2026-04-03",
+                "ip": 1.0,
+                "earned_runs": 1,
+                "strikeouts": 1,
+                "walks": 1,
+                "pitch_count": 22,
+                "xwoba_against": 0.35,
+            },
+            {
+                "game_date": "2026-03-30",
+                "ip": 1.1,
+                "earned_runs": 0,
+                "strikeouts": 2,
+                "walks": 0,
+                "pitch_count": 20,
+                "xwoba_against": 0.28,
+            },
+        ]
+    )
+    recent_outings = [{"game_date": "2026-04-05", "earned_runs": 0}]
+
+    _patch_pair(
+        monkeypatch,
+        "_table_exists",
+        lambda name: name in ("pitcher_starts", "player_game_pitching"),
+    )
+
+    def fake_safe(sql: str, params: object) -> pd.DataFrame:
+        if "FROM pitcher_starts" in sql:
+            return pd.DataFrame()
+        if "FROM player_game_pitching" in sql:
+            return pgp_frame
+        return pd.DataFrame()
+
+    _patch_pair(monkeypatch, "_safe_frame", fake_safe)
+    _patch_pair(
+        monkeypatch,
+        "_fetch_pitcher_recent_starts",
+        lambda *args, **kwargs: recent_outings,
+    )
+
+    result = app_module._fetch_starter_recent_form(99, date(2026, 4, 7))
+
+    assert result["form_basis"] == "appearances"
+    assert result["sample_starts"] == 3
+    assert result["season_starts"] == 3
+    assert result["avg_earned_runs"] == pytest.approx(1.0 / 3)
+    assert result["recent_starts"] == recent_outings

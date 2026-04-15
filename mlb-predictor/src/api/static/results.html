@@ -891,7 +891,7 @@
           <div class="panel-head">
             <div>
               <div class="section-tag">Board Best Bets</div>
-              <h2 class="panel-title">Archived green-board picks</h2>
+              <h2 class="panel-title" id="aiPicksPanelTitle">Green board picks</h2>
             </div>
             <span class="panel-subtitle" id="aiPicksSubtitle"
               >Loading board best bets</span
@@ -1534,8 +1534,12 @@
       }
 
       function renderAiPickRow(row) {
+        const greenTierPill =
+          row.is_green_pick && row.green_strip_tier === "soft"
+            ? '<span class="pill neutral" title="Alternate EV band so the board is not empty on thin slates">Soft green</span>'
+            : "";
         const recommendationBadge = row.is_green_pick
-          ? '<span class="pill green">Green Board</span>'
+          ? `<span class="pill green">Green Board</span>${greenTierPill}`
           : row.is_watchlist_pick
             ? '<span class="pill neutral">Watchlist</span>'
             : row.is_experimental_pick
@@ -1641,9 +1645,22 @@
         gamesSummary.textContent = `${summary?.final_games || 0}/${summary?.total_games || 0}`;
         gamesSummaryFoot.textContent = `${summary?.pending_games || 0} game${summary?.pending_games === 1 ? "" : "s"} still pending final grading.`;
         aiPicksSummary.textContent = `${aiPicks.won || 0}-${aiPicks.lost || 0}-${aiPicks.push || 0}`;
-        aiPicksSummaryFoot.textContent = `${aiPicks.total || 0} archived board picks · ${aiPicks.pending || 0} pending`;
+        const liveGreen = summary?.live_green_board_fallback || summary?.ai_picks?.live_board_fallback;
+        if (aiPicksPanelTitle) {
+          aiPicksPanelTitle.textContent = liveGreen
+            ? "Green board picks (live slate)"
+            : "Green board picks (archived)";
+        }
+        aiPicksSummaryFoot.textContent = liveGreen
+          ? `${aiPicks.total || 0} live board picks (same as main board) · ${aiPicks.pending || 0} pending grading`
+          : `${aiPicks.total || 0} archived board picks · ${aiPicks.pending || 0} pending`;
         watchlistSummary.textContent = `${watchlist.won || 0}-${watchlist.lost || 0}-${watchlist.push || 0}`;
-        watchlistSummaryFoot.textContent = `${watchlist.total || 0} archived watchlist picks · ${watchlist.pending || 0} pending`;
+        const wlSup =
+          summary?.live_watchlist_board_supplement ||
+          summary?.watchlist?.live_board_supplement;
+        watchlistSummaryFoot.textContent = wlSup
+          ? `${watchlist.total || 0} watchlist rows (archived + live board) · ${watchlist.pending || 0} pending grading`
+          : `${watchlist.total || 0} archived watchlist picks · ${watchlist.pending || 0} pending`;
         experimentalSummary.textContent = `${experimental.won || 0}-${experimental.lost || 0}-${experimental.push || 0}`;
         experimentalSummaryFoot.textContent = `${experimental.total || 0} tracked experimental picks · ${experimental.pending || 0} pending`;
         totalsSummary.textContent = `${totals.won || 0}-${totals.lost || 0}-${totals.push || 0}`;
@@ -1849,6 +1866,7 @@
       const gamesSummaryFoot = document.getElementById("gamesSummaryFoot");
       const aiPicksSummary = document.getElementById("aiPicksSummary");
       const aiPicksSummaryFoot = document.getElementById("aiPicksSummaryFoot");
+      const aiPicksPanelTitle = document.getElementById("aiPicksPanelTitle");
       const watchlistSummary = document.getElementById("watchlistSummary");
       const watchlistSummaryFoot = document.getElementById("watchlistSummaryFoot");
       const experimentalSummary = document.getElementById("experimentalSummary");

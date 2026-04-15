@@ -5,6 +5,12 @@ import pandas as pd
 
 
 app_module = importlib.import_module("src.api.app")
+app_logic = importlib.import_module("src.api.app_logic")
+
+
+def _patch_pair(monkeypatch, name: str, value: object) -> None:
+    monkeypatch.setattr(app_module, name, value)
+    monkeypatch.setattr(app_logic, name, value)
 
 
 def test_hot_hitters_html_has_streak_sort_and_recent_history_chart():
@@ -43,8 +49,8 @@ def test_fetch_recent_hit_history_map_groups_rows_by_player(monkeypatch):
         ]
     )
 
-    monkeypatch.setattr(app_module, "_table_exists", lambda name: name == "player_game_batting")
-    monkeypatch.setattr(app_module, "_safe_frame", lambda *_args, **_kwargs: frame)
+    _patch_pair(monkeypatch, "_table_exists", lambda name: name == "player_game_batting")
+    _patch_pair(monkeypatch, "_safe_frame", lambda *_args, **_kwargs: frame)
 
     result = app_module._fetch_recent_hit_history_map(app_module.date(2026, 4, 4), [7, 8], limit=10)
 

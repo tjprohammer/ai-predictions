@@ -17,12 +17,22 @@ for env_path in (BASE_DIR / "config" / ".env", BASE_DIR / ".env"):
 _LEGACY_DEFAULT_DATABASE_URL = "postgresql+psycopg2://mlbuser:mlbpass@localhost:5432/mlb"
 
 
+def _default_project_sqlite_url() -> str:
+    project_db = BASE_DIR / "db" / "mlb_predictor.sqlite3"
+    project_db.parent.mkdir(parents=True, exist_ok=True)
+    if not project_db.exists():
+        project_db.touch()
+    url = f"sqlite:///{project_db.resolve().as_posix()}"
+    os.environ["DATABASE_URL"] = url
+    return url
+
+
 def _resolve_database_url() -> str:
-    """Return the DATABASE_URL, auto-detecting a local SQLite file when unset."""
+    """Return DATABASE_URL: explicit env wins; else prefer existing SQLite; else create project SQLite."""
     raw = (os.environ.get("DATABASE_URL") or "").strip()
     if raw and raw != _LEGACY_DEFAULT_DATABASE_URL:
         return raw
-    # Check well-known SQLite locations (runtime dir, then project dir).
+    # Prefer well-known SQLite locations (desktop runtime, then project dev DB).
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
         runtime_db = Path(local_app_data) / "MLBPredictor" / "db" / "mlb_predictor.sqlite3"
@@ -34,7 +44,7 @@ def _resolve_database_url() -> str:
             url = f"sqlite:///{candidate.resolve().as_posix()}"
             os.environ["DATABASE_URL"] = url
             return url
-    return raw or _LEGACY_DEFAULT_DATABASE_URL
+    return _default_project_sqlite_url()
 
 
 def _parse_windows(raw: str) -> tuple[int, ...]:

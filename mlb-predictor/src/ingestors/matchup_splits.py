@@ -23,6 +23,7 @@ from src.ingestors.common import record_ingest_event, record_source_health
 from src.utils.cli import add_date_range_args, date_range, resolve_date_range
 from src.utils.db import get_engine, upsert_rows
 from src.utils.logging import get_logger
+from src.utils.matchup_keys import team_abbr_to_opponent_id as _team_abbr_to_opponent_id
 
 
 log = get_logger(__name__)
@@ -445,7 +446,6 @@ def _load_slate_matchups(engine, target_date):
             FROM pitcher_starts ps
             LEFT JOIN dim_players dp ON dp.player_id = ps.pitcher_id
             WHERE ps.game_date = :td
-              AND COALESCE(ps.is_probable, TRUE) = TRUE
         """), {"td": str(target_date)}).fetchall()
 
         # Get games to map team sides
@@ -830,18 +830,6 @@ def _ingest_date(engine, target_date) -> dict:
         "platoon_fetched": len(platoon_needed),
         "rows_upserted": len(rows_to_upsert),
     }
-
-
-def _team_abbr_to_opponent_id(team_abbr: str) -> int:
-    """Convert team abbreviation to a stable numeric ID for the opponent_id column.
-
-    We use a simple hash to avoid needing a team dimension lookup here.
-    The ID only needs to be deterministic for cache deduplication.
-    """
-    # Use a simple mapping: sum of ASCII values of the 3-char abbreviation.
-    # This is intentionally basic — opponent_id for team-level splits is
-    # only used as a unique key, never joined elsewhere.
-    return sum(ord(c) for c in team_abbr.upper().ljust(3))
 
 
 # ── CLI entry point ──────────────────────────────────────────────────────────

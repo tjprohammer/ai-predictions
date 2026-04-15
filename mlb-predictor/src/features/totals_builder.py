@@ -386,6 +386,8 @@ def main() -> int:
                 "wind_speed_mph": weather["wind_speed_mph"],
                 "wind_direction_deg": weather["wind_direction_deg"],
                 "humidity_pct": weather["humidity_pct"],
+                "precipitation_pct": weather["precipitation_pct"],
+                "cloud_cover_pct": weather["cloud_cover_pct"],
                 "ump_name": ump_name,
                 "ump_run_value": ump_run_val,
                 "market_sportsbook": market.get("market_sportsbook"),

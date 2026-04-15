@@ -5,6 +5,33 @@ import pandas as pd
 from src.transforms import product_surfaces
 
 
+def test_grade_experimental_first_inning():
+    assert product_surfaces._grade_experimental_first_inning(
+        game_status="Final",
+        total_runs_inning1=0,
+        line_value=0.5,
+        market_key="nrfi",
+    ) == (True, 0.0, "under", True)
+    assert product_surfaces._grade_experimental_first_inning(
+        game_status="Final",
+        total_runs_inning1=1,
+        line_value=0.5,
+        market_key="nrfi",
+    ) == (True, 1.0, "over", False)
+    assert product_surfaces._grade_experimental_first_inning(
+        game_status="Final",
+        total_runs_inning1=2,
+        line_value=0.5,
+        market_key="yrfi",
+    ) == (True, 2.0, "over", True)
+    assert product_surfaces._grade_experimental_first_inning(
+        game_status="Live",
+        total_runs_inning1=0,
+        line_value=0.5,
+        market_key="nrfi",
+    ) == (False, None, None, None)
+
+
 def test_build_pitcher_trends_qualifies_order_by_columns(monkeypatch):
     captured: dict[str, str] = {}
 
@@ -73,6 +100,8 @@ def test_build_prediction_outcomes_normalizes_game_date(monkeypatch):
         return len(rows)
 
     monkeypatch.setattr(product_surfaces, "upsert_rows", fake_upsert_rows)
+    monkeypatch.setattr(product_surfaces, "_build_best_bet_outcomes", lambda *_a, **_k: [])
+    monkeypatch.setattr(product_surfaces, "_build_experimental_market_outcomes", lambda *_a, **_k: [])
 
     result = product_surfaces._build_prediction_outcomes(date(2026, 4, 2), date(2026, 4, 2))
 
@@ -169,6 +198,8 @@ def test_build_prediction_outcomes_skips_live_games_for_grading(monkeypatch):
         return len(rows)
 
     monkeypatch.setattr(product_surfaces, "upsert_rows", fake_upsert_rows)
+    monkeypatch.setattr(product_surfaces, "_build_best_bet_outcomes", lambda *_a, **_k: [])
+    monkeypatch.setattr(product_surfaces, "_build_experimental_market_outcomes", lambda *_a, **_k: [])
 
     result = product_surfaces._build_prediction_outcomes(date(2026, 4, 2), date(2026, 4, 2))
 

@@ -25,6 +25,8 @@ def test_dashboard_html_keeps_primary_update_and_button_types():
         "refresh_everything",
         "prepare_slate",
         "import_manual_inputs",
+        "update_lineups_only",
+        "update_markets_only",
         "refresh_results",
         "rebuild_predictions",
         "grade_predictions",
@@ -80,10 +82,10 @@ def test_matchup_detail_page_exists():
     assert 'Snapshot order' in html
     assert 'Actual Batting Order' in html
     assert 'Full 1-9 order with hot, cold, or steady tags.' in html
-    assert 'Season ERA / L3 / L5' in html
+    assert 'ERA Season / Last 3 / Last 5' in html
     assert 'function batterHandMatchup(player)' in html
     assert "Strong vs today's" in html
-    assert 'Late innings 7+:' in html
+    assert "From the 7th inning on (last up to five bullpen days each):" in html
     assert 'Late Bullpen' in html
     assert 'Green = hit · red = no hit' in html
     assert 'Last ${history.length} Games' in html
@@ -98,12 +100,12 @@ def test_matchup_detail_page_has_matchup_splits_section():
     assert "Matchup Splits" in html
     assert "Batter vs. Pitcher &amp; Team History" in html
 
-    # JS rendering functions
+    # JS rendering functions (signatures include optional tier legend object)
     assert "function loadMatchupSplits(gameId)" in html
-    assert "function renderBvpTable(rows)" in html
-    assert "function renderPvtTable(rows)" in html
-    assert "function renderPlatoonTable(rows)" in html
-    assert "function renderH2hCards(h2h)" in html
+    assert "function renderBvpTable(" in html
+    assert "function renderPvtTable(" in html
+    assert "function renderPlatoonTable(" in html
+    assert "function renderH2hCards(" in html
 
     # BvP table columns
     assert "vs. Pitcher" in html

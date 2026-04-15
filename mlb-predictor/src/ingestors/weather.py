@@ -70,6 +70,13 @@ def _target_local_dt(game_date, game_start_ts, *, timezone_name: object | None =
 
 
 def _pick_hour(payload: dict[str, object], target_dt: datetime) -> dict[str, object] | None:
+    """Map Open-Meteo hourly row to our snapshot.
+
+    ``wind_direction_10m`` follows the meteorological convention (direction the wind blows *from*,
+    degrees clockwise from north) at ~10 m AGL. ``cloud_cover`` is total cloud cover (%). Requests use
+    each venue's ``dim_venues`` latitude / longitude (ballpark neighborhood), so values are
+    representative but not an on-field anemometer.
+    """
     hourly = payload.get("hourly") or {}
     timestamps = hourly.get("time") or []
     if not timestamps:
@@ -81,6 +88,7 @@ def _pick_hour(payload: dict[str, object], target_dt: datetime) -> dict[str, obj
         "temperature_f": (hourly.get("temperature_2m") or [None])[index],
         "humidity_pct": (hourly.get("relative_humidity_2m") or [None])[index],
         "precipitation_pct": (hourly.get("precipitation_probability") or [None])[index],
+        "cloud_cover_pct": (hourly.get("cloud_cover") or [None])[index],
         "pressure_hpa": (hourly.get("pressure_msl") or [None])[index],
         "wind_speed_mph": (hourly.get("wind_speed_10m") or [None])[index],
         "wind_direction_deg": (hourly.get("wind_direction_10m") or [None])[index],
@@ -133,7 +141,7 @@ def main() -> int:
             "longitude": float(game.longitude),
             "start_date": game_date.isoformat(),
             "end_date": game_date.isoformat(),
-            "hourly": "temperature_2m,relative_humidity_2m,precipitation_probability,pressure_msl,wind_speed_10m,wind_direction_10m",
+            "hourly": "temperature_2m,relative_humidity_2m,precipitation_probability,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m",
             "temperature_unit": "fahrenheit",
             "wind_speed_unit": "mph",
             "timezone": "auto",
@@ -179,6 +187,7 @@ def main() -> int:
                 "wind_direction_deg": selected["wind_direction_deg"],
                 "humidity_pct": selected["humidity_pct"],
                 "precipitation_pct": selected["precipitation_pct"],
+                "cloud_cover_pct": selected["cloud_cover_pct"],
                 "pressure_hpa": selected["pressure_hpa"],
                 "roof_open_flag": False if roof_type == "dome" else None,
                 "raw_payload": _serialized_hour_payload(selected),

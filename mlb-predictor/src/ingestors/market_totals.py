@@ -995,6 +995,15 @@ def _extract_odds_api_event_prop_rows(
     return rows
 
 
+def _odds_api_event_includes_first_inning_totals_market(event_payload: dict[str, object]) -> bool:
+    """True if any book returned Odds API market ``totals_1st_1_innings`` (NRFI/YRFI source)."""
+    for bookmaker in event_payload.get("bookmakers", []) or []:
+        for market in bookmaker.get("markets", []) or []:
+            if str(market.get("key") or "").strip().lower() == "totals_1st_1_innings":
+                return True
+    return False
+
+
 def _extract_odds_api_event_first5_rows(
     event_payload: dict[str, object],
     matched_game: dict[str, object],
@@ -1167,6 +1176,9 @@ def _fetch_odds_api_player_prop_rows(start_date, end_date, api_key: str) -> tupl
     slate_player_lookup = _load_slate_player_lookup(start_date, end_date)
     rows: list[dict[str, object]] = []
     first5_rows: list[dict[str, object]] = []
+    matched_event_count = 0
+    first_inning_market_count = 0
+    missing_first_inning_labels: list[str] = []
 
     for event in events_payload:
         matched_game = _match_event_to_game(event, games)
@@ -1189,8 +1201,30 @@ def _fetch_odds_api_player_prop_rows(start_date, end_date, api_key: str) -> tupl
         )
         event_response.raise_for_status()
         event_payload = event_response.json()
+        matched_event_count += 1
+        if _odds_api_event_includes_first_inning_totals_market(event_payload):
+            first_inning_market_count += 1
+        elif len(missing_first_inning_labels) < 8:
+            away = str(matched_game.get("away_team") or "").strip()
+            home = str(matched_game.get("home_team") or "").strip()
+            gid = matched_game.get("game_id")
+            missing_first_inning_labels.append(f"{away} @ {home} (game_id={gid})")
         rows.extend(_extract_odds_api_event_prop_rows(event_payload, matched_game, slate_player_lookup))
         first5_rows.extend(_extract_odds_api_event_first5_rows(event_payload, matched_game))
+
+    if matched_event_count > 0:
+        log.info(
+            "Odds API totals_1st_1_innings present on %s/%s matched MLB events (this market supplies nrfi/yrfi rows in game_markets).",
+            first_inning_market_count,
+            matched_event_count,
+        )
+        absent = matched_event_count - first_inning_market_count
+        if absent:
+            log.info(
+                "totals_1st_1_innings absent for %s matched event(s); no Odds-sourced nrfi/yrfi for those games. Samples: %s",
+                absent,
+                "; ".join(missing_first_inning_labels) if missing_first_inning_labels else "n/a",
+            )
     return rows, first5_rows
 
 

@@ -10,6 +10,7 @@ from src.ingestors.market_totals import (
     _extract_odds_api_event_first5_rows,
     _extract_odds_api_event_prop_rows,
     _extract_rotowire_strikeout_rows,
+    _odds_api_event_includes_first_inning_totals_market,
     _format_required_player_prop_gap_summary,
     _match_event_to_game,
     _parse_covers_date,
@@ -353,6 +354,31 @@ def test_extract_odds_api_event_first5_rows_maps_first_inning_totals_to_nrfi_and
             "under_price": -125,
         },
     ]
+
+
+def test_odds_api_event_includes_first_inning_totals_market():
+    with_market = {
+        "bookmakers": [
+            {
+                "markets": [
+                    {"key": "totals_1st_1_innings", "outcomes": []},
+                ],
+            }
+        ],
+    }
+    assert _odds_api_event_includes_first_inning_totals_market(with_market) is True
+
+    without = {
+        "bookmakers": [
+            {
+                "markets": [
+                    {"key": "totals_1st_5_innings", "outcomes": []},
+                ],
+            }
+        ],
+    }
+    assert _odds_api_event_includes_first_inning_totals_market(without) is False
+    assert _odds_api_event_includes_first_inning_totals_market({}) is False
 
 
 def test_match_event_to_game_handles_utc_next_day_for_late_west_coast_games():

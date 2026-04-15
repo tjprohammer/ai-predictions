@@ -563,13 +563,23 @@ def latest_market_snapshot(
 def latest_weather_snapshot(game_id: int, cutoff_ts: datetime, weather: pd.DataFrame) -> dict[str, Any]:
     frame = weather[(weather["game_id"] == game_id) & (weather["snapshot_ts"] <= cutoff_ts)].copy()
     if frame.empty:
-        return {"temperature_f": None, "wind_speed_mph": None, "wind_direction_deg": None, "humidity_pct": None, "weather_snapshot_ts": None}
+        return {
+            "temperature_f": None,
+            "wind_speed_mph": None,
+            "wind_direction_deg": None,
+            "humidity_pct": None,
+            "precipitation_pct": None,
+            "cloud_cover_pct": None,
+            "weather_snapshot_ts": None,
+        }
     latest = frame.sort_values("snapshot_ts").iloc[-1]
     return {
         "temperature_f": latest.get("temperature_f"),
         "wind_speed_mph": latest.get("wind_speed_mph"),
         "wind_direction_deg": latest.get("wind_direction_deg"),
         "humidity_pct": latest.get("humidity_pct"),
+        "precipitation_pct": latest.get("precipitation_pct"),
+        "cloud_cover_pct": latest.get("cloud_cover_pct"),
         "weather_snapshot_ts": latest.get("snapshot_ts"),
     }
 
@@ -595,11 +605,30 @@ def projected_plate_appearances(lineup_slot: int | float | None) -> float | None
 # ---------------------------------------------------------------------------
 # Certainty scoring helpers
 # ---------------------------------------------------------------------------
+# ``pitcher_starts.is_probable``: schedule probables from StatsAPI are True;
+# box-score actual starters from ``boxscores.py`` are False. Trust must be
+# higher for confirmed/actual identity than for probable-only rows
+# (docs/MODEL_REWORK_PLAN.md).
+
+STARTER_CERTAINTY_BOX_CONFIRMED = 1.0
+STARTER_CERTAINTY_SCHEDULE_PROBABLE = 0.62
+STARTER_CERTAINTY_UNSPECIFIED = 0.55
+
 
 def compute_starter_certainty(starter_id: int | None, is_probable: bool | None) -> float:
+    """0–1 trust in starter *identity* for this game (not pitching skill).
+
+    - **False** — row from box score (actual starter). Highest trust.
+    - **True** — schedule probable only. Lower trust until game locks.
+    - **None** — flag missing; slight discount vs explicit probable.
+    """
     if starter_id is None:
         return 0.0
-    return 1.0 if is_probable else 0.5
+    if is_probable is False:
+        return STARTER_CERTAINTY_BOX_CONFIRMED
+    if is_probable is True:
+        return STARTER_CERTAINTY_SCHEDULE_PROBABLE
+    return STARTER_CERTAINTY_UNSPECIFIED
 
 
 def compute_freshness_score(

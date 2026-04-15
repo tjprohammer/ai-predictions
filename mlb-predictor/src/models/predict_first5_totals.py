@@ -90,6 +90,11 @@ def _compute_confidence_level(row) -> tuple[str, str | None]:
     """
     starter_cert = getattr(row, "starter_certainty_score", None)
     starter_cert = float(starter_cert) if starter_cert is not None and not pd.isna(starter_cert) else 0.0
+    lineup_cert = getattr(row, "lineup_certainty_score", None)
+    if lineup_cert is not None and not pd.isna(lineup_cert):
+        lineup_cert = float(lineup_cert)
+    else:
+        lineup_cert = None
     quality_gap = getattr(row, "starter_quality_gap", None)
     quality_gap = float(quality_gap) if quality_gap is not None and not pd.isna(quality_gap) else 0.0
     asymmetry = getattr(row, "starter_asymmetry_score", None)
@@ -111,8 +116,14 @@ def _compute_confidence_level(row) -> tuple[str, str | None]:
     # Use asymmetry score when available; fall back to quality_gap thresholds
     effective_asymmetry = asymmetry if asymmetry is not None else (quality_gap / 0.10)
 
-    # High: confirmed starters + meaningful mismatch + decent board
-    if starter_cert >= 0.75 and effective_asymmetry >= 0.15 and board_state != "minimal":
+    # High: actual/box-confirmed starters (high starter_cert), lineup not mushy, strong signal
+    lineup_ok_for_high = lineup_cert is None or lineup_cert >= 0.4
+    if (
+        starter_cert >= 0.75
+        and effective_asymmetry >= 0.15
+        and board_state != "minimal"
+        and lineup_ok_for_high
+    ):
         return "high", None
 
     # Medium: some starter info + some mismatch signal

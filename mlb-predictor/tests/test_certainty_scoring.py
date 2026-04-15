@@ -7,6 +7,8 @@ import pandas as pd
 import pytest
 
 from src.features.common import (
+    STARTER_CERTAINTY_SCHEDULE_PROBABLE,
+    STARTER_CERTAINTY_UNSPECIFIED,
     bullpen_snapshot,
     compute_board_state,
     compute_freshness_score,
@@ -40,14 +42,14 @@ class TestComputeStarterCertainty:
     def test_no_starter(self):
         assert compute_starter_certainty(None, None) == 0.0
 
-    def test_starter_probable(self):
-        assert compute_starter_certainty(12345, True) == 1.0
+    def test_starter_schedule_probable(self):
+        assert compute_starter_certainty(12345, True) == STARTER_CERTAINTY_SCHEDULE_PROBABLE
 
-    def test_starter_not_probable(self):
-        assert compute_starter_certainty(12345, False) == 0.5
+    def test_starter_boxscore_confirmed(self):
+        assert compute_starter_certainty(12345, False) == 1.0
 
-    def test_starter_probable_none(self):
-        assert compute_starter_certainty(12345, None) == 0.5
+    def test_starter_flag_unspecified(self):
+        assert compute_starter_certainty(12345, None) == STARTER_CERTAINTY_UNSPECIFIED
 
 
 # ---------------------------------------------------------------------------

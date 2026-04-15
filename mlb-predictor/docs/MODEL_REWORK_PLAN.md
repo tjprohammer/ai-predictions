@@ -185,6 +185,35 @@ Rule:
 
 If leash risk is elevated or starter identity is not firmly confirmed, suppress aggressive strikeout calls.
 
+### First-inning NRFI / YRFI (product extension)
+
+Today the app surfaces NRFI/YRFI from **game markets** (one line per game, NRFI preferred when both exist). The product rework is to add a **first-inning scoring model** that outputs `P(YRFI)` (or `P(NRFI)`) from pregame-safe features, then combine with **no-vig / implied** market probability for side selection and EV — not market dedupe alone.
+
+**Label**
+
+- Binary: at least one run scored in the top and bottom of the 1st (visitor then home) → YRFI; else NRFI. Use official play-by-play or boxscore first-inning runs (same source as grading).
+
+**Core features (starter vs top of order)**
+
+- Probable/confirmed away SP vs home batters 1–3 (handedness, recent wOBA/xwOBA, K%, BB%, barrel proxy where available).
+- Home SP vs away batters 1–3 (same).
+- Park and platoon context; forecast weather if already used elsewhere for pregame.
+
+**Priors / history**
+
+- Team or pitcher rolling first-inning run rate (prior season + recent bucketed windows), shrunk toward league average.
+- Optional: bullpen is largely irrelevant to inning 1 scoring; keep the feature set SP + lineup + park.
+
+**Training / calibration**
+
+- Train a calibrated classifier (or Platt/Isotonic on logits). Report **Brier** and **calibration bins** on held-out dates.
+- Serve `p_model` pregame; combine with market implied `p_mkt` for **edge** and **positive-EV** gating consistent with other board markets.
+
+**Integration**
+
+- Expose `p_yrfi` / `p_nrfi` and EV next to market lines in `_fetch_experimental_market_cards` (or successor). Green strip stays on core markets; NRFI/YRFI remain **experimental** unless promoted explicitly.
+- Grading: extend `prediction_outcomes_daily` / experimental outcomes to store model probability and result when first-inning is final.
+
 ## Feature Framework
 
 Every feature should belong to one of three buckets.
@@ -572,6 +601,28 @@ The rework should start with three concrete artifacts plus one product contract:
    - rerank triggers after confirmation
 4. **Backtest harness**
    - old versus new comparisons split by board state and confidence bucket
+
+## Season operations and matchup policy (2026+)
+
+Operational choices that sit alongside the modeling rework:
+
+1. **Opening-day anchor** — Pick an official first date for “2026 product” tracking (e.g. Opening Day). Use it for **refresh/rebuild** of features and predictions for a clean slate; it does **not** mean training on that date only.
+
+2. **Training vs. live slate** — **Training** should use **labeled history** in feature snapshots (prior season + current), with chronological validation — not April-only windows unless you are running an ablation. **Early-season inputs** already blend **prior-season** priors (pitchers, hitters, teams) until current-year sample thresholds are met (`MODEL_NOTES.md`).
+
+3. **Prediction tracking** — Store predictions with model name, version, and timestamp so every pick is **gradeable** (`prediction_outcomes_daily`, `model_scorecards_daily`, lane prediction tables). This is required for calibration and trust.
+
+4. **Retrain cadence** — After enough new labeled games land in snapshots, **retrain** on a schedule you control (e.g. weekly early season). That is how model weights improve; **feature priors** improve continuously as games accumulate.
+
+5. **Matchup history (BvP, pitcher-vs-team, platoon, team H2H totals)** — Treat small samples as **noisy**. The `/api/games/{game_id}/matchups` response includes **`sample_tier`** (`low` / `adequate` / `strong`) and a **`sample_tier_legend`** for UI copy. The game page (`game.html`) renders the legend and a **Sample** column (plus H2H tier chip). Use matchup stats as **context**; weight **process** metrics (xwOBA, CSW, lineup quality, park) more heavily unless tiers are strong and aligned with those signals.
+
+## Progress snapshot (April 2026)
+
+Product and calibration plumbing ahead of full Phase 3–4 feature reworks:
+
+- **Projection vs input trust** — Separated in API (`data_quality.input_trust`) and best-bet cards; graded history supports **trust buckets** and **monotonicity** checks (`/api/recommendations/best-bets-history`). See `docs/CALIBRATION_AND_PRODUCT.md`.
+- **Phase 5 (partial)** — Publish/stratify via `actionable` vs `edge_only` tiers; full suppress-by-bucket rules remain data-driven.
+- **Phase 6 (partial)** — Use history API + scorecards for win-rate/CLV-by-trust analysis; dedicated old-vs-new backtest harness still optional.
 
 ## Definition Of Done
 

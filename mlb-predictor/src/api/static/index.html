@@ -405,6 +405,10 @@
         margin-right: 6px;
         cursor: default;
       }
+      .dq-trust-grade {
+        font-weight: 800;
+        opacity: 0.95;
+      }
       .certainty-chip .cert-bar {
         width: 28px;
         height: 5px;
@@ -573,6 +577,20 @@
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
+      }
+
+      .update-grid button.update-btn-stacked {
+        align-items: flex-start;
+        text-align: left;
+        line-height: 1.25;
+      }
+
+      .update-btn-hint {
+        display: block;
+        font-size: 0.78rem;
+        font-weight: 500;
+        color: var(--muted);
+        margin-top: 2px;
       }
 
       .control-note {
@@ -1210,6 +1228,22 @@
         background: rgba(10, 74, 63, 0.1);
         border-color: rgba(10, 74, 63, 0.16);
         color: var(--accent-deep);
+      }
+
+      /* Soft green: alternate EV band so the strip is not empty on thin slates (see best_bets.flatten_best_bets). */
+      .best-bet-card.soft-green {
+        border-color: rgba(180, 83, 9, 0.22);
+        background: linear-gradient(
+          180deg,
+          rgba(245, 158, 11, 0.12),
+          rgba(255, 255, 255, 0.76)
+        );
+      }
+
+      .best-bet-card.soft-green .best-bet-kicker {
+        background: rgba(245, 158, 11, 0.16);
+        border-color: rgba(180, 83, 9, 0.22);
+        color: #92400e;
       }
 
       .best-bet-card.experimental .best-bet-kicker {
@@ -2381,6 +2415,7 @@
                 data-update-action="refresh_results"
                 id="quickUpdateScoresButton"
                 type="button"
+                title="Box scores, batting logs, observed weather. Does not re-import odds or rebuild features — use while games are live or after games for results only."
               >
                 &#x21bb; Update Scores
               </button>
@@ -2412,6 +2447,22 @@
                 </button>
                 <button
                   class="secondary"
+                  data-update-action="update_lineups_only"
+                  type="button"
+                  title="Re-import lineup CSVs and player status only. Does not call the Odds API — use while lineups are still changing."
+                >
+                  Update Lineups
+                </button>
+                <button
+                  class="secondary"
+                  data-update-action="update_markets_only"
+                  type="button"
+                  title="Re-fetch odds and player-prop markets only. Does not re-import lineup CSVs."
+                >
+                  Update Markets
+                </button>
+                <button
+                  class="secondary"
                   data-update-action="rebuild_predictions"
                   type="button"
                 >
@@ -2425,11 +2476,15 @@
                   Retrain Models
                 </button>
                 <button
-                  class="secondary"
+                  class="secondary update-btn-stacked"
                   data-update-action="refresh_results"
                   type="button"
+                  title="Same pipeline as Update Scores: results-oriented ingest only. Prefer this over Refresh Everything when some games are already live so you do not re-pull markets or re-score pregame edges for the whole slate."
                 >
-                  Refresh Daily Results
+                  <span>Refresh Daily Results</span>
+                  <span class="update-btn-hint"
+                    >Scores &amp; boxes · safe for live slates</span
+                  >
                 </button>
                 <button
                   class="secondary"
@@ -2443,7 +2498,9 @@
                 <dt>Refresh Everything</dt>
                 <dd>
                   Full pipeline — schedule, lineups, markets, aggregates,
-                  features, predictions, and published board.
+                  features, predictions, and published board. Mid-slate, this can
+                  refresh odds and rescored edges for games that have not started
+                  yet; use only when you want the whole board rebuilt.
                 </dd>
                 <dt>Prepare Slate</dt>
                 <dd>
@@ -2453,7 +2510,20 @@
                 <dt>Update Lineups &amp; Markets</dt>
                 <dd>
                   Re-reads the lineup and market CSVs, then rebuilds the board
-                  so manual edits show up immediately.
+                  so manual edits show up immediately. Calls the Odds API for
+                  markets.
+                </dd>
+                <dt>Update Lineups</dt>
+                <dd>
+                  Lineup CSVs and player status only — no Odds API. Use while
+                  lineups are still in flux so you are not burning market quota
+                  on every refresh.
+                </dd>
+                <dt>Update Markets</dt>
+                <dd>
+                  Odds and player-prop market ingest only — does not re-import
+                  lineup CSVs. Use when books move lines and you do not need
+                  another lineup pass.
                 </dd>
                 <dt>Rebuild Predictions</dt>
                 <dd>
@@ -2468,8 +2538,11 @@
                 </dd>
                 <dt>Refresh Daily Results</dt>
                 <dd>
-                  Pulls box scores, batting logs, and weather for the selected
-                  date. Does not re-grade live or pregame games.
+                  Pulls box scores, batting logs, and observed weather, then
+                  republishes surfaces — without re-importing markets or
+                  rebuilding prediction features. Prefer this while games are
+                  in progress (staggered starts). Run
+                  <strong>Grade Predictions</strong> after games go final.
                 </dd>
                 <dt>Grade Predictions</dt>
                 <dd>
@@ -2514,8 +2587,9 @@
                       <strong>Pre-game</strong>
                     </td>
                     <td style="padding: 2px 0">
-                      Refresh Everything → Prepare Slate → Update Lineups &amp;
-                      Markets
+                      Refresh Everything → Prepare Slate → Update Lineups
+                      and/or Update Markets (or combined Update Lineups &amp;
+                      Markets)
                     </td>
                   </tr>
                   <tr>
@@ -2524,6 +2598,15 @@
                     </td>
                     <td style="padding: 2px 0">
                       Rebuild Predictions → Retrain Models
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 2px 8px 2px 0; white-space: nowrap">
+                      <strong>Live slate</strong>
+                    </td>
+                    <td style="padding: 2px 0">
+                      Update Scores or Refresh Daily Results (not Refresh
+                      Everything)
                     </td>
                   </tr>
                   <tr>
@@ -2783,6 +2866,12 @@
           </div>
         </section>
 
+        <div
+          class="slate-trust-banner muted"
+          id="slateTrustBanner"
+          hidden
+          style="margin-bottom: 0.65rem; font-size: 0.88rem; line-height: 1.35"
+        ></div>
         <section class="panel best-bets-panel" id="bestBetsPanel" hidden>
           <div class="panel-head">
             <div>
@@ -3035,6 +3124,7 @@
       const bestBetsToolbar = document.getElementById("bestBetsToolbar");
       const bestBetsGrid = document.getElementById("bestBetsGrid");
       const bestBetsSubtitle = document.getElementById("bestBetsSubtitle");
+      const slateTrustBanner = document.getElementById("slateTrustBanner");
       const watchlistPanel = document.getElementById("watchlistPanel");
       const watchlistToolbar = document.getElementById("watchlistToolbar");
       const watchlistGrid = document.getElementById("watchlistGrid");
@@ -3125,6 +3215,7 @@
         boardSummary: null,
         bestBets: [],
         greenPicks: [],
+        archivedGreenPicks: [],
         experimentalMarkets: [],
         bestBetMarketFilter: "all",
         bestBetHistory: null,
@@ -3164,10 +3255,20 @@
           pending:
             "Importing lineup and market edits, then rebuilding selected-date predictions",
         },
+        update_lineups_only: {
+          label: "Update Lineups",
+          pending:
+            "Importing lineup CSVs and player status (no Odds API), then rebuilding predictions",
+        },
+        update_markets_only: {
+          label: "Update Markets",
+          pending:
+            "Importing odds and props, then rebuilding predictions",
+        },
         refresh_results: {
           label: "Refresh Daily Results",
           pending:
-            "Refreshing selected-date scores, batter logs, observed weather, and partial review surfaces",
+            "Scores & boxes: box scores, batting logs, observed weather, republish — no market re-import or feature rebuild",
         },
         rebuild_predictions: {
           label: "Rebuild Predictions",
@@ -3210,6 +3311,8 @@
         "src.features.hits_builder": "Features — build hitter profiles",
         "src.features.strikeouts_builder":
           "Features — build pitcher strikeout profiles",
+        "src.features.total_bases_builder":
+          "Features — build total-bases hitter profiles",
         "src.models.predict_totals": "Predict — score full-game over/under",
         "src.models.predict_first5_totals":
           "Predict — score first-5-innings over/under",
@@ -3416,6 +3519,28 @@
           return error.stack || error.message;
         }
         return String(error);
+      }
+
+      /** FastAPI/Pydantic validation errors put messages in ``detail``, not ``message``. */
+      function formatHttpErrorPayload(status, payload) {
+        if (payload && Array.isArray(payload.detail)) {
+          const parts = payload.detail.map((d) => {
+            if (typeof d === "string") return d;
+            if (d && typeof d.msg === "string") {
+              const loc = Array.isArray(d.loc) ? d.loc.join(".") : "";
+              return loc ? `${loc}: ${d.msg}` : d.msg;
+            }
+            return JSON.stringify(d);
+          });
+          return `${status}: ${parts.join("; ")}`;
+        }
+        if (payload && typeof payload.detail === "string") {
+          return `${status}: ${payload.detail}`;
+        }
+        if (payload && payload.message) {
+          return `${status}: ${payload.message}`;
+        }
+        return `HTTP ${status}`;
       }
 
       function formatPercent(value, digits = 1) {
@@ -4415,6 +4540,14 @@
         } else if (row.beat_closing_line === false) {
           chipBits.push("Lost to close");
         }
+        if (row.input_trust_grade) {
+          chipBits.push(`Trust ${row.input_trust_grade}`);
+        }
+        if (row.promotion_tier === "actionable") {
+          chipBits.push("Actionable tier");
+        } else if (row.promotion_tier === "edge_only") {
+          chipBits.push("Model edge tier");
+        }
         return `
         <a class="summary-card link-card" href="${matchupHref}">
           <div class="stat-label">${escapeHtml(row.selection_label || row.market_label || "Best Bet")} · ${escapeHtml(teams)}</div>
@@ -4547,6 +4680,37 @@
               ? reviewToneClass("winRate", byMarket[0].win_rate)
               : "",
           ),
+          ...(Array.isArray(payload.by_input_trust) && payload.by_input_trust.length
+            ? [
+                renderReviewCard(
+                  "Input trust · win rate",
+                  (() => {
+                    const m = payload.monotonicity || {};
+                    if (m.status === "monotonic") return "A→D monotonic";
+                    if (m.status === "non_monotonic") return "Not monotonic";
+                    return "Sizing sample";
+                  })(),
+                  (payload.monotonicity && payload.monotonicity.interpretation) ||
+                    "Split graded tickets by pregame input-trust grade to see if better trust matches better results.",
+                  Array.isArray(payload.by_input_trust)
+                    ? payload.by_input_trust
+                        .map((b) => {
+                          const wr =
+                            b.win_rate != null
+                              ? formatPercent(b.win_rate, 0)
+                              : "—";
+                          return `${b.input_trust_grade}: ${wr} (${b.graded || 0} graded)`;
+                        })
+                        .join(" · ")
+                    : "",
+                  (payload.monotonicity || {}).status === "monotonic"
+                    ? "good"
+                    : (payload.monotonicity || {}).status === "non_monotonic"
+                      ? "warn"
+                      : "",
+                ),
+              ]
+            : []),
         ].join("");
 
         grid.innerHTML = visibleRows.length
@@ -5092,13 +5256,54 @@
         return `${filtered.slice(0, -1).join(", ")}, and ${filtered[filtered.length - 1]}`;
       }
 
+      function truncateTotalsReasonText(text, maxLen) {
+        const s = text == null ? "" : String(text);
+        if (s.length <= maxLen) return s;
+        return `${s.slice(0, Math.max(0, maxLen - 1))}…`;
+      }
+
+      /** Model lane + input trust — authoritative; heuristic bullets follow. */
+      function totalsModelAndTrustContext(game) {
+        const lines = [];
+        const totals = game?.totals || {};
+        const dq = game?.data_quality || {};
+        const it = dq.input_trust;
+        const laneRaw = totals.lane_status || "research_only";
+        const laneLabel =
+          laneRaw === "research_only"
+            ? "research-only lane (auditing / not a live-signal lane)"
+            : String(laneRaw).replace(/_/g, " ");
+        const conf =
+          totals.confidence_level != null && totals.confidence_level !== ""
+            ? String(totals.confidence_level)
+            : null;
+        lines.push(
+          `Model: ${laneLabel}${conf ? ` · ${conf}` : ""}`,
+        );
+        const sup = totals.suppress_reason;
+        if (sup != null && String(sup).trim() !== "") {
+          lines.push(
+            `Model note: ${truncateTotalsReasonText(String(sup), 120)}`,
+          );
+        }
+        if (it && (it.grade || it.summary)) {
+          const g = it.grade != null ? `Grade ${it.grade}` : "Input trust";
+          const sum = it.summary
+            ? truncateTotalsReasonText(it.summary, 88)
+            : "";
+          lines.push(sum ? `Inputs: ${g} — ${sum}` : `Inputs: ${g}`);
+        }
+        return lines;
+      }
+
       function totalsReasonList(game) {
         const totals = game?.totals || {};
         const weather = game?.weather || {};
         const starters = game?.starters || {};
         const direction = totalsLeanDirection(totals);
+        const contextLines = totalsModelAndTrustContext(game);
         if (!direction) {
-          return [];
+          return contextLines.length ? contextLines.slice(0, 4) : [];
         }
 
         const predictedTotal = primaryTotalPrediction(totals);
@@ -5333,7 +5538,9 @@
           }
         }
 
-        return [...new Set(reasons)].slice(0, 3);
+        const heuristic = [...new Set(reasons)].slice(0, 3);
+        const merged = [...contextLines, ...heuristic];
+        return merged.slice(0, 5);
       }
 
       function totalsReasonSummary(game) {
@@ -6742,10 +6949,19 @@
         ]
           .filter(Boolean)
           .join(" | ");
+        const it = dq.input_trust || cert.input_trust;
+        const trustLine =
+          it && it.summary
+            ? `\n\nInput trust ${it.grade} (${Math.round((it.score ?? 0) * 100)}%): ${it.summary}`
+            : it && it.grade
+              ? `\n\nInput trust grade ${it.grade} (${Math.round((it.score ?? 0) * 100)}% composite)`
+              : "";
         const tip = breakdown
-          ? `${dq.badge_reason}\n\nCertainty: ${pct}%${board}\n${breakdown}`
-          : dq.badge_reason;
-        return `${dot}<span class="certainty-chip cert-${tier}" title="${tip}"><span class="cert-bar"><span class="cert-fill" style="width:${pct}%"></span></span>${pct}%</span>`;
+          ? `${dq.badge_reason}\n\nCertainty: ${pct}%${board}\n${breakdown}${trustLine}`
+          : `${dq.badge_reason}${trustLine}`;
+        const trustPrefix =
+          it && it.grade ? `<span class="dq-trust-grade">${escapeHtml(it.grade)}</span> · ` : "";
+        return `${dot}<span class="certainty-chip cert-${tier}" title="${escapeHtml(tip)}"><span class="cert-bar"><span class="cert-fill" style="width:${pct}%"></span></span>${trustPrefix}${pct}%</span>`;
       }
 
       function renderMarketLockBadge(game) {
@@ -6824,8 +7040,9 @@
         const awayLateSeasonEra = numberOr(totals.away_bullpen_late_season_era);
         const homeLateSeasonEra = numberOr(totals.home_bullpen_late_season_era);
         const temp = numberOr(weather.temperature_f);
-        const wind = numberOr(weather.wind_mph);
-        const windDir = weather.wind_direction || "";
+        const wind = numberOr(weather.wind_speed_mph);
+        const windDir =
+          windCardinal(numberOr(weather.wind_direction_deg)) || "";
         const lineMove = numberOr(totals.line_movement);
 
         // Supplemental market helpers
@@ -7070,12 +7287,39 @@
           <div class="game-best-bet-strip">
             ${bets
               .map(
-                (bet) =>
-                  `<span class="game-best-bet-chip">${escapeHtml(bet.selection_label || bet.market_label || "Best Bet")}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""} · EV ${formatSigned(numberOr(bet.weighted_ev, 0) * 100, 1)}%</span>`,
+                (bet) => {
+                  const tier = bet.promotion_tier;
+                  const tierTag =
+                    tier === "actionable"
+                      ? "Actionable"
+                      : tier === "edge_only"
+                        ? "Model edge"
+                        : "";
+                  const trustG = bet.input_trust && bet.input_trust.grade
+                    ? String(bet.input_trust.grade)
+                    : "";
+                  return `<span class="game-best-bet-chip">${tierTag ? `<span class="section-tag">${escapeHtml(tierTag)}</span> ` : ""}${trustG ? `Trust ${escapeHtml(trustG)} · ` : ""}${escapeHtml(bet.selection_label || bet.market_label || "Best Bet")}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""} · EV ${formatSigned(numberOr(bet.weighted_ev, 0) * 100, 1)}%</span>`;
+                },
               )
               .join("")}
           </div>
         `;
+      }
+
+      function renderSlateTrustBanner() {
+        if (!slateTrustBanner) {
+          return;
+        }
+        const sc =
+          (state.boardSummary && state.boardSummary.slate_context) || {};
+        const note = sc.slate_note;
+        if (note) {
+          slateTrustBanner.hidden = false;
+          slateTrustBanner.textContent = String(note);
+        } else {
+          slateTrustBanner.hidden = true;
+          slateTrustBanner.textContent = "";
+        }
       }
 
       function renderBestBetsBoard() {
@@ -7095,7 +7339,19 @@
         }
         bestBetsPanel.hidden = false;
         const activeMarketLabel = bestBetMarketFilterLabel();
-        bestBetsSubtitle.textContent = `${filteredBets.length} green pick${filteredBets.length === 1 ? "" : "s"}${state.bestBetMarketFilter !== "all" ? ` · ${activeMarketLabel.toLowerCase()}` : ""}`;
+        const filterSuffix =
+          state.bestBetMarketFilter !== "all"
+            ? ` · ${activeMarketLabel.toLowerCase()}`
+            : "";
+        const softGreenCount = filteredBets.filter(
+          (b) => b.green_strip_tier === "soft",
+        ).length;
+        const strictGreenCount = filteredBets.length - softGreenCount;
+        let greenSub = `${filteredBets.length} green pick${filteredBets.length === 1 ? "" : "s"}${filterSuffix}`;
+        if (softGreenCount > 0) {
+          greenSub += ` · ${strictGreenCount} strict · ${softGreenCount} soft`;
+        }
+        bestBetsSubtitle.textContent = greenSub;
         bestBetsGrid.classList.toggle("empty", !filteredBets.length);
         bestBetsGrid.innerHTML = filteredBets.length
           ? filteredBets
@@ -7114,23 +7370,43 @@
                   `${bet.away_team || "Away"} at ${bet.home_team || "Home"}`;
                 const ticket =
                   bet.pick_label || bet.selection_label || marketLabel;
-                const modelLine = bet.model_display || "Model context pending";
+                const modelLine =
+                  bet.model_display ||
+                  bet.model_summary ||
+                  "Model context pending";
                 const notesLine =
                   bet.notes_display ||
                   bet.market_summary ||
                   bet.model_summary ||
                   "Green-pick context pending";
+                const isSoftGreen = bet.green_strip_tier === "soft";
+                const greenKicker = isSoftGreen
+                  ? "Soft green"
+                  : bet.promotion_tier === "actionable"
+                    ? "Actionable pick"
+                    : bet.promotion_tier === "edge_only"
+                      ? "Model edge"
+                      : "Strict green";
+                const trustGrade =
+                  bet.input_trust_grade ??
+                  (bet.input_trust && bet.input_trust.grade) ??
+                  "";
+                const trustBit =
+                  trustGrade !== "" && trustGrade != null
+                    ? ` · Input trust ${trustGrade}`
+                    : "";
+                const cardClass = `best-bet-card${isSoftGreen ? " soft-green" : ""}`;
                 return `
-              <a class="best-bet-card" href="${matchupHref}">
+              <a class="${cardClass}" href="${matchupHref}">
                 <div class="best-bet-topline">
-                  <span class="best-bet-kicker">Green Pick</span>
+                  <span class="best-bet-kicker">${escapeHtml(greenKicker)}</span>
                   <span class="section-tag">${escapeHtml(marketLabel)}</span>
                 </div>
                 <div class="best-bet-title">${escapeHtml(title)}</div>
                 <div class="best-bet-meta">${escapeHtml(subtitle)}</div>
                 <div class="best-bet-copy">${escapeHtml(ticket)}</div>
                 <div class="best-bet-copy">${escapeHtml(notesLine)}</div>
-                <div class="best-bet-meta">${escapeHtml(modelLine)}${bet.green_reason ? ` · ${escapeHtml(bet.green_reason)}` : ""}</div>
+                <div class="best-bet-meta">${escapeHtml(modelLine)}${trustBit}${bet.green_reason ? ` · ${escapeHtml(bet.green_reason)}` : ""}</div>
               </a>
             `;
               })
@@ -7174,10 +7450,14 @@
                 const notesLine =
                   bet.market_summary || "Market pricing pending";
                 const modelLine = bet.model_summary || "Model context pending";
+                const wlKicker =
+                  Array.isArray(bet.board_badges) && bet.board_badges.length
+                    ? bet.board_badges.map((b) => b.label).join(" · ")
+                    : "Watchlist";
                 return `
               <a class="best-bet-card watchlist" href="${matchupHref}">
                 <div class="best-bet-topline">
-                  <span class="best-bet-kicker">Watchlist</span>
+                  <span class="best-bet-kicker">${escapeHtml(wlKicker)}</span>
                   <span class="section-tag">${escapeHtml(marketLabel)}</span>
                 </div>
                 <div class="best-bet-title">${escapeHtml(title)}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""}</div>
@@ -7194,6 +7474,18 @@
               <div class="summary-copy">No watchlist markets match the selected market filter.</div>
             </div>
           `;
+      }
+
+      function formatExperimentalNotes(raw) {
+        if (raw == null || raw === "") {
+          return escapeHtml(
+            "Experimental market only; keep separate from the green board.",
+          );
+        }
+        return String(raw)
+          .split("\n")
+          .map((line) => escapeHtml(line))
+          .join("<br />");
       }
 
       function renderExperimentalBoard() {
@@ -7216,15 +7508,20 @@
             const matchupHref = appUrl(
               `game?game_id=${encodeURIComponent(market.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`,
             );
+            const mp = market.model_nrfi_probability;
+            const mpStr =
+              mp != null && Number.isFinite(Number(mp))
+                ? ` · Model ${(Number(mp) * 100).toFixed(0)}% NRFI`
+                : "";
             return `
               <a class="best-bet-card experimental" href="${matchupHref}">
                 <div class="best-bet-topline">
                   <span class="best-bet-kicker">Experimental</span>
                   <span class="section-tag">${escapeHtml(market.market_label || "Experimental")}</span>
                 </div>
-                <div class="best-bet-title">${escapeHtml(market.pick_label || market.market_label || "Experimental market")}${market.price != null ? ` ${formatPrice(market.price)}` : ""}</div>
+                <div class="best-bet-title">${escapeHtml(market.pick_label || market.market_label || "Experimental market")}${mpStr}${market.price != null ? ` ${formatPrice(market.price)}` : ""}</div>
                 <div class="best-bet-meta">${escapeHtml(market.subject_label || "Matchup pending")}${market.sportsbook ? ` · ${escapeHtml(market.sportsbook)}` : ""}</div>
-                <div class="best-bet-copy">${escapeHtml(market.notes_display || "Experimental market only; keep separate from the green board.")}</div>
+                <div class="best-bet-copy">${formatExperimentalNotes(market.notes_display)}</div>
               </a>
             `;
           })
@@ -7398,6 +7695,7 @@
         renderPickReviewPanel();
         renderClvReviewPanel();
         renderHistoricalReview();
+        renderSlateTrustBanner();
         renderBestBetsBoard();
         renderWatchlistBoard();
         renderExperimentalBoard();
@@ -7431,7 +7729,10 @@
         state.boardSummary = payload.summary || null;
         state.bestBets = payload.watchlist_markets || [];
         state.experimentalMarkets = payload.experimental_markets || [];
-        state.greenPicks = payload.green_picks || [];
+        // Green board = live positive-EV cards (same as API `best_bets`). `green_picks` is archived
+        // graded rows from prediction_outcomes_daily — empty for today's slate until surfaces run.
+        state.greenPicks = payload.best_bets || [];
+        state.archivedGreenPicks = payload.green_picks || [];
         state.games = payload.games || [];
       }
 
@@ -7592,6 +7893,7 @@
             state.boardSummary = null;
             state.bestBets = [];
             state.greenPicks = [];
+            state.archivedGreenPicks = [];
             state.games = [];
             problems.push(`Board: ${describeError(boardResult.reason)}`);
           }
@@ -7870,10 +8172,18 @@
       async function startUpdateJob(action) {
         const meta = updateActionMeta[action];
         if (!meta) {
+          setUpdateJobStatusCopy(
+            `Unknown update action “${action}” — add it to updateActionMeta in index.html.`,
+            "warn",
+          );
           return;
         }
 
         const date = targetDateInput.value;
+        if (!date || !String(date).trim()) {
+          setUpdateJobStatusCopy("Choose a target date before running an update.", "warn");
+          return;
+        }
         clearUpdateJobPoll();
         setUpdateButtonsDisabled(true, action);
         setUpdateJobStatusCopy(
@@ -7909,8 +8219,13 @@
             return;
           }
           if (!response.ok) {
+            const base = formatHttpErrorPayload(response.status, payload);
+            const hint =
+              response.status === 422
+                ? " This usually means the process on port 8000 is an older API build (not this repo). Stop every listener on that port, then start uvicorn from mlb-predictor with this project’s .venv. Check GET /api/update-jobs/actions includes your action."
+                : "";
             throw new Error(
-              payload.message || `Update job start failed: ${response.status}`,
+              `${base || `Update job start failed: ${response.status}`}${hint}`,
             );
           }
           const job = payload.job;
@@ -8063,20 +8378,27 @@
                 setUpdateJobStatusCopy("No update job running.");
                 return;
               }
-              const preferredJob =
-                jobs.find(
-                  (candidate) =>
-                    candidate.status === "succeeded" &&
-                    candidate.target_date >= today,
-                ) || jobs[0];
-              applyUpdateJobState(preferredJob);
-              if (
-                preferredJob.target_date &&
-                preferredJob.target_date !== targetDateInput.value
-              ) {
-                targetDateInput.value = preferredJob.target_date;
-                return refreshBoard({ preserveLog: true });
+              // Only sync the calendar to a job when that job is for *today or future*.
+              // Otherwise the newest row in history is often *yesterday's* succeeded run,
+              // which would overwrite Target Date and show stale best bets / watchlist.
+              const recentSucceeded = jobs.find(
+                (candidate) =>
+                  candidate.status === "succeeded" &&
+                  candidate.target_date >= today,
+              );
+              if (recentSucceeded) {
+                applyUpdateJobState(recentSucceeded);
+                if (
+                  recentSucceeded.target_date &&
+                  recentSucceeded.target_date !== targetDateInput.value
+                ) {
+                  targetDateInput.value = recentSucceeded.target_date;
+                  return refreshBoard({ preserveLog: true });
+                }
+                return;
               }
+              applyUpdateJobState(jobs[0]);
+              setUpdateJobStatusCopy("No update job running.");
             });
           }
           applyUpdateJobState(job);
