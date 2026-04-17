@@ -38,6 +38,14 @@ def test_hot_hitters_html_has_streak_sort_and_recent_history_chart():
     assert 'function availabilityMeta(row)' in html
     assert 'strongHandOnlyInput.addEventListener("change", renderRows);' in html
     assert 'availableOnlyInput.addEventListener("change", renderRows);' in html
+    assert 'streak_only:' in html and "api/hot-hitters" in html
+    assert 'id="boardSize"' in html
+    assert "applyBoardSizeCap" in html
+
+
+def test_row_hit_streak_value_matches_ui_rules():
+    assert app_logic._row_hit_streak_value({"recent_hit_history": [{"hits": 1}, {"hits": 1}], "streak_len": 0, "streak_len_capped": 0}) == 2
+    assert app_logic._row_hit_streak_value({"recent_hit_history": [], "streak_len": 4, "streak_len_capped": 4}) == 4
 
 
 def test_fetch_recent_hit_history_map_groups_rows_by_player(monkeypatch):

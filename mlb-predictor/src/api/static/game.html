@@ -220,6 +220,520 @@
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         margin-bottom: 18px;
       }
+      @media (min-width: 900px) {
+        .summary-grid {
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+      }
+      .summary-top-strip {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 14px;
+        align-items: stretch;
+      }
+      .summary-dash-card {
+        position: relative;
+        overflow: hidden;
+        padding: 20px 22px;
+        border-radius: 18px;
+        background: linear-gradient(
+          155deg,
+          rgba(255, 255, 255, 0.98) 0%,
+          rgba(11, 106, 88, 0.05) 55%,
+          rgba(255, 251, 245, 0.92) 100%
+        );
+        border: 1px solid rgba(22, 36, 29, 0.09);
+        box-shadow: 0 10px 28px rgba(22, 36, 29, 0.06);
+      }
+      .summary-dash-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(
+          90deg,
+          var(--accent),
+          rgba(183, 121, 31, 0.85)
+        );
+        opacity: 0.9;
+      }
+      .summary-dash-card--trust::before {
+        background: linear-gradient(90deg, #2563eb, #7c3aed);
+      }
+      .summary-dash-card--odds::before {
+        background: linear-gradient(90deg, #b45309, var(--accent));
+      }
+      .dash-card-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .dash-eyebrow {
+        font-size: 0.62rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .dash-pill {
+        font-size: 0.6rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(11, 106, 88, 0.1);
+        color: var(--accent-deep);
+        border: 1px solid rgba(11, 106, 88, 0.12);
+      }
+      .dash-hero-line {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 6px 10px;
+        margin-bottom: 8px;
+      }
+      .dash-num {
+        font-size: 1.85rem;
+        font-weight: 900;
+        letter-spacing: -0.03em;
+        line-height: 1;
+        color: var(--fg);
+      }
+      .dash-num--soft {
+        font-size: 1.42rem;
+        font-weight: 800;
+        color: var(--muted);
+      }
+      .dash-slash {
+        font-size: 1.15rem;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .dash-foot {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .dash-trust-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 8px 12px;
+        margin-bottom: 8px;
+      }
+      .dash-trust-grade {
+        font-size: 1.48rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+      }
+      .dash-trust-score {
+        font-size: 0.95rem;
+        font-weight: 800;
+        color: var(--accent-deep);
+      }
+      .dash-odds-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      .dash-odds-cell {
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(22, 36, 29, 0.04);
+        border: 1px solid rgba(22, 36, 29, 0.07);
+      }
+      .dash-odds-label {
+        display: block;
+        font-size: 0.6rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .dash-odds-price {
+        font-size: 1.28rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+      }
+      .rc-seg-strip {
+        margin: 14px 0 8px;
+        padding: 14px 0 0;
+        border-top: 1px solid rgba(22, 36, 29, 0.08);
+      }
+      .rc-seg-strip--muted {
+        border-top-style: dashed;
+      }
+      .rc-seg-head {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        margin-bottom: 12px;
+      }
+      .rc-seg-title {
+        font-size: 0.62rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .rc-seg-hint {
+        font-size: 0.74rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      .rc-seg-grid {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 10px;
+        align-items: stretch;
+        margin-bottom: 10px;
+      }
+      .rc-seg-card {
+        padding: 12px 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(22, 36, 29, 0.08);
+        text-align: center;
+      }
+      .rc-seg-card--f5 {
+        background: linear-gradient(
+          165deg,
+          rgba(37, 99, 235, 0.09),
+          rgba(255, 255, 255, 0.96)
+        );
+        border-color: rgba(37, 99, 235, 0.22);
+      }
+      .rc-seg-card--late {
+        background: linear-gradient(
+          165deg,
+          rgba(180, 83, 9, 0.1),
+          rgba(255, 255, 255, 0.96)
+        );
+        border-color: rgba(180, 83, 9, 0.28);
+      }
+      .rc-seg-label {
+        display: block;
+        font-size: 0.6rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .rc-seg-val {
+        display: block;
+        font-size: 1.5rem;
+        font-weight: 900;
+        letter-spacing: -0.03em;
+        line-height: 1.1;
+      }
+      .rc-seg-unit {
+        display: block;
+        font-size: 0.6rem;
+        font-weight: 700;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+      .rc-seg-mid {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.05rem;
+        font-weight: 800;
+        color: var(--muted);
+      }
+      .rc-seg-bar {
+        display: flex;
+        height: 10px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(22, 36, 29, 0.06);
+        margin-bottom: 6px;
+      }
+      .rc-seg-f5 {
+        min-width: 4px;
+        background: linear-gradient(
+          90deg,
+          rgba(37, 99, 235, 0.78),
+          rgba(59, 130, 246, 0.48)
+        );
+        transition: width 0.35s ease;
+      }
+      .rc-seg-late {
+        min-width: 4px;
+        background: linear-gradient(
+          90deg,
+          rgba(217, 119, 6, 0.45),
+          rgba(180, 83, 9, 0.88)
+        );
+        transition: width 0.35s ease;
+      }
+      .rc-seg-legend {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.62rem;
+        font-weight: 700;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .rc-seg-check {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      .rc-seg-check strong {
+        color: var(--fg);
+        font-weight: 800;
+      }
+      .rc-seg-partial {
+        margin: 0;
+        font-size: 0.78rem;
+      }
+      .rc-seg-na {
+        margin: 0;
+        font-size: 0.8rem;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      .rc-seg-team-table {
+        margin-top: 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(22, 36, 29, 0.08);
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.55);
+      }
+      .rc-seg-team-head,
+      .rc-seg-team-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.95fr) minmax(0, 0.95fr);
+        gap: 8px;
+        align-items: center;
+        padding: 8px 12px;
+      }
+      .rc-seg-team-head {
+        font-size: 0.58rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+        background: rgba(22, 36, 29, 0.04);
+        border-bottom: 1px solid rgba(22, 36, 29, 0.07);
+      }
+      .rc-seg-team-head span:nth-child(2),
+      .rc-seg-team-head span:nth-child(3) {
+        text-align: center;
+      }
+      .rc-seg-team-row {
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+      .rc-seg-team-row + .rc-seg-team-row {
+        border-top: 1px solid rgba(22, 36, 29, 0.06);
+      }
+      .rc-seg-team-row--away {
+        background: rgba(37, 99, 235, 0.04);
+      }
+      .rc-seg-team-row--home {
+        background: rgba(180, 83, 9, 0.05);
+      }
+      .rc-seg-team-abbr {
+        font-weight: 900;
+        letter-spacing: 0.04em;
+      }
+      .rc-seg-team-num {
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+        font-weight: 800;
+      }
+      .rc-seg-team-note {
+        margin-top: 8px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      @media (max-width: 520px) {
+        .rc-seg-grid {
+          grid-template-columns: 1fr;
+        }
+        .rc-seg-mid {
+          display: none;
+        }
+      }
+      .summary-card.summary-card--bullpen-wide {
+        grid-column: 1 / -1;
+      }
+      .summary-card.summary-card--run {
+        grid-column: 1 / -1;
+      }
+      .summary-ambient-row {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        align-items: stretch;
+      }
+      .summary-card--ambient-mid {
+        display: flex;
+        flex-direction: column;
+        min-height: 100%;
+      }
+      .ambient-mid-line {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 6px 10px;
+        margin: 6px 0 8px;
+      }
+      .ambient-mid-num {
+        font-size: 1.65rem;
+        font-weight: 900;
+        letter-spacing: -0.03em;
+        line-height: 1.1;
+      }
+      .ambient-mid-num--soft {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: var(--muted);
+      }
+      .ambient-mid-slash {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--muted);
+      }
+      .ambient-mid-meta {
+        font-size: 0.84rem;
+        font-weight: 700;
+        color: var(--accent-deep);
+        line-height: 1.4;
+      }
+      .ambient-park-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin: 8px 0 10px;
+      }
+      .ambient-park-grid > div {
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(11, 106, 88, 0.06);
+        border: 1px solid rgba(11, 106, 88, 0.1);
+        text-align: center;
+      }
+      .ambient-park-lbl {
+        display: block;
+        font-size: 0.58rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .ambient-park-val {
+        font-size: 1.35rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+      }
+      .ambient-park-venue {
+        margin: 0;
+        font-size: 0.84rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      @media (max-width: 1100px) {
+        .summary-ambient-row {
+          grid-template-columns: 1fr;
+        }
+      }
+      .bp-compare-head {
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+      .bp-grid {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 12px;
+        align-items: start;
+      }
+      @media (max-width: 640px) {
+        .bp-grid {
+          grid-template-columns: 1fr;
+        }
+        .bp-vs {
+          display: none;
+        }
+      }
+      .bp-col-title {
+        font-size: 0.78rem;
+        font-weight: 800;
+        color: var(--accent);
+        margin-bottom: 8px;
+      }
+      .bp-stat {
+        font-size: 0.9rem;
+        font-weight: 700;
+        line-height: 1.45;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(22, 36, 29, 0.06);
+      }
+      .bp-stat:last-child {
+        border-bottom: none;
+      }
+      .bp-tag {
+        display: inline-block;
+        min-width: 2.1rem;
+        font-size: 0.62rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        color: var(--muted);
+        margin-right: 6px;
+      }
+      .bp-meta {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--muted);
+        margin-left: 4px;
+      }
+      .bp-vs {
+        font-size: 0.75rem;
+        font-weight: 800;
+        color: var(--muted);
+        padding-top: 28px;
+        text-align: center;
+      }
+      .rain-verdict {
+        font-size: 1.05rem;
+        font-weight: 800;
+        margin: 8px 0 6px;
+        letter-spacing: -0.02em;
+      }
+      .rain-verdict.rain-likely {
+        color: #b45309;
+      }
+      .rain-verdict.rain-possible {
+        color: #a16207;
+      }
+      .rain-verdict.rain-unlikely {
+        color: var(--accent);
+      }
+      .rain-verdict.rain-na,
+      .rain-verdict.rain-unknown {
+        color: var(--muted);
+      }
       .wind-field-banner {
         margin: 0 0 20px;
         padding: 16px 18px;
@@ -309,6 +823,9 @@
         padding-top: 10px;
         border-top: 1px solid rgba(22, 36, 29, 0.08);
       }
+      .summary-card.summary-card--run .run-context-split--solo {
+        grid-template-columns: 1fr;
+      }
       .summary-card .rc-sub {
         display: block;
         font-size: 0.65rem;
@@ -326,6 +843,280 @@
         font-size: 0.88rem;
         font-weight: 700;
         line-height: 1.35;
+      }
+      .summary-card .rc-block.rc-block--empty {
+        background: rgba(22, 36, 29, 0.04);
+        border-style: dashed;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      /* Run context — scoreboard + share bar */
+      .rc-hero-board {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 8px;
+        align-items: end;
+        margin-top: 8px;
+      }
+      .rc-hero-team {
+        text-align: center;
+        padding: 12px 10px 10px;
+        border-radius: 16px;
+        border: 1px solid rgba(22, 36, 29, 0.08);
+        background: linear-gradient(
+          165deg,
+          rgba(255, 255, 255, 0.95),
+          rgba(11, 106, 88, 0.05)
+        );
+      }
+      .rc-hero-team--away {
+        border-color: rgba(37, 99, 235, 0.18);
+        background: linear-gradient(
+          165deg,
+          rgba(255, 255, 255, 0.98),
+          rgba(37, 99, 235, 0.07)
+        );
+      }
+      .rc-hero-team--home {
+        border-color: rgba(180, 83, 9, 0.22);
+        background: linear-gradient(
+          165deg,
+          rgba(255, 255, 255, 0.98),
+          rgba(180, 83, 9, 0.08)
+        );
+      }
+      .rc-badge {
+        display: inline-block;
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .rc-hero-val {
+        font-size: 1.75rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        line-height: 1.1;
+        color: var(--fg);
+      }
+      .rc-hero-note {
+        font-size: 0.62rem;
+        font-weight: 700;
+        color: var(--muted);
+        margin-top: 6px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .rc-hero-mid {
+        font-size: 0.72rem;
+        font-weight: 800;
+        color: var(--muted);
+        padding-bottom: 14px;
+        letter-spacing: 0.12em;
+      }
+      .rc-split-bar {
+        display: flex;
+        height: 8px;
+        border-radius: 999px;
+        overflow: hidden;
+        margin: 12px 0 4px;
+        background: rgba(22, 36, 29, 0.06);
+      }
+      .rc-split-away {
+        background: linear-gradient(90deg, rgba(37, 99, 235, 0.85), rgba(37, 99, 235, 0.45));
+        min-width: 4px;
+        transition: width 0.35s ease;
+      }
+      .rc-split-home {
+        background: linear-gradient(90deg, rgba(180, 83, 9, 0.45), rgba(180, 83, 9, 0.88));
+        min-width: 4px;
+        transition: width 0.35s ease;
+      }
+      .rc-split-legend {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: var(--muted);
+        letter-spacing: 0.04em;
+      }
+      /* Bullpen — duel meters */
+      .bp-subtitle {
+        font-size: 0.72rem;
+        color: var(--muted);
+        font-weight: 600;
+        margin-bottom: 14px;
+        line-height: 1.35;
+      }
+      .bp-duel {
+        margin-bottom: 14px;
+      }
+      .bp-duel:last-child {
+        margin-bottom: 4px;
+      }
+      .bp-duel-title {
+        font-size: 0.62rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .bp-duel-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        align-items: stretch;
+      }
+      .bp-duel-side {
+        padding: 10px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(22, 36, 29, 0.08);
+      }
+      .bp-duel-side--away {
+        background: rgba(37, 99, 235, 0.06);
+        border-color: rgba(37, 99, 235, 0.15);
+      }
+      .bp-duel-side--home {
+        background: rgba(180, 83, 9, 0.07);
+        border-color: rgba(180, 83, 9, 0.18);
+      }
+      .bp-duel-era {
+        font-size: 1.35rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
+      }
+      .bp-duel-ip {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .bp-meter {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(22, 36, 29, 0.08);
+        margin-top: 10px;
+        overflow: hidden;
+      }
+      .bp-meter-fill {
+        height: 100%;
+        border-radius: 999px;
+        transition: width 0.35s ease;
+      }
+      .bp-meter-fill--away {
+        background: linear-gradient(90deg, rgba(37, 99, 235, 0.35), rgba(37, 99, 235, 0.95));
+      }
+      .bp-meter-fill--home {
+        background: linear-gradient(90deg, rgba(180, 83, 9, 0.4), rgba(180, 83, 9, 0.95));
+      }
+      .bp-foot-season {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px dashed rgba(22, 36, 29, 0.12);
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .bp-foot-season strong {
+        color: var(--fg);
+        font-weight: 800;
+      }
+      /* Weather grid */
+      .wx-shell {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 16px;
+        align-items: start;
+        margin-top: 6px;
+      }
+      @media (max-width: 480px) {
+        .wx-shell {
+          grid-template-columns: 1fr;
+        }
+      }
+      .wx-temp-big {
+        font-size: 2.25rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        line-height: 1;
+      }
+      .wx-precip-block {
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(11, 106, 88, 0.07);
+        border: 1px solid rgba(11, 106, 88, 0.12);
+      }
+      .wx-precip-label {
+        font-size: 0.62rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .wx-precip-num {
+        font-size: 1.5rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+      /* Lineup compare */
+      .lq-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 10px;
+      }
+      .lq-side {
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(22, 36, 29, 0.08);
+      }
+      .lq-side--away {
+        background: rgba(37, 99, 235, 0.05);
+        border-color: rgba(37, 99, 235, 0.12);
+      }
+      .lq-side--home {
+        background: rgba(180, 83, 9, 0.06);
+        border-color: rgba(180, 83, 9, 0.14);
+      }
+      .lq-abbr {
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .lq-k {
+        font-size: 1.25rem;
+        font-weight: 800;
+      }
+      .lq-xw {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+      .lq-meter {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(22, 36, 29, 0.08);
+        margin-top: 10px;
+        overflow: hidden;
+      }
+      .lq-meter-fill {
+        height: 100%;
+        border-radius: 999px;
+        max-width: 100%;
+      }
+      .lq-meter-fill--away {
+        background: linear-gradient(90deg, rgba(37, 99, 235, 0.35), rgba(37, 99, 235, 0.9));
+      }
+      .lq-meter-fill--home {
+        background: linear-gradient(90deg, rgba(180, 83, 9, 0.35), rgba(180, 83, 9, 0.9));
       }
       .lineup-matchup-strip {
         display: flex;
@@ -531,6 +1322,10 @@
       }
       .history-caption.cold strong {
         color: #fed7aa;
+        font-weight: 900;
+      }
+      .history-caption.warm strong {
+        color: #bbf7d0;
         font-weight: 900;
       }
       .history-filters {
@@ -1046,6 +1841,10 @@
       .heat-badge.steady {
         background: rgba(20, 33, 25, 0.06);
         color: var(--muted);
+      }
+      .heat-badge.warm {
+        background: rgba(22, 101, 52, 0.1);
+        color: #6ee7b7;
       }
 
       /* ── Matchup splits section ─────────────────────────────── */
@@ -1872,6 +2671,20 @@
           </article>
         </div>
       </section>
+      <section class="panel" id="topEvPickSection" style="display: none">
+        <div class="lineup-head">
+          <div>
+            <div class="section-tag">Top EV</div>
+            <h2>Best weighted EV line (this game)</h2>
+          </div>
+          <span class="muted" id="topEvPickSummary"></span>
+        </div>
+        <p class="muted" style="margin: 0 0 0.75rem">
+          Picks the single largest model-vs-price edge among team markets (ML, RL, totals, F5…),
+          1+ hit, HR yes, and pitcher K O/U with a priced line. Edge is not a win guarantee.
+        </p>
+        <div id="topEvPickCard" class="market-grid"></div>
+      </section>
       <section class="panel" id="marketsSection" style="display: none">
         <div class="lineup-head">
           <div>
@@ -2231,6 +3044,10 @@
       }
 
       function playerFormTone(player) {
+        const fk = player?.form?.form_key;
+        if (fk === "hot" || fk === "warm" || fk === "cold" || fk === "steady") {
+          return fk;
+        }
         const hitRate7 = numberOr(player?.hit_rate_7);
         const hitRate30 = numberOr(player?.hit_rate_30);
         const xwoba14 = numberOr(player?.xwoba_14);
@@ -3101,6 +3918,55 @@
         return parts.length ? parts.join(" · ") : "";
       }
 
+      /** Open-Meteo precip % at first-pitch hour — fixed domes skip; retractables still show. */
+      function formatRainVerdict(weather, venue) {
+        const roof = String(venue?.roof_type || "").toLowerCase();
+        const p = numberOr(weather?.precipitation_pct);
+        if (roof.includes("dome") && roof.includes("fixed") && !roof.includes("retractable")) {
+          return {
+            klass: "rain-na",
+            title: "Rain: N/A (indoor)",
+            hint: "Fixed dome — precip not applicable to the playing surface.",
+          };
+        }
+        if (p == null) {
+          return {
+            klass: "rain-unknown",
+            title: "Rain: no forecast",
+            hint: "Hourly precip is missing from the weather snapshot — re-run weather ingest if you need it.",
+          };
+        }
+        const r = Math.round(p);
+        let klass = "rain-unlikely";
+        let word = "Unlikely";
+        if (r >= 55) {
+          klass = "rain-likely";
+          word = "Likely";
+        } else if (r >= 25) {
+          klass = "rain-possible";
+          word = "Possible";
+        }
+        return {
+          klass,
+          title: `Rain: ${word}`,
+          hint: `${r}% model chance at the first-pitch hour`,
+        };
+      }
+
+      /** Visual meter width: ~12 ERA fills bar (stress), min 8%. */
+      function eraMeterWidth(era) {
+        const e = numberOr(era);
+        if (e == null) return 8;
+        return Math.min(100, Math.max(8, (e / 12) * 100));
+      }
+
+      /** K% bar: ~38% strikeout share ≈ full width. */
+      function lineupKMeterWidth(kFraction) {
+        const v = numberOr(kFraction);
+        if (v == null) return 0;
+        return Math.min(100, Math.max(10, (v / 0.38) * 100));
+      }
+
       async function ensureVenueFieldGeometry() {
         if (pageState.venueFieldGeometry) return pageState.venueFieldGeometry;
         const fallback = {
@@ -3466,6 +4332,63 @@
         return "";
       }
 
+      function renderTopEvPickSection(detail) {
+        const section = document.getElementById("topEvPickSection");
+        const summary = document.getElementById("topEvPickSummary");
+        const grid = document.getElementById("topEvPickCard");
+        const pick = detail?.top_ev_pick;
+        if (!pick || !section || !grid || !summary) {
+          if (section) section.style.display = "none";
+          return;
+        }
+        section.style.display = "";
+        const n = pick.top_ev_candidate_count;
+        summary.textContent =
+          n != null
+            ? `${n} priced candidate${n === 1 ? "" : "s"} compared · ranked by weighted EV`
+            : "Ranked by weighted EV vs book";
+        const tier = pick.board_pick_tier || "monitor";
+        const toneClass = pick.positive ? "positive" : "";
+        const tierClass = tier !== "monitor" ? ` tier-${tier}` : "";
+        const badges = Array.isArray(pick.board_badges)
+          ? pick.board_badges
+          : [];
+        const badgeHtml = badges.length
+          ? `<div class="market-badge-row">${badges
+              .map((b) => {
+                const cls = marketBoardBadgeClass(b.key);
+                return `<span class="market-badge ${cls ? escapeHtml(cls) : ""}">${escapeHtml(b.label || b.key)}</span>`;
+              })
+              .join("")}</div>`
+          : `<span class="market-badge">Top EV</span>`;
+        const selectionText = pick.selection_label
+          ? `${escapeHtml(pick.selection_label)}${pick.price != null ? ` ${formatPrice(pick.price)}` : ""}`
+          : "—";
+        const metricParts = [];
+        if (pick.weighted_ev != null) {
+          metricParts.push(
+            `Weighted EV ${formatSigned(pick.weighted_ev * 100, 1)}%`,
+          );
+        }
+        if (pick.probability_edge != null) {
+          metricParts.push(
+            `No-vig edge ${formatSigned(pick.probability_edge * 100, 1)} pts`,
+          );
+        }
+        grid.innerHTML = `
+          <article class="market-card ${toneClass}${tierClass}">
+            <div class="market-card-head">
+              <div>
+                <div class="market-card-title">${escapeHtml(pick.market_label || "Pick")}</div>
+                <div class="market-card-selection">${selectionText}</div>
+              </div>
+              ${badgeHtml}
+            </div>
+            <div class="market-card-metrics">${metricParts.join(" · ") || "—"}</div>
+            <div class="market-card-copy muted">${escapeHtml(pick.model_summary || "")}</div>
+          </article>`;
+      }
+
       function renderMarketsSection(detail) {
         const section = document.getElementById("marketsSection");
         const grid = document.getElementById("marketsGrid");
@@ -3675,14 +4598,16 @@
             ...p,
             _tone: playerFormTone(p),
           }));
-          const hot = tagged.filter((p) => p._tone === "hot");
+          const hot = tagged.filter(
+            (p) => p._tone === "hot" || p._tone === "warm",
+          );
           const cold = tagged.filter((p) => p._tone === "cold");
           if (!tagged.length) return "";
           return `
             <div class="heat-card">
               <div class="section-tag">${escapeHtml(teamName)}</div>
               <h3 style="margin-top:6px;">Actual Batting Order</h3>
-              <div class="data-copy">Full 1-9 order with hot, cold, or steady tags. ${hot.length} hot · ${cold.length} cold · ${tagged.length - hot.length - cold.length} steady</div>
+              <div class="data-copy">Full 1-9 order with form tags (hot, heating up, cold, steady). ${hot.length} hot/heating up · ${cold.length} cold · ${tagged.length - hot.length - cold.length} steady</div>
               <div class="heat-list">
                 ${tagged
                   .map(
@@ -3807,7 +4732,11 @@
 
         function signalPlayerNames(lineup, tone, limit = 2) {
           return lineup
-            .filter((player) => playerFormTone(player) === tone)
+            .filter((player) => {
+              const t = playerFormTone(player);
+              if (tone === "hot") return t === "hot" || t === "warm";
+              return t === tone;
+            })
             .sort((left, right) => {
               const leftSlot = numberOr(left.lineup_slot, 99) ?? 99;
               const rightSlot = numberOr(right.lineup_slot, 99) ?? 99;
@@ -4125,7 +5054,7 @@
               strength: lateEra >= 7 ? 3 : 2,
               category: `${team} Late Bullpen`,
               icon: "\u{1F6A8}",
-              copy: `${team}'s relievers have given up ${formatNumber(lateEarnedRuns, 0)} earned runs in ${formatNumber(lateInnings, 1)} innings from the 7th inning on over their last five bullpen games (${formatNumber(lateEra, 2)} ERA${lateSeasonEra != null ? ` vs ${formatNumber(lateSeasonEra, 2)} for the season in those late innings` : ""}). In plain terms: if this game is close late, that bullpen has recently been more likely to give up extra runs.`,
+              copy: `${team}'s relievers have given up ${formatNumber(lateEarnedRuns, 0)} earned runs in ${formatNumber(lateInnings, 1)} innings from the 6th inning on over their last five bullpen games (${formatNumber(lateEra, 2)} ERA${lateSeasonEra != null ? ` vs ${formatNumber(lateSeasonEra, 2)} for the season in those late innings` : ""}). In plain terms: if this game is close late, that bullpen has recently been more likely to give up extra runs.`,
             });
           } else if (era != null && era >= 5.0) {
             addSignal({
@@ -4154,7 +5083,7 @@
               strength: lateEra <= 2.8 ? 3 : 2,
               category: `${team} Bullpen Stability`,
               icon: "\u2714",
-              copy: `${team}'s bullpen has been steadier from the 7th inning on, with a ${formatNumber(lateEra, 2)} ERA in recent late-game work. That gives the model a little more reason to believe the late innings may stay under control.`,
+              copy: `${team}'s bullpen has been steadier from the 6th inning on, with a ${formatNumber(lateEra, 2)} ERA in recent late-game work. That gives the model a little more reason to believe the late innings may stay under control.`,
             });
           }
         }
@@ -4219,15 +5148,19 @@
           ["away", awayLineup, detail.away_team],
           ["home", homeLineup, detail.home_team],
         ]) {
-          const hotCount = lineup.filter(
-            (p) => playerFormTone(p) === "hot",
-          ).length;
+          const hotCount = lineup.filter((p) => {
+            const t = playerFormTone(p);
+            return t === "hot" || t === "warm";
+          }).length;
           const coldCount = lineup.filter(
             (p) => playerFormTone(p) === "cold",
           ).length;
           const topOrderHot = lineup.filter((p) => {
             const slot = numberOr(p.lineup_slot);
-            return slot != null && slot <= 5 && playerFormTone(p) === "hot";
+            const t = playerFormTone(p);
+            return (
+              slot != null && slot <= 5 && (t === "hot" || t === "warm")
+            );
           }).length;
           const topOrderCold = lineup.filter((p) => {
             const slot = numberOr(p.lineup_slot);
@@ -4739,10 +5672,15 @@
           h2h.sample_tier,
           tierTooltip(legendObj, h2h.sample_tier),
         );
+        const y = h2h.season_year;
+        const h2hWindow =
+          y != null && y !== ""
+            ? `This season (${formatInteger(y)})`
+            : "This season";
         return `
           <div class="matchup-subsection">
             <div class="matchup-h2h-head">
-              <div class="matchup-sub-tag">${escapeHtml(h2h.away_team || "Away")} vs ${escapeHtml(h2h.home_team || "Home")} · Last 365 Days</div>
+              <div class="matchup-sub-tag">${escapeHtml(h2h.away_team || "Away")} vs ${escapeHtml(h2h.home_team || "Home")} · ${escapeHtml(h2hWindow)}</div>
               ${h2hTier}
             </div>
             <div class="matchup-h2h-cards">
@@ -4911,21 +5849,196 @@
           totals.home_bullpen_late_innings_last5,
           totals.home_bullpen_late_innings_last3,
         );
+        const awayLateEra10 = numberOr(totals.away_bullpen_late_era_last10);
+        const homeLateEra10 = numberOr(totals.home_bullpen_late_era_last10);
+        const awayLateIp10 = numberOr(totals.away_bullpen_late_innings_last10);
+        const homeLateIp10 = numberOr(totals.home_bullpen_late_innings_last10);
+        const h2hYear =
+          h2h.season_year != null && h2h.season_year !== ""
+            ? formatInteger(h2h.season_year)
+            : null;
+        const h2hSeasonLabel = h2hYear
+          ? `H2H (${h2hYear} season)`
+          : "H2H (this season)";
+        const awayXr = numberOr(totals.away_expected_runs);
+        const homeXr = numberOr(totals.home_expected_runs);
+        const runSum = (awayXr || 0) + (homeXr || 0);
+        const runAwaySharePct = runSum > 0 ? ((awayXr || 0) / runSum) * 100 : 50;
+        const precipRaw = numberOr(weather.precipitation_pct);
+        const precipDisplay =
+          precipRaw != null ? `${Math.round(precipRaw)}%` : "—";
+        const h2hHasSample = h2hGp != null && Number(h2hGp) > 0;
+        const rainV = formatRainVerdict(weather, venue);
+        const first5Pack = detail.first5_totals || {};
+        const f5CombinedPred = (() => {
+          const pt = numberOr(
+            first5Pack.predicted_total_fundamentals,
+            numberOr(first5Pack.predicted_total_runs),
+          );
+          if (pt != null) return pt;
+          const a = numberOr(first5Pack.away_expected_runs);
+          const h = numberOr(first5Pack.home_expected_runs);
+          if (a != null && h != null) return a + h;
+          return null;
+        })();
+        const fullCombinedAll =
+          awayXr != null && homeXr != null
+            ? numberOr(awayXr) + numberOr(homeXr)
+            : null;
+        const sixPlusCombinedAll =
+          f5CombinedPred != null && fullCombinedAll != null
+            ? Math.max(0, fullCombinedAll - f5CombinedPred)
+            : null;
+
+        let f5AwaySeg = numberOr(first5Pack.away_expected_runs);
+        let f5HomeSeg = numberOr(first5Pack.home_expected_runs);
+        let teamF5FromOffenseShare = false;
+        if (
+          f5AwaySeg == null &&
+          f5HomeSeg == null &&
+          f5CombinedPred != null &&
+          fullCombinedAll != null &&
+          fullCombinedAll > 0 &&
+          awayXr != null &&
+          homeXr != null
+        ) {
+          f5AwaySeg = f5CombinedPred * (numberOr(awayXr) / fullCombinedAll);
+          f5HomeSeg = f5CombinedPred * (numberOr(homeXr) / fullCombinedAll);
+          teamF5FromOffenseShare = true;
+        } else if (f5AwaySeg != null && f5HomeSeg == null && f5CombinedPred != null) {
+          f5HomeSeg = Math.max(0, f5CombinedPred - f5AwaySeg);
+        } else if (f5HomeSeg != null && f5AwaySeg == null && f5CombinedPred != null) {
+          f5AwaySeg = Math.max(0, f5CombinedPred - f5HomeSeg);
+        }
+
+        if (
+          f5CombinedPred != null &&
+          f5AwaySeg != null &&
+          f5HomeSeg != null &&
+          f5AwaySeg + f5HomeSeg > 0
+        ) {
+          const sumF5 = f5AwaySeg + f5HomeSeg;
+          if (Math.abs(sumF5 - f5CombinedPred) > 1e-6) {
+            const scale = f5CombinedPred / sumF5;
+            f5AwaySeg *= scale;
+            f5HomeSeg *= scale;
+          }
+        }
+
+        const sixPlusAwaySeg =
+          awayXr != null && f5AwaySeg != null
+            ? Math.max(0, numberOr(awayXr) - f5AwaySeg)
+            : null;
+        const sixPlusHomeSeg =
+          homeXr != null && f5HomeSeg != null
+            ? Math.max(0, numberOr(homeXr) - f5HomeSeg)
+            : null;
+
+        const rcSegTeamNote = teamF5FromOffenseShare
+          ? `<p class="rc-seg-team-note">Per-team innings 1–5 were allocated from combined F5 using each team’s share of full-game expected runs.</p>`
+          : `<p class="rc-seg-team-note">Per team, innings 1–5 + innings 6+ equals that team’s expected runs above. Innings 6+ is residual after F5.</p>`;
+        const rcSegTeamBlock =
+          first5Pack.supported &&
+          f5AwaySeg != null &&
+          f5HomeSeg != null &&
+          sixPlusAwaySeg != null &&
+          sixPlusHomeSeg != null
+            ? `<div class="rc-seg-team-table" role="table" aria-label="Expected runs by team and inning segment"><div class="rc-seg-team-head" role="row"><span role="columnheader">Team</span><span role="columnheader">Innings 1–5</span><span role="columnheader">Innings 6+</span></div><div class="rc-seg-team-row rc-seg-team-row--away" role="row"><span class="rc-seg-team-abbr" role="rowheader">${escapeHtml(detail.away_team)}</span><span class="rc-seg-team-num" role="cell">${formatNumber(f5AwaySeg, 2)}</span><span class="rc-seg-team-num" role="cell">${formatNumber(sixPlusAwaySeg, 2)}</span></div><div class="rc-seg-team-row rc-seg-team-row--home" role="row"><span class="rc-seg-team-abbr" role="rowheader">${escapeHtml(detail.home_team)}</span><span class="rc-seg-team-num" role="cell">${formatNumber(f5HomeSeg, 2)}</span><span class="rc-seg-team-num" role="cell">${formatNumber(sixPlusHomeSeg, 2)}</span></div></div>${rcSegTeamNote}`
+            : "";
+
+        let f5SegBarW = 50;
+        if (
+          fullCombinedAll != null &&
+          fullCombinedAll > 0 &&
+          f5CombinedPred != null
+        ) {
+          f5SegBarW = Math.min(
+            100,
+            Math.max(0, (f5CombinedPred / fullCombinedAll) * 100),
+          );
+        }
+        const rcSegBarBlock =
+          fullCombinedAll != null &&
+          fullCombinedAll > 0 &&
+          f5CombinedPred != null
+            ? `<div class="rc-seg-bar" aria-hidden="true"><div class="rc-seg-f5" style="width:${f5SegBarW}%"></div><div class="rc-seg-late" style="width:${100 - f5SegBarW}%"></div></div><div class="rc-seg-legend"><span>F5 share of full-game total</span><span>6+ share</span></div><div class="rc-seg-check">Full game Σ <strong>${formatNumber(fullCombinedAll, 2)}</strong> (F5 + 6+)</div>`
+            : `<p class="rc-seg-partial muted">Segment split needs F5 and full-game expected runs.</p>`;
+        const rcSegStrip = first5Pack.supported
+          ? `<div class="rc-seg-strip"><div class="rc-seg-head"><span class="rc-seg-title">Total runs by segment (expected)</span><span class="rc-seg-hint">Combined game Σ: innings 1–5 plus innings 6+ (both teams). 6+ is full game minus F5. Table below splits the same idea by team.</span></div><div class="rc-seg-grid"><div class="rc-seg-card rc-seg-card--f5"><span class="rc-seg-label">Innings 1–5</span><span class="rc-seg-val">${f5CombinedPred != null ? formatNumber(f5CombinedPred, 2) : "—"}</span><span class="rc-seg-unit">runs Σ</span></div><div class="rc-seg-mid" aria-hidden="true">+</div><div class="rc-seg-card rc-seg-card--late"><span class="rc-seg-label">Innings 6+</span><span class="rc-seg-val">${sixPlusCombinedAll != null ? formatNumber(sixPlusCombinedAll, 2) : "—"}</span><span class="rc-seg-unit">runs Σ</span></div></div>${rcSegBarBlock}${rcSegTeamBlock}</div>`
+          : `<div class="rc-seg-strip rc-seg-strip--muted"><p class="rc-seg-na">First-five segment totals are not modeled for this game.</p></div>`;
         const inputTrustCard =
           inputTrust && inputTrust.grade
-            ? `<article class="summary-card"><div class="data-label">Input trust (vs projection)</div><div class="summary-value">Grade ${escapeHtml(String(inputTrust.grade))} · ${formatPercent(inputTrust.score, 0)} composite</div><div class="data-copy">${escapeHtml(inputTrust.summary || "")}</div></article>`
+            ? `<article class="summary-card summary-dash-card summary-dash-card--trust"><div class="dash-card-top"><span class="dash-eyebrow">Input trust</span><span class="dash-pill">vs projection</span></div><div class="dash-trust-line"><span class="dash-trust-grade">Grade ${escapeHtml(String(inputTrust.grade))}</span><span class="dash-trust-score">${formatPercent(inputTrust.score, 0)} composite</span></div><div class="dash-foot">${escapeHtml(inputTrust.summary || "")}</div></article>`
             : "";
+        const f5MktMid = numberOr(first5Pack.market_total);
+        const f5EdgeMid =
+          f5CombinedPred != null && f5MktMid != null
+            ? f5CombinedPred - f5MktMid
+            : null;
+        const f5LeanMid =
+          first5Pack.recommended_side &&
+          String(first5Pack.recommended_side) !== "-"
+            ? escapeHtml(String(first5Pack.recommended_side))
+            : null;
+        const f5LockedHintMid =
+          first5Pack.market_locked &&
+          numberOr(first5Pack.locked_line_value) != null
+            ? ` · Locked ${formatNumber(first5Pack.locked_line_value, 1)}${first5Pack.locked_sportsbook ? ` (${escapeHtml(String(first5Pack.locked_sportsbook))})` : ""}`
+            : "";
+        const f5MidLabel =
+          f5MktMid != null
+            ? "First 5 · model vs market (combined runs)"
+            : "First 5 · model (no combined F5 line in feed)";
+        const f5MidFoot =
+          f5MktMid != null
+            ? "This compares the model to the combined First-5 runs line (both teams), not each team’s First-5 team total. Pair with Run context for scoring by inning segment."
+            : "The consolidated feed had no combined First-5 runs total for this game, so there is no market midpoint—edge is N/A. Per-team First-5 totals are not shown in this app (many books, including some FanDuel regions, list the combined F5 total but not each side’s F5 team total).";
+        const ambientMiddleCard = first5Pack.supported
+          ? `<article class="summary-card summary-card--ambient-mid"><div class="data-label">${f5MidLabel}</div><div class="ambient-mid-line"><span class="ambient-mid-num">${f5CombinedPred != null ? formatNumber(f5CombinedPred, 2) : "—"}</span><span class="ambient-mid-slash">/</span><span class="ambient-mid-num ambient-mid-num--soft">${f5MktMid != null ? formatNumber(f5MktMid, 1) : "—"}</span></div><div class="ambient-mid-meta">Edge ${formatNumber(f5EdgeMid, 3)}${f5LeanMid ? ` · Lean ${f5LeanMid}` : ""}${f5LockedHintMid}</div><p class="data-copy" style="margin-top:12px">${f5MidFoot}</p></article>`
+          : `<article class="summary-card summary-card--ambient-mid"><div class="data-label">Park & venue</div><div class="ambient-park-grid"><div><span class="ambient-park-lbl">Run factor</span><span class="ambient-park-val">${formatNumber(totals.venue_run_factor, 2)}</span></div><div><span class="ambient-park-lbl">HR factor</span><span class="ambient-park-val">${formatNumber(totals.venue_hr_factor, 2)}</span></div></div><p class="ambient-park-venue">${escapeHtml(venueParts.join(" · ") || "Venue TBD")}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</p><p class="data-copy" style="margin-top:12px">Park multipliers are blended into the run projections with weather and matchups.</p></article>`;
         document.getElementById("summaryGrid").innerHTML = `
-          <article class="summary-card"><div class="data-label">Decision / Market</div><div class="summary-value">${formatNumber(statsPred, 2)} / ${formatNumber(totals.market_total, 1)}</div><div class="data-copy">${decisionCopyParts.join(" · ") || `Edge ${formatNumber(statsEdgeVal, 3)}`}</div></article>
-          ${inputTrustCard}
-          <article class="summary-card"><div class="data-label">Best Market Odds</div><div class="summary-value">${bestOverPrice != null ? `Over ${formatPrice(bestOverPrice)}` : "Pending"} · ${bestUnderPrice != null ? `Under ${formatPrice(bestUnderPrice)}` : "Pending"}</div><div class="data-copy">${bookCount > 0 ? `${bookCount} book${bookCount > 1 ? "s" : ""} tracked · Line move ${formatNumber(totals.line_movement, 2)}${books ? ` · ${escapeHtml(books)}` : ""}` : "No market lines yet"}</div></article>
-          <article class="summary-card summary-card--run"><div class="data-label">Run Context</div><div class="summary-value">${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} · ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="run-context-split"><div class="rc-block"><span class="rc-sub">Model (expected)</span>${escapeHtml(detail.away_team)} ${formatNumber(totals.away_expected_runs, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_expected_runs, 2)}</div><div class="rc-block"><span class="rc-sub">H2H totals (365d)</span>${h2hGp != null && Number(h2hGp) > 0 ? `${formatNumber(h2hAvg, 1)} avg runs · ${formatInteger(h2hGp)} g${h2hOver != null ? ` · ${formatPercent(h2hOver, 0)} over` : ""}` : "No prior meetings in window"}</div></div><div class="data-copy">Model uses blended lineup, starter, bullpen, weather, and park. Historic row is same-team matchups in the last year.</div></article>
-          <article class="summary-card"><div class="data-label">Bullpen From 7th On</div><div class="summary-value">L5 ${escapeHtml(detail.away_team)} ${formatNumber(awayLateEra, 2)} · ${escapeHtml(detail.home_team)} ${formatNumber(homeLateEra, 2)}</div><div class="data-copy">Relievers from the 7th on — ERA over up to the last five bullpen days per side (${formatNumber(awayLateIp, 1)} IP ${escapeHtml(detail.away_team)} · ${formatNumber(homeLateIp, 1)} IP ${escapeHtml(detail.home_team)}). Season 7th+ ERA ${escapeHtml(detail.away_team)} ${formatNumber(totals.away_bullpen_late_season_era, 2)} / ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_bullpen_late_season_era, 2)}</div></article>
-          <article class="summary-card"><div class="data-label">Weather (Game-Time Est.)</div><div class="summary-value">${formatNumber(weather.temperature_f, 0)}°F</div><div class="data-copy">Wind ${formatNumber(weather.wind_speed_mph, 0)} mph from ${windDirectionLabel(weather.wind_direction_deg)} · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}${weatherSkyExtra ? ` · ${escapeHtml(weatherSkyExtra)}` : ""}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</div></article>
-          <article class="summary-card"><div class="data-label">Lineup Quality</div><div class="summary-value">${formatPercent(totals.away_lineup_k_pct)} / ${formatPercent(totals.home_lineup_k_pct)}</div><div class="data-copy">Away / Home K% vs starter · xwOBA ${formatNumber(totals.away_lineup_top5_xwoba, 3)} / ${formatNumber(totals.home_lineup_top5_xwoba, 3)}</div></article>
+          <div class="summary-top-strip">
+            <article class="summary-card summary-dash-card">
+              <div class="dash-card-top">
+                <span class="dash-eyebrow">Decision</span>
+                <span class="dash-pill">Total market</span>
+              </div>
+              <div class="dash-hero-line">
+                <span class="dash-num">${formatNumber(statsPred, 2)}</span>
+                <span class="dash-slash">/</span>
+                <span class="dash-num dash-num--soft">${formatNumber(totals.market_total, 1)}</span>
+              </div>
+              <div class="dash-foot">${decisionCopyParts.join(" · ") || `Edge ${formatNumber(statsEdgeVal, 3)}`}</div>
+            </article>
+            ${inputTrustCard}
+            <article class="summary-card summary-dash-card summary-dash-card--odds">
+              <div class="dash-card-top">
+                <span class="dash-eyebrow">Best market odds</span>
+              </div>
+              <div class="dash-odds-row">
+                <div class="dash-odds-cell">
+                  <span class="dash-odds-label">Over</span>
+                  <span class="dash-odds-price">${bestOverPrice != null ? formatPrice(bestOverPrice) : "—"}</span>
+                </div>
+                <div class="dash-odds-cell">
+                  <span class="dash-odds-label">Under</span>
+                  <span class="dash-odds-price">${bestUnderPrice != null ? formatPrice(bestUnderPrice) : "—"}</span>
+                </div>
+              </div>
+              <div class="dash-foot">${bookCount > 0 ? `${bookCount} book${bookCount > 1 ? "s" : ""} tracked · Line move ${formatNumber(totals.line_movement, 2)}${books ? ` · ${escapeHtml(books)}` : ""}` : "No market lines yet"}</div>
+            </article>
+          </div>
+          <article class="summary-card summary-card--run"><div class="data-label">Run context</div><div class="rc-hero-board"><div class="rc-hero-team rc-hero-team--away"><span class="rc-badge">${escapeHtml(detail.away_team)}</span><div class="rc-hero-val">${formatNumber(awayXr, 2)}</div><div class="rc-hero-note">Expected runs</div></div><div class="rc-hero-mid">vs</div><div class="rc-hero-team rc-hero-team--home"><span class="rc-badge">${escapeHtml(detail.home_team)}</span><div class="rc-hero-val">${formatNumber(homeXr, 2)}</div><div class="rc-hero-note">Expected runs</div></div></div><div class="rc-split-bar" aria-hidden="true"><div class="rc-split-away" style="width:${runAwaySharePct}%"></div><div class="rc-split-home" style="width:${100 - runAwaySharePct}%"></div></div><div class="rc-split-legend"><span>${escapeHtml(detail.away_team)} offense share</span><span>${escapeHtml(detail.home_team)} offense share</span></div>${rcSegStrip}<div class="run-context-split run-context-split--solo"><div class="rc-block${h2hHasSample ? "" : " rc-block--empty"}"><span class="rc-sub">${escapeHtml(h2hSeasonLabel)}</span>${h2hHasSample ? `${formatNumber(h2hAvg, 1)} avg runs · ${formatInteger(h2hGp)} g${h2hOver != null ? ` · ${formatPercent(h2hOver, 0)} over` : ""}` : "No prior meetings this season"}</div></div><div class="data-copy">Model blends lineup, starter, bullpen, weather, and park. Historic row is same two teams in the current calendar year before this game.</div></article>
+          <article class="summary-card summary-card--bullpen-wide"><div class="data-label">Bullpen · 6th+ relievers</div><div class="bp-subtitle">Recent team bullpen days — relief innings from the 6th onward. Meters scale with ERA (higher = longer bar).</div><div class="bp-duel"><div class="bp-duel-title">Last 5 games</div><div class="bp-duel-row"><div class="bp-duel-side bp-duel-side--away"><div class="bp-duel-era">${formatNumber(awayLateEra, 2)}</div><div class="bp-duel-ip">${formatNumber(awayLateIp, 1)} IP in sample</div><div class="bp-meter" aria-hidden="true"><div class="bp-meter-fill bp-meter-fill--away" style="width:${eraMeterWidth(awayLateEra)}%"></div></div></div><div class="bp-duel-side bp-duel-side--home"><div class="bp-duel-era">${formatNumber(homeLateEra, 2)}</div><div class="bp-duel-ip">${formatNumber(homeLateIp, 1)} IP in sample</div><div class="bp-meter" aria-hidden="true"><div class="bp-meter-fill bp-meter-fill--home" style="width:${eraMeterWidth(homeLateEra)}%"></div></div></div></div></div><div class="bp-duel"><div class="bp-duel-title">Last 10 games</div><div class="bp-duel-row"><div class="bp-duel-side bp-duel-side--away"><div class="bp-duel-era">${awayLateEra10 != null ? formatNumber(awayLateEra10, 2) : "—"}</div><div class="bp-duel-ip">${awayLateIp10 != null ? `${formatNumber(awayLateIp10, 1)} IP in sample` : "—"}</div><div class="bp-meter" aria-hidden="true"><div class="bp-meter-fill bp-meter-fill--away" style="width:${eraMeterWidth(awayLateEra10)}%"></div></div></div><div class="bp-duel-side bp-duel-side--home"><div class="bp-duel-era">${homeLateEra10 != null ? formatNumber(homeLateEra10, 2) : "—"}</div><div class="bp-duel-ip">${homeLateIp10 != null ? `${formatNumber(homeLateIp10, 1)} IP in sample` : "—"}</div><div class="bp-meter" aria-hidden="true"><div class="bp-meter-fill bp-meter-fill--home" style="width:${eraMeterWidth(homeLateEra10)}%"></div></div></div></div></div><div class="bp-foot-season"><strong>Season 6th+ ERA</strong> · ${escapeHtml(detail.away_team)} ${formatNumber(totals.away_bullpen_late_season_era, 2)} · ${escapeHtml(detail.home_team)} ${formatNumber(totals.home_bullpen_late_season_era, 2)}</div></article>
+          <div class="summary-ambient-row">
+          <article class="summary-card"><div class="data-label">Weather (game-time est.)</div><div class="wx-shell"><div><div class="wx-temp-big">${formatNumber(weather.temperature_f, 0)}°F</div></div><div><div class="wx-precip-block"><div class="wx-precip-label">Hourly precip chance</div><div class="wx-precip-num">${precipDisplay}</div><div class="rain-verdict ${rainV.klass}">${escapeHtml(rainV.title)}</div></div><div class="data-copy" style="margin-top:12px">${rainV.hint ? `${escapeHtml(rainV.hint)} · ` : ""}Wind ${formatNumber(weather.wind_speed_mph, 0)} mph from ${windDirectionLabel(weather.wind_direction_deg)} · Humidity ${formatPercent(numberOr(weather.humidity_pct) == null ? null : Number(weather.humidity_pct) / 100, 0)}${weatherSkyExtra ? ` · ${escapeHtml(weatherSkyExtra)}` : ""}${venue.roof_type ? ` · ${escapeHtml(venue.roof_type)}` : ""}</div></div></div></article>
+          ${ambientMiddleCard}
+          <article class="summary-card"><div class="data-label">Lineup quality (vs SP)</div><div class="lq-grid"><div class="lq-side lq-side--away"><div class="lq-abbr">${escapeHtml(detail.away_team)}</div><div class="lq-k">${formatPercent(totals.away_lineup_k_pct)}</div><div class="lq-xw">Top-5 xwOBA ${formatNumber(totals.away_lineup_top5_xwoba, 3)}</div><div class="lq-meter" aria-hidden="true"><div class="lq-meter-fill lq-meter-fill--away" style="width:${lineupKMeterWidth(totals.away_lineup_k_pct)}%"></div></div></div><div class="lq-side lq-side--home"><div class="lq-abbr">${escapeHtml(detail.home_team)}</div><div class="lq-k">${formatPercent(totals.home_lineup_k_pct)}</div><div class="lq-xw">Top-5 xwOBA ${formatNumber(totals.home_lineup_top5_xwoba, 3)}</div><div class="lq-meter" aria-hidden="true"><div class="lq-meter-fill lq-meter-fill--home" style="width:${lineupKMeterWidth(totals.home_lineup_k_pct)}%"></div></div></div></div><div class="data-copy" style="margin-top:12px">Higher K% vs the opposing starter implies more swing-and-miss risk for that lineup card.</div></article>
+          </div>
         `;
         renderStarterCards(detail);
         renderLineupPanels(detail);
+        renderTopEvPickSection(detail);
         renderMarketsSection(detail);
         renderPickSignals(detail);
         renderFirst5Section(detail);
@@ -4935,7 +6048,7 @@
         const notes = [
           `Venue run factor ${formatNumber(totals.venue_run_factor, 2)} and HR factor ${formatNumber(totals.venue_hr_factor, 2)} are already baked into the totals context.`,
           `Bullpen snapshot over the last 3 bullpen days: away ${formatNumber(totals.away_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.away_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_era_last3, 2)} ERA${totals.away_bullpen_b2b ? " · B2B" : ""}, home ${formatNumber(totals.home_bullpen_pitches_last3, 0)} pitches / ${formatNumber(totals.home_bullpen_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_era_last3, 2)} ERA${totals.home_bullpen_b2b ? " · B2B" : ""}.`,
-          `From the 7th inning on (last up to five bullpen days each): away ${formatNumber(totals.away_bullpen_late_innings_last5 ?? totals.away_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_late_earned_runs_last5 ?? totals.away_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_late_hits_allowed_last5 ?? totals.away_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.away_bullpen_late_era_last5 ?? totals.away_bullpen_late_era_last3, 2)} ERA (${formatNumber(totals.away_bullpen_late_season_era, 2)} season), home ${formatNumber(totals.home_bullpen_late_innings_last5 ?? totals.home_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_late_earned_runs_last5 ?? totals.home_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_late_hits_allowed_last5 ?? totals.home_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.home_bullpen_late_era_last5 ?? totals.home_bullpen_late_era_last3, 2)} ERA (${formatNumber(totals.home_bullpen_late_season_era, 2)} season).`,
+          `From the 6th inning on (last up to five bullpen days each): away ${formatNumber(totals.away_bullpen_late_innings_last5 ?? totals.away_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.away_bullpen_late_earned_runs_last5 ?? totals.away_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.away_bullpen_late_hits_allowed_last5 ?? totals.away_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.away_bullpen_late_era_last5 ?? totals.away_bullpen_late_era_last3, 2)} ERA (${formatNumber(totals.away_bullpen_late_season_era, 2)} season), home ${formatNumber(totals.home_bullpen_late_innings_last5 ?? totals.home_bullpen_late_innings_last3, 1)} IP / ${formatNumber(totals.home_bullpen_late_earned_runs_last5 ?? totals.home_bullpen_late_earned_runs_last3, 0)} ER / ${formatNumber(totals.home_bullpen_late_hits_allowed_last5 ?? totals.home_bullpen_late_hits_allowed_last3, 0)} hits / ${formatNumber(totals.home_bullpen_late_era_last5 ?? totals.home_bullpen_late_era_last3, 2)} ERA (${formatNumber(totals.home_bullpen_late_season_era, 2)} season). L10 6th+ ERA: away ${awayLateEra10 != null ? formatNumber(awayLateEra10, 2) : "—"}, home ${homeLateEra10 != null ? formatNumber(homeLateEra10, 2) : "—"}.`,
           `Top-5 hitter xwOBA: away ${formatNumber(totals.away_lineup_top5_xwoba, 3)}, home ${formatNumber(totals.home_lineup_top5_xwoba, 3)}. Lineup K%: away ${formatPercent(totals.away_lineup_k_pct)}, home ${formatPercent(totals.home_lineup_k_pct)}.`,
           `Market total ${formatNumber(totals.market_total, 1)}${totals.market_locked ? ` (locked at ${formatNumber(totals.locked_line_value, 1)} from ${escapeHtml(totals.locked_sportsbook || "sportsbook")})` : ""} · Line movement ${formatNumber(totals.line_movement, 2)}.`,
           actual.is_final
@@ -5040,5 +6153,6 @@
           `<div class="data-row"><span class="data-value">${message}</span></div>`;
       });
     </script>
+    <script src="/assets/update_job_follower.js" defer></script>
   </body>
 </html>

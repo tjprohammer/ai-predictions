@@ -352,6 +352,7 @@ def test_load_persisted_update_jobs_recovers_history_and_marks_interrupted_faile
     assert history[0]["job_id"] == "interrupted-job"
     assert history[0]["status"] == "failed"
     assert "restarted" in str(history[0]["error"]).lower()
+    assert "src.ingestors.boxscores" in str(history[0]["error"])
     assert history[1]["job_id"] == "finished-job"
     assert app_module._active_update_job_payload() is None
 

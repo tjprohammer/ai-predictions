@@ -74,6 +74,25 @@ class Settings:
     odds_api_key: str | None
     odds_api_key_fallback: str | None
     log_level: str
+    # Skip mutating markets / lineups / probable starters for a game once this many minutes
+    # before first pitch (0 disables). Uses ``games.game_start_ts`` (UTC).
+    pregame_ingest_lock_minutes: int
+    # If >0, market_totals may skip The Odds API pulls when DB snapshots for the slate are newer
+    # than this many minutes (see MARKET_INGEST_ODDS_API_FRESH_MINUTES). 0 disables.
+    market_ingest_odds_api_fresh_minutes: int
+    # Minimum per-game data_quality.certainty_pct (0–100) required for a pick to appear on the
+    # green strip. Empty / unset = no extra gate (legacy behavior).
+    board_green_min_game_certainty_pct: float | None
+    # When true and ``board_green_snapshots`` exists, freeze each game's first qualifying green
+    # pick once the game enters the pregame ingest lock window.
+    board_green_snapshot_enabled: bool
+
+
+def _parse_optional_float_env(name: str) -> float | None:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return None
+    return float(str(raw).strip())
 
 
 @lru_cache(maxsize=1)
@@ -107,4 +126,10 @@ def get_settings() -> Settings:
         odds_api_key=os.getenv("THE_ODDS_API_KEY") or None,
         odds_api_key_fallback=os.getenv("THE_ODDS_API_KEY_FALLBACK") or None,
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        pregame_ingest_lock_minutes=int(os.getenv("MLB_PREGAME_INGEST_LOCK_MINUTES", "30")),
+        market_ingest_odds_api_fresh_minutes=int(os.getenv("MARKET_INGEST_ODDS_API_FRESH_MINUTES", "0")),
+        board_green_min_game_certainty_pct=_parse_optional_float_env("BOARD_GREEN_MIN_GAME_CERTAINTY_PCT"),
+        board_green_snapshot_enabled=(
+            os.getenv("BOARD_GREEN_SNAPSHOT_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+        ),
     )

@@ -81,11 +81,11 @@ def test_matchup_detail_page_exists():
     assert 'Projected template lineup' in html
     assert 'Snapshot order' in html
     assert 'Actual Batting Order' in html
-    assert 'Full 1-9 order with hot, cold, or steady tags.' in html
+    assert "Full 1-9 order with form tags (hot, heating up, cold, steady)." in html
     assert 'ERA Season / Last 3 / Last 5' in html
     assert 'function batterHandMatchup(player)' in html
     assert "Strong vs today's" in html
-    assert "From the 7th inning on (last up to five bullpen days each):" in html
+    assert "From the 6th inning on (last up to five bullpen days each):" in html
     assert 'Late Bullpen' in html
     assert 'Green = hit · red = no hit' in html
     assert 'Last ${history.length} Games' in html

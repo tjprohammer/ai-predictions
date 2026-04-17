@@ -8,6 +8,8 @@ from fastapi import APIRouter
 
 from src.utils.matchup_keys import team_abbr_to_opponent_id
 
+from src.utils.slugger_hr_selection import SLUGGER_BOARD_MAX_CARDS
+
 from src.api.constants import (
     MATCHUP_BVP_ADEQUATE_MIN_AB,
     MATCHUP_BVP_STRONG_MIN_AB,
@@ -43,8 +45,14 @@ def games_board(
         {
             "target_date": target_date.isoformat(),
             "summary": app_logic._summarize_board_rows(rows, target_date),
-            "best_bets": app_logic._flatten_best_bets(rows),
+            "best_bets": app_logic._flatten_best_bets(rows, target_date=target_date),
             "watchlist_markets": app_logic._flatten_watchlist_markets(rows),
+            # HR P(HR) is ~0.02–0.25; never reuse hitter min-probability (often 0.5) or the strip is empty.
+            "slugger_hr_bets": app_logic._fetch_slugger_hr_bets(
+                target_date,
+                0.0,
+                max_cards=SLUGGER_BOARD_MAX_CARDS,
+            ),
             "experimental_markets": app_logic._fetch_experimental_market_cards(target_date),
             "green_picks": app_logic._fetch_ai_pick_results(
                 target_date,

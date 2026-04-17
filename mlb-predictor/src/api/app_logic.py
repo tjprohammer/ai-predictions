@@ -25,6 +25,10 @@ from src.api.constants import (
     DOCTOR_FILE,
     EXPERIMENTS_FILE,
     FAVICON_FILE,
+    GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY,
+    GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM,
+    GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED,
+    GAME_BOARD_UI_DEFAULT_MIN_HIT_PROBABILITY,
     GAME_FILE,
     HOT_HITTERS_FILE,
     HTML_SHELL_HEADERS,
@@ -59,15 +63,39 @@ from src.api.update_job_sequences import (
     label_for_update_action,
 )
 from src.utils import best_bets as best_bets_utils
+from src.utils.bvp_lookup import fetch_batter_vs_pitcher_map as _fetch_batter_vs_pitcher_map_core
+from src.utils.hr_source_recs_db import load_hr_source_recs_for_date
+from src.utils.slugger_hr_selection import (
+    SLUGGER_DAILY_RESULTS_MAX_CARDS,
+    SLUGGER_HR_PER_GAME,
+    SLUGGER_HOT_HITTERS_PAGE_MAX_CARDS,
+    iter_slugger_tracked_cards,
+)
+from src.utils.hitter_form import HOT_HITTER_PAGE_FORM_KEYS, classify_hitter_form
+from src.utils.top_ev_pick import collect_top_ev_candidates, select_top_weighted_ev_pick
 from src.utils.input_trust import input_trust_from_certainty as _input_trust_from_certainty
+from src.utils.pregame_lock import is_pregame_ingest_locked
 from src.utils.matchup_keys import team_abbr_to_opponent_id
-from src.utils.db import query_df, table_exists, upsert_rows
+from src.utils.db import get_dialect_name, query_df, run_sql, table_exists, upsert_rows
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
 
 log = get_logger(__name__)
 settings = get_settings()
+
+
+def _pipeline_step_timeout_seconds() -> float | None:
+    """Per update-job subprocess step. Default 7200s (2h). Set MLB_PIPELINE_STEP_TIMEOUT_SEC=0 for no limit."""
+    raw = (os.environ.get("MLB_PIPELINE_STEP_TIMEOUT_SEC") or "7200").strip()
+    if raw == "0":
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        log.warning("Invalid MLB_PIPELINE_STEP_TIMEOUT_SEC=%r — using default 7200", raw)
+        return 7200.0
+
 
 _update_job_sequence = build_update_job_sequence
 _pipeline_sequence = build_pipeline_run_sequence
@@ -82,14 +110,36 @@ BEST_BET_SELECTION_LIMIT_PER_GAME = best_bets_utils.BEST_BET_SELECTION_LIMIT_PER
 BEST_BET_THRESHOLD_MAP = best_bets_utils.BEST_BET_THRESHOLD_MAP
 MARKET_SIM_MAX_RUNS = best_bets_utils.MARKET_SIM_MAX_RUNS
 EXPERIMENTAL_CAROUSEL_MARKETS = ("nrfi", "yrfi")
-TRACKED_RECOMMENDATION_MARKETS = BEST_BET_MARKET_KEYS + EXPERIMENTAL_CAROUSEL_MARKETS
+# Lanes from ``prediction_outcomes_daily`` surfaced in Daily Results “best picks” (green / watchlist).
+# Hitter props (``hits`` lane, 1+ hits, HR) are not tracked there — use matchup / hitter sections instead.
+# ``totals`` / ``first5`` are legacy market strings from ``_build_prediction_outcomes``; best-bet snapshots
+# use ``game_total`` / ``first_five_*`` keys — both families can coexist in the same table.
+TRACKED_RECOMMENDATION_MARKETS = (
+    BEST_BET_MARKET_KEYS
+    + EXPERIMENTAL_CAROUSEL_MARKETS
+    + (
+        "pitcher_strikeouts",
+        "totals",
+        "first5",
+    )
+)
+
+
+def _daily_results_excluded_from_team_best_picks(market: str | None) -> bool:
+    """True for markets that must not appear in Daily Results green / watchlist pick lists."""
+    m = str(market or "")
+    if m == "hits":
+        return True
+    return best_bets_utils.excluded_from_team_best_pick_board(m)
 
 
 def _html_file_response(path: Path) -> FileResponse:
     return FileResponse(path, headers=HTML_SHELL_HEADERS)
 
 
-UPDATE_JOB_LOCK = threading.Lock()
+# Re-entrant: ``_persist_update_jobs`` may run under an existing update-job critical section
+# (e.g. sequence rebuild path); a plain ``Lock`` deadlocks forever (0 steps, job stuck running).
+UPDATE_JOB_LOCK = threading.RLock()
 UPDATE_JOBS: dict[str, dict[str, Any]] = {}
 UPDATE_JOB_HISTORY_LIMIT = 12
 UPDATE_JOB_STORE_PATH = settings.report_dir / "update_jobs" / "history.json"
@@ -559,6 +609,17 @@ def _live_hit_streak(hit_history: list[dict[str, Any]]) -> int:
     return streak
 
 
+def _row_hit_streak_value(row: dict[str, Any]) -> int:
+    """Aligned with hot-hitters UI: max of recent game-log chain and streak fields."""
+    hist = row.get("recent_hit_history") or []
+    from_hist = _live_hit_streak(hist) if hist else 0
+    from_api = max(
+        int(row.get("streak_len") or 0),
+        int(row.get("streak_len_capped") or 0),
+    )
+    return max(from_hist, from_api)
+
+
 def _overlay_live_batting_stats(
     record: dict[str, Any],
     hit_history: list[dict[str, Any]],
@@ -586,94 +647,6 @@ def _overlay_live_batting_stats(
         record["hit_rate_30"] = games_with_hits / len(hit_history)
 
     return record
-
-
-def _hitter_heat_score(player: dict[str, Any]) -> float:
-    return (
-        (_to_float(player.get("hit_rate_7")) or 0.0) * 1.2
-        + (((_to_float(player.get("hit_rate_7")) or 0.0) - ((_to_float(player.get("hit_rate_30")) or 0.0))) * 1.5)
-        + ((_to_float(player.get("xwoba_14")) or 0.0) * 1.1)
-        + ((_to_float(player.get("hard_hit_pct_14")) or 0.0) * 0.5)
-        + ((int(player.get("streak_len") or player.get("streak_len_capped") or 0)) * 0.04)
-    )
-
-
-def _classify_hitter_form(player: dict[str, Any]) -> dict[str, Any]:
-    hit_rate_7 = _to_float(player.get("hit_rate_7"))
-    hit_rate_30 = _to_float(player.get("hit_rate_30"))
-    xwoba_14 = _to_float(player.get("xwoba_14"))
-    hard_hit_pct_14 = _to_float(player.get("hard_hit_pct_14"))
-    batting_avg_last7 = _to_float(player.get("batting_avg_last7"))
-    hit_games_last7 = int(player.get("hit_games_last7") or 0)
-    games_last7 = int(player.get("games_last7") or 0)
-    streak = int(player.get("streak_len") or player.get("streak_len_capped") or 0)
-    hit_delta = None if hit_rate_7 is None or hit_rate_30 is None else hit_rate_7 - hit_rate_30
-
-    evidence = [
-        f"7G {_format_rate(hit_rate_7)} vs 30G {_format_rate(hit_rate_30)}"
-        + (f" ({hit_delta * 100:+.0f} pts)" if hit_delta is not None else ""),
-        f"xwOBA14 {_format_metric(xwoba_14)}",
-        f"HH14 {_format_rate(hard_hit_pct_14)}",
-        f"Streak {streak}",
-    ]
-
-    hot_reasons: list[str] = []
-    warm_reasons: list[str] = []
-    cold_reasons: list[str] = []
-    if hit_delta is not None and hit_delta >= 0.12:
-        hot_reasons.append(f"7G hit rate {_format_rate(hit_rate_7)} is {hit_delta * 100:+.0f} points above the 30G baseline")
-    if xwoba_14 is not None and xwoba_14 >= 0.38:
-        hot_reasons.append(f"xwOBA over the last 14 games is {_format_metric(xwoba_14)}")
-    if streak >= 4:
-        hot_reasons.append(f"Riding a {streak}-game hit streak")
-    if hard_hit_pct_14 is not None and hard_hit_pct_14 >= 0.45:
-        hot_reasons.append(f"Hard-hit rate over the last 14 games is {_format_rate(hard_hit_pct_14)}")
-
-    if streak >= 2:
-        warm_reasons.append(f"On a {streak}-game hit streak")
-    if hit_rate_7 is not None and hit_rate_7 >= 0.65:
-        warm_reasons.append(f"7G hit rate is {_format_rate(hit_rate_7)}")
-    if games_last7 >= 5 and hit_games_last7 >= 4:
-        warm_reasons.append(f"Has hits in {hit_games_last7} of the last {games_last7} games")
-    if batting_avg_last7 is not None and batting_avg_last7 >= 0.320:
-        warm_reasons.append(f"Batting {_format_metric(batting_avg_last7)} over the last 7 games")
-    if xwoba_14 is not None and xwoba_14 >= 0.345:
-        warm_reasons.append(f"xwOBA over the last 14 games is {_format_metric(xwoba_14)}")
-    if hard_hit_pct_14 is not None and hard_hit_pct_14 >= 0.40:
-        warm_reasons.append(f"Hard-hit rate over the last 14 games is {_format_rate(hard_hit_pct_14)}")
-
-    if hit_delta is not None and hit_delta <= -0.12:
-        cold_reasons.append(f"7G hit rate {_format_rate(hit_rate_7)} is {hit_delta * 100:+.0f} points below the 30G baseline")
-    if xwoba_14 is not None and xwoba_14 <= 0.285:
-        cold_reasons.append(f"xwOBA over the last 14 games is only {_format_metric(xwoba_14)}")
-
-    label = "Steady"
-    tone = ""
-    reasons = evidence[:1]
-    if hot_reasons:
-        label = "Hot"
-        tone = "good"
-        reasons = hot_reasons
-    elif warm_reasons:
-        label = "Streaking" if streak >= 2 else "Hitting well"
-        tone = "good"
-        reasons = warm_reasons
-    elif cold_reasons:
-        label = "Cold"
-        tone = "warn"
-        reasons = cold_reasons
-
-    summary = reasons[0] if reasons else evidence[0]
-    detail = " · ".join((reasons[1:] if len(reasons) > 1 else evidence[1:]))
-    return {
-        "label": label,
-        "tone": tone,
-        "summary": summary,
-        "detail": detail,
-        "reasons": reasons,
-        "heat_score": round(_hitter_heat_score(player), 4),
-        "evidence": evidence,
-    }
 
 
 def _normalize_bat_side(value: Any) -> str | None:
@@ -760,120 +733,8 @@ def _fetch_batter_vs_pitcher_map(
     target_date: date,
     matchups: list[tuple[int, int]],
 ) -> dict[tuple[int, int], dict[str, Any]]:
-    """Return career BvP stats for each (batter_id, pitcher_id) pair.
-
-    First checks matchup_splits (StatMuse-sourced career data), then
-    computes from game logs as a fallback for any pairs not found.
-    """
-    if not matchups:
-        return {}
-
-    result: dict[tuple[int, int], dict[str, Any]] = {}
-
-    # ── Try matchup_splits first (career data) ───────────────────────
-    if _table_exists("matchup_splits"):
-        params: dict[str, Any] = {}
-        pair_clauses = []
-        for idx, (batter_id, pitcher_id) in enumerate(matchups):
-            params[f"b_{idx}"] = int(batter_id)
-            params[f"p_{idx}"] = int(pitcher_id)
-            pair_clauses.append(f"(ms.player_id = :b_{idx} AND ms.opponent_id = :p_{idx})")
-        if pair_clauses:
-            where_clause = " OR ".join(pair_clauses)
-            frame = _safe_frame(
-                f"""
-                SELECT ms.player_id AS batter_id,
-                       ms.opponent_id AS pitcher_id,
-                       ms.at_bats, ms.hits, ms.home_runs,
-                       ms.walks, ms.strikeouts, ms.rbi,
-                       ms.doubles, ms.triples,
-                       ms.batting_avg, ms.obp, ms.slg, ms.ops
-                FROM matchup_splits ms
-                WHERE ms.split_type = 'bvp'
-                  AND ms.season = 0
-                  AND ({where_clause})
-                """,
-                params,
-            )
-            if not frame.empty:
-                for row in _frame_records(frame):
-                    key = (int(row["batter_id"]), int(row["pitcher_id"]))
-                    at_bats = int(row.get("at_bats") or 0)
-                    if at_bats == 0:
-                        continue  # 0-AB career entries → let game-log fallback try
-                    result[key] = {
-                        "at_bats": at_bats,
-                        "hits": int(row.get("hits") or 0),
-                        "home_runs": int(row.get("home_runs") or 0),
-                        "walks": int(row.get("walks") or 0),
-                        "strikeouts": int(row.get("strikeouts") or 0),
-                        "rbi": int(row.get("rbi") or 0),
-                        "doubles": int(row.get("doubles") or 0),
-                        "triples": int(row.get("triples") or 0),
-                        "batting_avg": row.get("batting_avg"),
-                        "obp": row.get("obp"),
-                        "slg": row.get("slg"),
-                        "ops": row.get("ops"),
-                        "source": "career",
-                    }
-
-    # ── Fallback: compute from game logs ──────────────────────────────
-    missing = [pair for pair in matchups if pair not in result]
-    if missing and _table_exists("player_game_batting") and _table_exists("pitcher_starts"):
-        params2: dict[str, Any] = {"target_date": target_date}
-        pair_clauses2 = []
-        for idx, (batter_id, pitcher_id) in enumerate(missing):
-            params2[f"mb_{idx}"] = int(batter_id)
-            params2[f"mp_{idx}"] = int(pitcher_id)
-            pair_clauses2.append(f"(b.player_id = :mb_{idx} AND ps.pitcher_id = :mp_{idx})")
-        where_clause2 = " OR ".join(pair_clauses2)
-        frame2 = _safe_frame(
-            f"""
-            SELECT
-                b.player_id AS batter_id,
-                ps.pitcher_id,
-                SUM(b.hits) AS hits,
-                SUM(b.at_bats) AS at_bats,
-                SUM(b.home_runs) AS home_runs,
-                SUM(b.walks) AS walks,
-                SUM(b.strikeouts) AS strikeouts,
-                SUM(b.rbi) AS rbi,
-                SUM(b.doubles) AS doubles,
-                SUM(b.triples) AS triples,
-                CAST(SUM(b.hits) AS REAL) / NULLIF(SUM(b.at_bats), 0) AS batting_avg
-            FROM player_game_batting b
-            INNER JOIN pitcher_starts ps
-                ON ps.game_id = b.game_id
-               AND ps.team = b.opponent
-            WHERE b.game_date < :target_date
-              AND ({where_clause2})
-            GROUP BY b.player_id, ps.pitcher_id
-            """,
-            params2,
-        )
-        if not frame2.empty:
-            for row in _frame_records(frame2):
-                key = (int(row["batter_id"]), int(row["pitcher_id"]))
-                at_bats = int(row.get("at_bats") or 0)
-                if at_bats == 0:
-                    continue
-                result[key] = {
-                    "at_bats": at_bats,
-                    "hits": int(row.get("hits") or 0),
-                    "home_runs": int(row.get("home_runs") or 0),
-                    "walks": int(row.get("walks") or 0),
-                    "strikeouts": int(row.get("strikeouts") or 0),
-                    "rbi": int(row.get("rbi") or 0),
-                    "doubles": int(row.get("doubles") or 0),
-                    "triples": int(row.get("triples") or 0),
-                    "batting_avg": row.get("batting_avg"),
-                    "obp": None,
-                    "slg": None,
-                    "ops": None,
-                    "source": "game_logs",
-                }
-
-    return result
+    """Thin wrapper — implementation lives in ``src.utils.bvp_lookup``."""
+    return _fetch_batter_vs_pitcher_map_core(target_date, matchups)
 
 
 def _compact_bvp_vs_pitcher_payload(
@@ -1302,23 +1163,59 @@ def _fetch_pitcher_strikeout_market_map(
     market_map: dict[tuple[int, int], dict[str, Any]] = {}
     for key, rows in by_pitcher.items():
         line_values = [float(row["line_value"]) for row in rows if row.get("line_value") is not None]
-        over_prices = [int(row["over_price"]) for row in rows if row.get("over_price") is not None]
-        under_prices = [int(row["under_price"]) for row in rows if row.get("under_price") is not None]
+        consensus_line = round(float(pd.Series(line_values).median()), 2) if line_values else None
+        # Prices must come from rows at the *same* K line as ``consensus_line``. Otherwise
+        # ``best_*_price`` was max across alternate lines (e.g. +235 at 4.5 K) while the UI
+        # shows median line 5.5 — mismatched vs a single book like FanDuel.
+        line_tol = 0.05
+        if consensus_line is not None and line_values:
+            line_rows = [
+                row
+                for row in rows
+                if row.get("line_value") is not None
+                and abs(float(row["line_value"]) - float(consensus_line)) <= line_tol
+            ]
+        else:
+            line_rows = list(rows)
+        if not line_rows:
+            line_rows = list(rows)
+        over_prices = [int(row["over_price"]) for row in line_rows if row.get("over_price") is not None]
+        under_prices = [int(row["under_price"]) for row in line_rows if row.get("under_price") is not None]
         market_map[key] = {
             "market_type": "pitcher_strikeouts",
             "player_name": next((row.get("player_name") for row in rows if row.get("player_name")), None),
             "team": next((row.get("team") for row in rows if row.get("team")), None),
-            "consensus_line": round(float(pd.Series(line_values).median()), 2) if line_values else None,
+            "consensus_line": consensus_line,
             "line_min": min(line_values) if line_values else None,
             "line_max": max(line_values) if line_values else None,
             "best_over_price": max(over_prices) if over_prices else None,
             "best_under_price": max(under_prices) if under_prices else None,
-            "sportsbook_count": len(rows),
-            "sportsbooks": [str(row.get("sportsbook")) for row in rows if row.get("sportsbook")],
+            "sportsbook_count": len(line_rows),
+            "sportsbooks": [str(row.get("sportsbook")) for row in line_rows if row.get("sportsbook")],
             "source_names": sorted({str(row.get("source_name")) for row in rows if row.get("source_name")}),
             "latest_snapshot_ts": max((row.get("snapshot_ts") for row in rows if row.get("snapshot_ts") is not None), default=None),
         }
     return market_map
+
+
+def _primary_strikeout_projection_for_market(projection: dict[str, Any]) -> float | None:
+    """K total used for model-vs-line delta and ``display_projected_strikeouts``.
+
+    Order matches ``pitchers.html`` (public → fundamentals → calibrated). We take the
+    first finite **non-negative** value so a bad calibrated row does not override a
+    sane fundamentals/public number or produce nonsense deltas.
+    """
+    for key in (
+        "public_projected_strikeouts",
+        "projected_strikeouts_fundamentals",
+        "projected_strikeouts",
+    ):
+        value = _to_float(projection.get(key))
+        if value is None or not math.isfinite(value):
+            continue
+        if value >= 0:
+            return float(value)
+    return None
 
 
 def _merge_strikeout_market_context(
@@ -1332,9 +1229,8 @@ def _merge_strikeout_market_context(
     market_line = _to_float((market_context or {}).get("consensus_line"))
     if market_line is None:
         market_line = _to_float(current_market.get("consensus_line"))
-    projected = _to_float(merged.get("public_projected_strikeouts"))
-    if projected is None:
-        projected = _to_float(merged.get("projected_strikeouts"))
+    primary_k = _primary_strikeout_projection_for_market(merged)
+    merged["display_projected_strikeouts"] = primary_k
     merged["market"] = {
         "consensus_line": market_line,
         "line_min": None if market_context is None else market_context.get("line_min"),
@@ -1345,7 +1241,7 @@ def _merge_strikeout_market_context(
         "sportsbooks": [] if market_context is None else market_context.get("sportsbooks") or [],
         "source_names": [] if market_context is None else market_context.get("source_names") or [],
         "latest_snapshot_ts": None if market_context is None else market_context.get("latest_snapshot_ts"),
-        "projection_delta": None if projected is None or market_line is None else round(projected - market_line, 2),
+        "projection_delta": None if primary_k is None or market_line is None else round(primary_k - market_line, 2),
     }
     return merged
 
@@ -1715,6 +1611,7 @@ def _fetch_status(target_date: date) -> dict[str, Any]:
     db_connected = not _safe_frame("SELECT 1 AS ok").empty
     totals_count = 0
     hits_count = 0
+    hr_count = 0
     strikeouts_count = 0
     rebuild_blocker = _desktop_rebuild_blocker(target_date)
     if _table_exists("predictions_totals"):
@@ -1731,6 +1628,13 @@ def _fetch_status(target_date: date) -> dict[str, Any]:
         )
         if not hits.empty:
             hits_count = int(hits.iloc[0]["row_count"])
+    if _table_exists("predictions_player_hr"):
+        hr_rows = _safe_frame(
+            "SELECT COUNT(*) AS row_count FROM predictions_player_hr WHERE game_date = :target_date",
+            {"target_date": target_date},
+        )
+        if not hr_rows.empty:
+            hr_count = int(hr_rows.iloc[0]["row_count"])
     if _table_exists("predictions_pitcher_strikeouts"):
         strikeouts = _safe_frame(
             "SELECT COUNT(*) AS row_count FROM predictions_pitcher_strikeouts WHERE game_date = :target_date",
@@ -1743,18 +1647,22 @@ def _fetch_status(target_date: date) -> dict[str, Any]:
         "db_connected": db_connected,
         "totals_artifact_ready": _artifact_ready("totals"),
         "hits_artifact_ready": _artifact_ready("hits"),
+        "hr_artifact_ready": _artifact_ready("hr"),
         "strikeouts_artifact_ready": _artifact_ready("strikeouts"),
         "totals_predictions": totals_count,
         "hits_predictions": hits_count,
+        "hr_predictions": hr_count,
         "strikeouts_predictions": strikeouts_count,
         "rebuild_blocker": rebuild_blocker,
         "tables": {
             "games": _table_exists("games"),
             "game_features_totals": _table_exists("game_features_totals"),
             "player_features_hits": _table_exists("player_features_hits"),
+            "player_features_hr": _table_exists("player_features_hr"),
             "game_features_pitcher_strikeouts": _table_exists("game_features_pitcher_strikeouts"),
             "predictions_totals": _table_exists("predictions_totals"),
             "predictions_player_hits": _table_exists("predictions_player_hits"),
+            "predictions_player_hr": _table_exists("predictions_player_hr"),
             "predictions_pitcher_strikeouts": _table_exists("predictions_pitcher_strikeouts"),
             "player_trend_daily": _table_exists("player_trend_daily"),
             "pitcher_trend_daily": _table_exists("pitcher_trend_daily"),
@@ -3009,6 +2917,11 @@ def _fetch_game_board(
             "csw_pct": starter["csw_pct"],
             "avg_fb_velo": starter["avg_fb_velo"],
             "whiff_pct": starter["whiff_pct"],
+            # Box / merged pitching line (present after ingest; needed for Top EV + board parity with detail)
+            "ip": starter.get("ip"),
+            "strikeouts": starter.get("strikeouts"),
+            "walks": starter.get("walks"),
+            "pitch_count": starter.get("pitch_count"),
             "recent_form": _fetch_starter_recent_form(starter["pitcher_id"], target_date),
             "pitcher_props": pitcher_prop_map.get(
                 (int(game["game_id"]), int(starter["pitcher_id"])), {}
@@ -3081,6 +2994,10 @@ def _fetch_game_board(
             "market_price": hit["market_price"],
             "edge": hit["edge"],
             "hit_rate_blended": hit["hit_rate_blended"],
+            "hit_rate_7": hit.get("hit_rate_7"),
+            "hit_rate_30": hit.get("hit_rate_30"),
+            "hard_hit_pct_14": hit.get("hard_hit_pct_14"),
+            "hit_games_last7": hit.get("hit_games_last7"),
             "xwoba_14": hit["xwoba_14"],
             "opposing_starter_xwoba": hit["opposing_starter_xwoba"],
             "opposing_starter_csw": hit["opposing_starter_csw"],
@@ -3112,13 +3029,13 @@ def _fetch_game_board(
             },
             player_status_map,
         )
-        game["hit_targets"][team].append(
-            _attach_hitter_matchup_context(
-                player_payload,
-                opposing_starter["throws"] if opposing_starter else None,
-                hit_split_map,
-            )
+        merged_hitter = _attach_hitter_matchup_context(
+            player_payload,
+            opposing_starter["throws"] if opposing_starter else None,
+            hit_split_map,
         )
+        merged_hitter["form"] = classify_hitter_form(merged_hitter)
+        game["hit_targets"][team].append(merged_hitter)
 
     # --- Freshness / confidence badges ---
     ingest_freshness = _fetch_ingest_freshness(target_date)
@@ -3136,8 +3053,13 @@ def _fetch_game_board(
             game,
             market_rows_by_game.get(int(game["game_id"]), {}),
         )
-        game["market_cards"] = market_cards
-        game["best_bets"] = best_bets
+        game["market_cards"] = _drop_first_five_team_total_cards(market_cards)
+        game["best_bets"] = _drop_first_five_team_total_best_bets(best_bets)
+        gid = int(game["game_id"])
+        game["top_ev_pick"] = _top_ev_pick_for_board_row(
+            game,
+            market_rows_by_game.get(gid, {}),
+        )
 
     return [games_by_id[game_id] for game_id in games_by_id]
 
@@ -3702,10 +3624,14 @@ def _best_bet_market_display_name(market: str | None) -> str:
     mapping = {
         "moneyline": "Moneyline",
         "run_line": "Run Line",
+        "game_total": "Game Total (Runs)",
+        "totals": "Game Total (Runs)",
+        "first5": "First 5 Totals",
+        "player_hits": "1+ Hits",
         "away_team_total": "Away Team Total",
         "home_team_total": "Home Team Total",
         "first_five_moneyline": "First 5 Moneyline",
-        "first_five_total": "First 5 Total",
+        "first_five_total": "First 5 Combined Total",
         "first_five_spread": "First 5 Run Line",
         "first_five_team_total_away": "First 5 Away Team Total",
         "first_five_team_total_home": "First 5 Home Team Total",
@@ -3728,7 +3654,10 @@ def _best_bet_selection_label(
         return f"{away if side == 'away' else home} ML"
     if market_key == "first_five_moneyline":
         return f"F5 {away if side == 'away' else home} ML"
-    if market_key == "first_five_total":
+    if market_key in ("game_total", "totals"):
+        suffix = f" {line_value:.1f} runs" if line_value is not None else ""
+        return f"Game total {str(side).title()}{suffix}".strip()
+    if market_key in ("first_five_total", "first5"):
         suffix = f" {line_value:.1f}" if line_value is not None else ""
         return f"F5 {str(side).title()}{suffix}".strip()
     if market_key == "first_five_team_total_away":
@@ -3801,6 +3730,10 @@ def _fetch_best_bet_history_payload(
         param_name = f"market_{index}"
         params[param_name] = market_key
         market_conditions.append(f"market = :{param_name}")
+    params["legacy_totals"] = "totals"
+    params["legacy_first5"] = "first5"
+    market_conditions.append("market = :legacy_totals")
+    market_conditions.append("market = :legacy_first5")
 
     conditions = [
         "game_date BETWEEN :start_date AND :target_date",
@@ -5399,18 +5332,192 @@ def _build_market_cards_for_game(
     return best_bets_utils.build_market_cards_for_game(game, market_rows_by_type)
 
 
+_F5_TEAM_TOTAL_MARKET_KEYS = frozenset({"first_five_team_total_away", "first_five_team_total_home"})
+
+
+def _drop_first_five_team_total_cards(
+    cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Hide F5 *per-team* O/U only. Combined ``first_five_total`` (both teams) stays in the product."""
+    return [c for c in cards if str(c.get("market_key") or "") not in _F5_TEAM_TOTAL_MARKET_KEYS]
+
+
+def _drop_first_five_team_total_best_bets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [r for r in rows if str(r.get("market_key") or "") not in _F5_TEAM_TOTAL_MARKET_KEYS]
+
+
+def _build_top_ev_pick_for_game_detail(
+    detail: dict[str, Any],
+    game_market_rows_by_type: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    """Highest weighted-EV priced line among team markets, 1+ hit, and pitcher K O/U for this game."""
+    return select_top_weighted_ev_pick(
+        collect_top_ev_candidates(detail, game_market_rows_by_type),
+    )
+
+
+def _is_game_board_green_locked(game_row: dict[str, Any]) -> bool:
+    """True once the game is inside the pregame ingest lock window (includes post first-pitch)."""
+    ts = game_row.get("game_start_ts")
+    if ts is None:
+        return False
+    lock_m = int(get_settings().pregame_ingest_lock_minutes or 0)
+    if lock_m <= 0:
+        return False
+    return bool(is_pregame_ingest_locked(ts, lock_minutes=lock_m))
+
+
+def _fetch_board_green_snapshots_map(target_date: date) -> dict[int, dict[str, Any]]:
+    if not table_exists("board_green_snapshots"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT game_id, snapshot_payload
+        FROM board_green_snapshots
+        WHERE game_date = :gd
+        """,
+        {"gd": target_date},
+    )
+    if frame.empty:
+        return {}
+    out: dict[int, dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        gid = int(row.get("game_id") or 0)
+        raw = row.get("snapshot_payload")
+        if not gid or raw is None:
+            continue
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            out[gid] = payload
+    return out
+
+
+def _insert_board_green_snapshot_row(target_date: date, game_id: int, payload: dict[str, Any]) -> None:
+    raw = json.dumps(jsonable_encoder(payload), default=str)
+    frozen_at = datetime.now(timezone.utc)
+    dia = get_dialect_name()
+    params = {
+        "game_id": game_id,
+        "game_date": target_date.isoformat() if dia == "sqlite" else target_date,
+        "snapshot_payload": raw,
+        "frozen_at": frozen_at,
+    }
+    if dia == "sqlite":
+        run_sql(
+            """
+            INSERT OR IGNORE INTO board_green_snapshots (game_id, game_date, snapshot_payload, frozen_at)
+            VALUES (:game_id, :game_date, :snapshot_payload, :frozen_at)
+            """,
+            params,
+        )
+    else:
+        run_sql(
+            """
+            INSERT INTO board_green_snapshots (game_id, game_date, snapshot_payload, frozen_at)
+            VALUES (:game_id, :game_date, :snapshot_payload, :frozen_at)
+            ON CONFLICT (game_id, game_date) DO NOTHING
+            """,
+            params,
+        )
+
+
+def _maybe_insert_board_green_snapshots(
+    target_date: date,
+    rows: list[dict[str, Any]],
+    live_green: list[dict[str, Any]],
+) -> None:
+    if not get_settings().board_green_snapshot_enabled:
+        return
+    if not table_exists("board_green_snapshots"):
+        return
+    row_by = {int(r["game_id"]): r for r in rows if r.get("game_id") is not None}
+    existing = _fetch_board_green_snapshots_map(target_date)
+    for card in live_green:
+        gid = int(card.get("game_id") or 0)
+        if not gid or gid in existing:
+            continue
+        gr = row_by.get(gid)
+        if gr is None or not _is_game_board_green_locked(gr):
+            continue
+        _insert_board_green_snapshot_row(target_date, gid, card)
+
+
+def _merge_board_green_snapshots_into_live(
+    target_date: date,
+    rows: list[dict[str, Any]],
+    live_green: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not get_settings().board_green_snapshot_enabled or not table_exists("board_green_snapshots"):
+        return live_green
+    row_by = {int(r["game_id"]): r for r in rows if r.get("game_id") is not None}
+    snaps = _fetch_board_green_snapshots_map(target_date)
+    if not snaps:
+        return live_green
+
+    locked_with_snap = {
+        gid
+        for gid in snaps
+        if gid in row_by and _is_game_board_green_locked(row_by[gid])
+    }
+    if not locked_with_snap:
+        return live_green
+
+    out: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for c in live_green:
+        gid = int(c.get("game_id") or 0)
+        if gid in locked_with_snap and gid in snaps:
+            fc = dict(snaps[gid])
+            fc["board_green_frozen"] = True
+            out.append(fc)
+        else:
+            out.append(c)
+        if gid:
+            seen.add(gid)
+
+    for gid in locked_with_snap:
+        if gid in seen:
+            continue
+        if gid in snaps:
+            fc = dict(snaps[gid])
+            fc["board_green_frozen"] = True
+            out.append(fc)
+
+    out.sort(
+        key=lambda x: (
+            float(x.get("weighted_ev") or -999.0),
+            float(x.get("probability_edge") or -999.0),
+        ),
+        reverse=True,
+    )
+    return out
+
+
 def _flatten_best_bets(
     rows: list[dict[str, Any]],
     limit: int | None = None,
+    *,
+    target_date: date | None = None,
 ) -> list[dict[str, Any]]:
-    return best_bets_utils.flatten_best_bets(rows, limit)
+    live = best_bets_utils.flatten_best_bets(rows, limit)
+    if target_date is None:
+        return live
+    _maybe_insert_board_green_snapshots(target_date, rows, live)
+    return _merge_board_green_snapshots_into_live(target_date, rows, live)
 
 
 def _flatten_watchlist_markets(
     rows: list[dict[str, Any]],
     limit: int = best_bets_utils.BOARD_WATCHLIST_LIMIT,
+    *,
+    secondary_lines_only: bool = False,
 ) -> list[dict[str, Any]]:
-    return best_bets_utils.flatten_watchlist_markets(rows, limit)
+    return best_bets_utils.flatten_watchlist_markets(
+        rows, limit, secondary_lines_only=secondary_lines_only
+    )
 
 
 def _fetch_bullpen_context_map(target_date: date, team: str | None = None) -> dict[str, dict[str, Any]]:
@@ -5456,9 +5563,11 @@ def _fetch_bullpen_context_map(target_date: date, team: str | None = None) -> di
 
 
 def _fetch_h2h_totals_for_game(game_id: int) -> dict[str, Any]:
-    """365-day head-to-head scoring rollup (aligned with GET /matchups head_to_head)."""
+    """Same-calendar-year head-to-head scoring rollup (aligned with GET /matchups head_to_head)."""
+    y_g = _sql_year("g.game_date")
+    y_this = _sql_year("(SELECT game_date FROM this_game)")
     frame = _safe_frame(
-        """
+        f"""
         WITH this_game AS (
             SELECT home_team, away_team, game_date
             FROM games WHERE game_id = :game_id
@@ -5477,7 +5586,7 @@ def _fetch_h2h_totals_for_game(game_id: int) -> dict[str, Any]:
               ON gm.game_id = g.game_id AND gm.market_type = 'total'
             WHERE g.status = 'final'
               AND g.game_date < tg.game_date
-              AND g.game_date >= date(tg.game_date, '-365 days')
+              AND {y_g} = {y_this}
         )
         SELECT
             COUNT(*)                                     AS games_played,
@@ -5490,7 +5599,8 @@ def _fetch_h2h_totals_for_game(game_id: int) -> dict[str, Any]:
                 / NULLIF(SUM(CASE WHEN market_total IS NOT NULL
                                   THEN 1 ELSE 0 END), 0) AS over_pct,
             (SELECT home_team FROM this_game)             AS home_team,
-            (SELECT away_team FROM this_game)             AS away_team
+            (SELECT away_team FROM this_game)             AS away_team,
+            (SELECT {_sql_year('game_date')} FROM this_game) AS season_year
         FROM prior
         """,
         {"game_id": game_id},
@@ -5508,6 +5618,7 @@ def _fetch_h2h_totals_for_game(game_id: int) -> dict[str, Any]:
     else:
         tier = "strong"
     h2h["sample_tier"] = tier
+    h2h["h2h_window"] = "same_calendar_year"
     return h2h
 
 
@@ -5547,6 +5658,7 @@ def _fetch_recent_bullpen_map(target_date: date, team: str | None = None) -> dic
         ordered = team_frame.sort_values("game_date")
         last3 = ordered.tail(3).copy()
         last5 = ordered.tail(5).copy()
+        last10 = ordered.tail(10).copy()
         outs = pd.to_numeric(last3.get("innings_pitched"), errors="coerce").apply(_baseball_ip_to_outs).sum()
         late_outs = pd.to_numeric(last3.get("late_innings_pitched"), errors="coerce").apply(_baseball_ip_to_outs).sum()
         earned_runs = pd.to_numeric(last3.get("earned_runs"), errors="coerce").fillna(0).sum()
@@ -5566,6 +5678,16 @@ def _fetch_recent_bullpen_map(target_date: date, team: str | None = None) -> dic
         late_hits_5 = pd.to_numeric(last5.get("late_hits_allowed"), errors="coerce").fillna(0).sum() if not last5.empty else 0
         late_inn_dec_5 = late_outs_5 / 3 if late_outs_5 else 0
         late_era_5 = None if late_inn_dec_5 <= 0 else float(late_er_5) * 9.0 / float(late_inn_dec_5)
+        late_outs_10 = (
+            int(pd.to_numeric(last10.get("late_innings_pitched"), errors="coerce").apply(_baseball_ip_to_outs).sum())
+            if not last10.empty
+            else 0
+        )
+        late_er_10 = pd.to_numeric(last10.get("late_earned_runs"), errors="coerce").fillna(0).sum() if not last10.empty else 0
+        late_hits_10 = pd.to_numeric(last10.get("late_hits_allowed"), errors="coerce").fillna(0).sum() if not last10.empty else 0
+        late_runs_10 = pd.to_numeric(last10.get("late_runs_allowed"), errors="coerce").fillna(0).sum() if not last10.empty else 0
+        late_inn_dec_10 = late_outs_10 / 3 if late_outs_10 else 0
+        late_era_10 = None if late_inn_dec_10 <= 0 else float(late_er_10) * 9.0 / float(late_inn_dec_10)
         game_dates = pd.to_datetime(ordered.get("game_date"), errors="coerce").dt.date
         snapshot_map[str(team_name)] = {
             "pitches_last3": int(pd.to_numeric(last3.get("pitches_thrown"), errors="coerce").fillna(0).sum()),
@@ -5586,6 +5708,12 @@ def _fetch_recent_bullpen_map(target_date: date, team: str | None = None) -> dic
             "late_hits_allowed_last5": int(late_hits_5),
             "late_era_last5": late_era_5,
             "late_bullpen_games_in_sample": int(len(last5.index)),
+            "late_innings_last10": _baseball_ip_from_outs(late_outs_10),
+            "late_runs_allowed_last10": int(late_runs_10),
+            "late_earned_runs_last10": int(late_er_10),
+            "late_hits_allowed_last10": int(late_hits_10),
+            "late_era_last10": late_era_10,
+            "late_bullpen_games_in_sample_10": int(len(last10.index)),
         }
     return snapshot_map
 
@@ -5637,6 +5765,30 @@ def _fetch_total_bases_prediction_map(target_date: date) -> dict[tuple[int, int]
         {"target_date": target_date},
     )
     return {(int(r["game_id"]), int(r["player_id"])): r for r in _frame_records(frame)}
+
+
+def _fetch_hr_prediction_map(target_date: date) -> dict[tuple[int, int], dict[str, Any]]:
+    """Latest HR yes-line prediction per (game_id, player_id)."""
+    if not _table_exists("predictions_player_hr"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT ph.game_id, ph.player_id,
+               ph.predicted_hr_probability, ph.fair_price, ph.market_price, ph.edge
+        FROM predictions_player_hr ph
+        INNER JOIN (
+            SELECT game_id, player_id, MAX(prediction_ts) AS max_ts
+            FROM predictions_player_hr
+            WHERE game_date = :target_date
+            GROUP BY game_id, player_id
+        ) latest ON ph.game_id = latest.game_id
+               AND ph.player_id = latest.player_id
+               AND ph.prediction_ts = latest.max_ts
+        WHERE ph.game_date = :target_date
+        """,
+        {"target_date": target_date},
+    )
+    return {(int(r["game_id"]), int(r["player_id"])): dict(r) for r in _frame_records(frame)}
 
 
 def _fetch_pitcher_prop_map(target_date: date) -> dict[tuple[int, int], dict[str, Any]]:
@@ -6372,8 +6524,20 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             "home_bullpen_late_hits_allowed_last5": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_hits_allowed_last5"),
             "away_bullpen_late_era_last5": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_era_last5"),
             "home_bullpen_late_era_last5": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_era_last5"),
+            "away_bullpen_late_innings_last10": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_innings_last10"),
+            "home_bullpen_late_innings_last10": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_innings_last10"),
+            "away_bullpen_late_runs_allowed_last10": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_runs_allowed_last10"),
+            "home_bullpen_late_runs_allowed_last10": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_runs_allowed_last10"),
+            "away_bullpen_late_earned_runs_last10": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_earned_runs_last10"),
+            "home_bullpen_late_earned_runs_last10": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_earned_runs_last10"),
+            "away_bullpen_late_hits_allowed_last10": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_hits_allowed_last10"),
+            "home_bullpen_late_hits_allowed_last10": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_hits_allowed_last10"),
+            "away_bullpen_late_era_last10": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_era_last10"),
+            "home_bullpen_late_era_last10": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_era_last10"),
             "away_bullpen_late_games_sample": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_bullpen_games_in_sample"),
             "home_bullpen_late_games_sample": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_bullpen_games_in_sample"),
+            "away_bullpen_late_games_sample_10": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("late_bullpen_games_in_sample_10"),
+            "home_bullpen_late_games_sample_10": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("late_bullpen_games_in_sample_10"),
             "away_bullpen_season_era": (bullpen_context_map.get(str(game["away_team"]) or "", {}) or {}).get("season_era"),
             "home_bullpen_season_era": (bullpen_context_map.get(str(game["home_team"]) or "", {}) or {}).get("season_era"),
             "away_bullpen_late_season_era": (bullpen_context_map.get(str(game["away_team"]) or "", {}) or {}).get("late_season_era"),
@@ -6501,6 +6665,7 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             opposing_starter["throws"] if opposing_starter else None,
             lineup_split_map,
         )
+        player["form"] = classify_hitter_form(player)
         detail["teams"][side]["lineup"].append(player)
 
     bvp_pairs: list[tuple[int, int]] = []
@@ -6592,8 +6757,9 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         market_freezes.get((int(game_id), "first_five_total"), {}),
     )
     market_cards, best_bets = _build_market_cards_for_game(detail, game_market_rows_by_type)
-    detail["market_cards"] = market_cards
-    detail["best_bets"] = best_bets
+    detail["market_cards"] = _drop_first_five_team_total_cards(market_cards)
+    detail["best_bets"] = _drop_first_five_team_total_best_bets(best_bets)
+    detail["top_ev_pick"] = _build_top_ev_pick_for_game_detail(detail, game_market_rows_by_type)
 
     gid_int = int(detail["game_id"])
     away_recent = _fetch_team_last_n_final_games(
@@ -6622,12 +6788,115 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
     return detail
 
 
+def _fetch_hr_source_recs_for_date(
+    target_date: date,
+    min_probability: float,
+) -> list[dict[str, Any]]:
+    """Latest HR prediction per batter; rows shaped for ``build_player_hr_board_card`` (+ daily extras)."""
+    if not _table_exists("predictions_player_hr"):
+        return []
+    return load_hr_source_recs_for_date(target_date, min_probability)
+
+
+def _fetch_slugger_hr_bets(
+    target_date: date,
+    min_probability: float,
+    *,
+    max_cards: int = 8,
+) -> list[dict[str, Any]]:
+    """HR-only board strip: best batters per game, then global cap. ``min_probability=0`` on the board."""
+    source = _fetch_hr_source_recs_for_date(target_date, min_probability)
+    if not source:
+        return []
+    return iter_slugger_tracked_cards(
+        source,
+        per_game=SLUGGER_HR_PER_GAME,
+        max_cards=max_cards if max_cards > 0 else None,
+    )
+
+
+def _fetch_daily_home_run_rows(target_date: date) -> list[dict[str, Any]]:
+    """Slugger HR picks (same ranking as the board), slate-capped for Daily Results, graded vs box score."""
+    rows = _fetch_hr_source_recs_for_date(target_date, 0.0)
+    if not rows:
+        return []
+    tracked = iter_slugger_tracked_cards(
+        rows,
+        per_game=SLUGGER_HR_PER_GAME,
+        max_cards=SLUGGER_DAILY_RESULTS_MAX_CARDS,
+    )
+    rec_by_pair = {
+        (int(r["game_id"] or 0), int(r["player_id"] or 0)): r
+        for r in rows
+    }
+    out: list[dict[str, Any]] = []
+    for card in tracked:
+        gid = int(card.get("game_id") or 0)
+        pid = int(card.get("player_id") or 0)
+        rec = rec_by_pair.get((gid, pid))
+        if rec is None:
+            continue
+        rank = int(card.get("slugger_rank_in_game") or 0)
+        mp = _to_float(rec.get("predicted_hr_probability"))
+        phr_disp = (
+            best_bets_utils.format_hr_probability_pct_display(float(mp))
+            if mp is not None
+            else "—"
+        )
+        fair_raw = rec.get("fair_price")
+        fair_disp = best_bets_utils._sanitize_hr_fair_american_for_display(fair_raw)
+        is_final = _is_final_game_status(rec.get("game_status"))
+        actual_hr = rec.get("actual_home_runs")
+        if is_final and actual_hr is None:
+            result = "missing"
+        elif not is_final:
+            result = "pending"
+        elif float(actual_hr) > 0:
+            result = "hit"
+        else:
+            result = "no_hit"
+        out.append(
+            {
+                "game_id": gid,
+                "game_date": rec.get("game_date"),
+                "game_start_ts": rec.get("game_start_ts"),
+                "game_status": rec.get("game_status"),
+                "is_final": is_final,
+                "player_id": pid,
+                "player_name": rec.get("player_name"),
+                "team": rec.get("team"),
+                "opponent": rec.get("opponent"),
+                "slugger_rank_in_game": rank,
+                "predicted_hr_probability": mp,
+                "hr_probability_display": phr_disp,
+                "fair_price": fair_disp if fair_disp is not None else None,
+                "market_price": rec.get("market_price"),
+                "edge": rec.get("edge"),
+                "actual_home_runs": actual_hr,
+                "result": result,
+                "market_backed": rec.get("market_price") is not None,
+            }
+        )
+
+    def _sort_key(r: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            r.get("game_start_ts") or "",
+            int(r.get("game_id") or 0),
+            int(r.get("slugger_rank_in_game") or 99),
+            str(r.get("player_name") or ""),
+        )
+
+    out.sort(key=_sort_key)
+    return out
+
+
 def _fetch_hot_hitters(
     target_date: date,
     min_probability: float,
     confirmed_only: bool,
     limit: int,
     include_inferred: bool,
+    streak_only: bool = False,
 ) -> dict[str, Any]:
     def _empty_payload(
         *,
@@ -6640,6 +6909,8 @@ def _fetch_hot_hitters(
     ) -> dict[str, Any]:
         return {
             "rows": [],
+            "hitter_best_bets": [],
+            "slugger_hr_bets": [],
             "summary": {
                 "count": 0,
                 "total_hot_count": 0,
@@ -6892,6 +7163,7 @@ def _fetch_hot_hitters(
         [int(record["player_id"]) for record in records if record.get("player_id") is not None],
     )
     tb_pred_map = _fetch_total_bases_prediction_map(target_date)
+    hr_pred_map = _fetch_hr_prediction_map(target_date)
     bvp_matchups = [
         (int(record["player_id"]), int(record["opposing_pitcher_id"]))
         for record in records
@@ -6911,8 +7183,8 @@ def _fetch_hot_hitters(
         pitcher_id = int(record["opposing_pitcher_id"]) if record.get("opposing_pitcher_id") is not None else None
         live_history = [] if player_id is None else hit_history_map.get(player_id, [])
         _overlay_live_batting_stats(record, live_history)
-        form = _classify_hitter_form(record)
-        if form["label"] not in {"Hot", "Streaking", "Hitting well"}:
+        form = classify_hitter_form(record)
+        if (form.get("form_key") or "") not in HOT_HITTER_PAGE_FORM_KEYS:
             continue
         bvp_stats = bvp_map.get((player_id, pitcher_id)) if player_id and pitcher_id else None
         actual_meta = _build_hit_actual_meta(record.get("actual_hits"), _is_final_game_status(record.get("game_status")))
@@ -6926,6 +7198,7 @@ def _fetch_hot_hitters(
                 "recent_hit_history": live_history[:10],
                 "bvp": bvp_stats,
                 "total_bases": tb_pred_map.get((game_id_int, player_id)) if game_id_int and player_id else None,
+                "hr_prediction": hr_pred_map.get((game_id_int, player_id)) if game_id_int and player_id else None,
             },
                 player_status_map,
             ),
@@ -6935,32 +7208,76 @@ def _fetch_hot_hitters(
         all_hot_rows.append(enriched)
 
     if min_probability > 0:
-        hot_rows = [
+        hot_rows_after_prob = [
             row
             for row in all_hot_rows
             if (_to_float(row.get("predicted_hit_probability")) or 0.0) >= min_probability
         ]
     else:
-        hot_rows = list(all_hot_rows)
+        hot_rows_after_prob = list(all_hot_rows)
 
-    hot_rows.sort(
-        key=lambda row: (
-            -float((row.get("form") or {}).get("heat_score") or 0.0),
-            -float(_to_float(row.get("predicted_hit_probability")) or 0.0),
-            -float(_to_float(row.get("edge")) or 0.0),
-            int(row.get("lineup_slot") or 99),
-            str(row.get("player_name") or ""),
+    if streak_only:
+        hot_rows = [
+            row
+            for row in hot_rows_after_prob
+            if _row_hit_streak_value(row) >= 2
+        ]
+        total_hot_count_summary = len(hot_rows)
+    else:
+        hot_rows = list(hot_rows_after_prob)
+        total_hot_count_summary = len(all_hot_rows)
+
+    if streak_only:
+        hot_rows.sort(
+            key=lambda row: (
+                -_row_hit_streak_value(row),
+                -float((row.get("form") or {}).get("heat_score") or 0.0),
+                -float(_to_float(row.get("predicted_hit_probability")) or 0.0),
+                -float(_to_float(row.get("edge")) or 0.0),
+                int(row.get("lineup_slot") or 99),
+                str(row.get("player_name") or ""),
+            )
         )
-    )
+    else:
+        hot_rows.sort(
+            key=lambda row: (
+                -float((row.get("form") or {}).get("heat_score") or 0.0),
+                -float(_to_float(row.get("predicted_hit_probability")) or 0.0),
+                -float(_to_float(row.get("edge")) or 0.0),
+                int(row.get("lineup_slot") or 99),
+                str(row.get("player_name") or ""),
+            )
+        )
     hot_rows = hot_rows[:limit]
+
+    hitter_best_bets: list[dict[str, Any]] = []
+    for row in hot_rows:
+        card = best_bets_utils.build_player_hits_board_card(row)
+        if card:
+            hitter_best_bets.append(best_bets_utils.annotate_market_card_for_display(card))
+    hitter_best_bets.sort(
+        key=lambda c: (
+            float(c.get("weighted_ev") or -999.0),
+            float(c.get("probability_edge") or -999.0),
+        ),
+        reverse=True,
+    )
+
+    slugger_hr_bets = _fetch_slugger_hr_bets(
+        target_date,
+        min_probability,
+        max_cards=SLUGGER_HOT_HITTERS_PAGE_MAX_CARDS,
+    )
 
     probabilities = [_to_float(row.get("predicted_hit_probability")) for row in hot_rows]
     valid_probabilities = [value for value in probabilities if value is not None]
     return {
         "rows": hot_rows,
+        "hitter_best_bets": hitter_best_bets,
+        "slugger_hr_bets": slugger_hr_bets,
         "summary": {
             "count": len(hot_rows),
-            "total_hot_count": len(all_hot_rows),
+            "total_hot_count": total_hot_count_summary,
             "confirmed_count": sum(1 for row in hot_rows if row.get("is_confirmed_lineup")),
             "inferred_count": sum(1 for row in hot_rows if row.get("is_inferred_lineup")),
             "suppressed_inferred_count": suppressed_inferred_count,
@@ -7106,14 +7423,184 @@ def _fetch_season_leaderboards(target_date: date, limit: int = 10) -> dict[str, 
         {"season_start": season_start, "target_date": target_date, "limit": limit},
     )
 
+    pitcher_era_rows = _safe_frame(
+        """
+        WITH season_rows AS (
+            SELECT
+                ps.pitcher_id,
+                COALESCE(dp.full_name, CAST(ps.pitcher_id AS TEXT)) AS player_name,
+                ps.team,
+                ps.game_date,
+                COALESCE(ps.ip, 0) AS ip,
+                COALESCE(ps.earned_runs, 0) AS earned_runs
+            FROM pitcher_starts ps
+            LEFT JOIN dim_players dp ON dp.player_id = ps.pitcher_id
+            WHERE ps.game_date >= :season_start
+              AND ps.game_date < :target_date
+        ),
+        latest_team AS (
+            SELECT
+                pitcher_id,
+                team,
+                ROW_NUMBER() OVER (
+                    PARTITION BY pitcher_id
+                    ORDER BY game_date DESC, pitcher_id
+                ) AS row_rank
+            FROM season_rows
+        )
+        SELECT
+            sr.pitcher_id,
+            MAX(sr.player_name) AS player_name,
+            lt.team,
+            COUNT(*) AS starts,
+            SUM(sr.ip) AS innings_pitched,
+            SUM(sr.earned_runs) AS earned_runs,
+            CASE
+                WHEN SUM(sr.ip) > 0 THEN 9.0 * SUM(sr.earned_runs) * 1.0 / SUM(sr.ip)
+                ELSE NULL
+            END AS era
+        FROM season_rows sr
+        LEFT JOIN latest_team lt ON lt.pitcher_id = sr.pitcher_id AND lt.row_rank = 1
+        GROUP BY sr.pitcher_id, lt.team
+        HAVING SUM(sr.ip) >= 3
+        ORDER BY era ASC, innings_pitched DESC, player_name ASC
+        LIMIT :limit
+        """,
+        {"season_start": season_start, "target_date": target_date, "limit": limit},
+    )
+
+    pitcher_whip_rows = _safe_frame(
+        """
+        WITH season_rows AS (
+            SELECT
+                ps.pitcher_id,
+                COALESCE(dp.full_name, CAST(ps.pitcher_id AS TEXT)) AS player_name,
+                ps.team,
+                ps.game_date,
+                COALESCE(ps.ip, 0) AS ip,
+                COALESCE(ps.hits_allowed, 0) AS hits_allowed,
+                COALESCE(ps.walks, 0) AS walks
+            FROM pitcher_starts ps
+            LEFT JOIN dim_players dp ON dp.player_id = ps.pitcher_id
+            WHERE ps.game_date >= :season_start
+              AND ps.game_date < :target_date
+        ),
+        latest_team AS (
+            SELECT
+                pitcher_id,
+                team,
+                ROW_NUMBER() OVER (
+                    PARTITION BY pitcher_id
+                    ORDER BY game_date DESC, pitcher_id
+                ) AS row_rank
+            FROM season_rows
+        )
+        SELECT
+            sr.pitcher_id,
+            MAX(sr.player_name) AS player_name,
+            lt.team,
+            COUNT(*) AS starts,
+            SUM(sr.ip) AS innings_pitched,
+            CASE
+                WHEN SUM(sr.ip) > 0 THEN (SUM(sr.hits_allowed) + SUM(sr.walks)) * 1.0 / SUM(sr.ip)
+                ELSE NULL
+            END AS whip
+        FROM season_rows sr
+        LEFT JOIN latest_team lt ON lt.pitcher_id = sr.pitcher_id AND lt.row_rank = 1
+        GROUP BY sr.pitcher_id, lt.team
+        HAVING SUM(sr.ip) >= 3
+        ORDER BY whip ASC, innings_pitched DESC, player_name ASC
+        LIMIT :limit
+        """,
+        {"season_start": season_start, "target_date": target_date, "limit": limit},
+    )
+
+    hitter_home_run_rows = _safe_frame(
+        """
+        WITH season_rows AS (
+            SELECT
+                pgb.player_id,
+                COALESCE(dp.full_name, CAST(pgb.player_id AS TEXT)) AS player_name,
+                pgb.team,
+                pgb.game_date,
+                COALESCE(pgb.home_runs, 0) AS home_runs,
+                pgb.game_id
+            FROM player_game_batting pgb
+            LEFT JOIN dim_players dp ON dp.player_id = pgb.player_id
+            WHERE pgb.game_date >= :season_start
+              AND pgb.game_date < :target_date
+        ),
+        latest_team AS (
+            SELECT
+                player_id,
+                team,
+                ROW_NUMBER() OVER (
+                    PARTITION BY player_id
+                    ORDER BY game_date DESC, player_id
+                ) AS row_rank
+            FROM season_rows
+        )
+        SELECT
+            sr.player_id,
+            MAX(sr.player_name) AS player_name,
+            lt.team,
+            COUNT(DISTINCT sr.game_id) AS games,
+            SUM(sr.home_runs) AS home_runs,
+            CASE
+                WHEN COUNT(DISTINCT sr.game_id) <= 0 THEN NULL
+                ELSE SUM(sr.home_runs) * 1.0 / COUNT(DISTINCT sr.game_id)
+            END AS home_runs_per_game
+        FROM season_rows sr
+        LEFT JOIN latest_team lt ON lt.player_id = sr.player_id AND lt.row_rank = 1
+        GROUP BY sr.player_id, lt.team
+        HAVING COUNT(DISTINCT sr.game_id) > 0
+        ORDER BY home_runs DESC, home_runs_per_game DESC, player_name ASC
+        LIMIT :limit
+        """,
+        {"season_start": season_start, "target_date": target_date, "limit": limit},
+    )
+
+    team_home_run_rows = _safe_frame(
+        """
+        WITH season_rows AS (
+            SELECT
+                team,
+                game_id,
+                SUM(COALESCE(home_runs, 0)) AS hr_game
+            FROM player_game_batting
+            WHERE game_date >= :season_start
+              AND game_date < :target_date
+            GROUP BY team, game_id
+        )
+        SELECT
+            team,
+            COUNT(DISTINCT game_id) AS games,
+            SUM(hr_game) AS home_runs,
+            CASE
+                WHEN COUNT(DISTINCT game_id) <= 0 THEN NULL
+                ELSE SUM(hr_game) * 1.0 / COUNT(DISTINCT game_id)
+            END AS home_runs_per_game
+        FROM season_rows
+        GROUP BY team
+        HAVING COUNT(DISTINCT game_id) > 0
+        ORDER BY home_runs DESC, home_runs_per_game DESC, team ASC
+        LIMIT :limit
+        """,
+        {"season_start": season_start, "target_date": target_date, "limit": limit},
+    )
+
     return {
         "season": int(target_date.year),
         "season_start": season_start.isoformat(),
         "through_date": target_date.isoformat(),
         "pitcher_strikeouts": _frame_records(pitcher_rows),
+        "pitcher_era": _frame_records(pitcher_era_rows),
+        "pitcher_whip": _frame_records(pitcher_whip_rows),
         "hitter_hits": _frame_records(hitter_rows),
+        "hitter_home_runs": _frame_records(hitter_home_run_rows),
         "team_runs": _frame_records(team_runs_rows),
         "team_strikeouts": _frame_records(team_strikeout_rows),
+        "team_home_runs": _frame_records(team_home_run_rows),
     }
 
 
@@ -7185,6 +7672,8 @@ def _daily_results_market_display_name(market: str | None) -> str:
         "hits": "1+ Hits",
         "pitcher_strikeouts": "Pitcher Strikeouts",
         "first5": "First 5 Totals",
+        "top_ev": "Top EV",
+        best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY: "To hit a HR",
     }
     return mapping.get(market_key, market_key.replace("_", " ").title() or "AI Pick")
 
@@ -7212,6 +7701,8 @@ def _daily_results_pick_label(
     side = str(recommended_side or "")
     if market == "hits":
         return "1+ Hit"
+    if market == best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY:
+        return "HR · Yes"
     if market == "totals":
         return f"{side.title()} {market_line:.1f}" if market_line is not None else side.title() or "No line"
     if market == "first5":
@@ -7230,6 +7721,14 @@ def _daily_results_actual_display(
     home_team: str | None,
     meta: dict[str, Any],
 ) -> str:
+    if market == "top_ev":
+        um = str(meta.get("underlying_market_key") or "")
+        if um == best_bets_utils.PLAYER_HITS_MARKET_KEY:
+            um = "hits"
+        if um:
+            return _daily_results_actual_display(record, um, away_team, home_team, meta)
+        return "Pending"
+
     is_final = record.get("game_final")
     if is_final is None:
         is_final = bool(record.get("graded"))
@@ -7261,7 +7760,18 @@ def _daily_results_actual_display(
             return "No hit"
         return "Pending"
 
-    if market in {"totals", "first5", "first_five_total"} and display_value is not None:
+    if market == best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY:
+        actual_hr = _coerce_float(record.get("actual_home_runs"))
+        if actual_hr is not None:
+            hr_n = int(actual_hr)
+            return f"{hr_n} HR" + ("" if hr_n == 1 else "s")
+        if actual_side == "yes":
+            return "Homered"
+        if actual_side == "no":
+            return "No HR"
+        return "Pending"
+
+    if market in {"totals", "first5", "first_five_total", "game_total"} and display_value is not None:
         if actual_side:
             return f"{display_value:.0f} runs · {actual_side.upper()}"
         return f"{display_value:.0f} runs"
@@ -7271,10 +7781,19 @@ def _daily_results_actual_display(
             return f"{display_value:.0f} runs (1st inn) · {actual_side.upper()}"
         return f"{display_value:.0f} runs (1st inn)"
 
-    if market == "pitcher_strikeouts" and actual_value is not None:
-        if actual_side:
-            return f"{actual_value:.0f} Ks · {actual_side.upper()}"
-        return f"{actual_value:.0f} Ks"
+    # Pitcher K actuals: ``grade_best_bet_pick`` sets ``actual_value`` to 1/0 (win/loss), not K count.
+    # The real total is ``actual_measure`` (passed through ``meta`` from grading).
+    if market == "pitcher_strikeouts":
+        ks_count = _coerce_float(meta.get("actual_measure"))
+        if ks_count is None:
+            ks_count = _coerce_float(record.get("actual_strikeouts"))
+        if ks_count is not None:
+            if actual_side:
+                return f"{ks_count:.0f} Ks · {actual_side.upper()}"
+            return f"{ks_count:.0f} Ks"
+        if result not in ("pending", "missing") and actual_side:
+            return actual_side.upper()
+        return "Pending"
 
     if market in {"moneyline", "first_five_moneyline"}:
         if actual_side == "away":
@@ -7318,6 +7837,8 @@ def _daily_results_actual_display(
 
 
 def _daily_results_confidence(record: dict[str, Any], market: str) -> float | None:
+    if market == "top_ev":
+        return _coerce_float(record.get("probability"))
     recommended_side = str(record.get("recommended_side") or "")
     probability = _coerce_float(record.get("probability"))
     opposite_probability = _coerce_float(record.get("opposite_probability"))
@@ -7332,12 +7853,19 @@ def _daily_results_confidence(record: dict[str, Any], market: str) -> float | No
 
 
 def _daily_results_edge_value(record: dict[str, Any], market: str, meta: dict[str, Any]) -> float | None:
+    if market == "top_ev":
+        weighted_ev = _coerce_float(meta.get("weighted_ev"))
+        if weighted_ev is not None:
+            return weighted_ev
+        return _coerce_float(meta.get("probability_edge"))
     if market in BEST_BET_MARKET_KEYS:
         weighted_ev = _coerce_float(meta.get("weighted_ev"))
         if weighted_ev is not None:
             return weighted_ev
         return _coerce_float(meta.get("probability_edge"))
     if market == "hits":
+        return _coerce_float(meta.get("edge"))
+    if market == best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY:
         return _coerce_float(meta.get("edge"))
     predicted_value = _coerce_float(record.get("predicted_value"))
     market_line = _coerce_float(record.get("market_line"))
@@ -7348,8 +7876,12 @@ def _daily_results_edge_value(record: dict[str, Any], market: str, meta: dict[st
 
 def _daily_results_model_display(record: dict[str, Any], market: str, confidence: float | None) -> str:
     predicted_value = _coerce_float(record.get("predicted_value"))
+    if market == "top_ev":
+        return "-" if confidence is None else f"{confidence * 100:.1f}% model"
     if market == "hits":
         return f"{confidence * 100:.0f}% yes" if confidence is not None else "-"
+    if market == best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY:
+        return f"{confidence * 100:.0f}% HR" if confidence is not None else "-"
     if market in BEST_BET_MARKET_KEYS:
         return f"{confidence * 100:.0f}%" if confidence is not None else "-"
     if market in EXPERIMENTAL_CAROUSEL_MARKETS:
@@ -7386,6 +7918,21 @@ def _daily_results_notes_display(
             details.append(f"No-vig {probability_edge * 100:+.1f} pts")
         return " · ".join(details)
 
+    if market == "top_ev":
+        weighted_ev = _coerce_float(meta.get("weighted_ev"))
+        probability_edge = _coerce_float(meta.get("probability_edge"))
+        price = meta.get("price")
+        if price is not None:
+            details.append(f"Price {_format_price_text(price)}")
+        if weighted_ev is not None:
+            details.append(f"EV {weighted_ev * 100:+.1f}%")
+        if probability_edge is not None:
+            details.append(f"No-vig {probability_edge * 100:+.1f} pts")
+        n = meta.get("top_ev_candidate_count")
+        if n is not None:
+            details.append(f"{n} priced candidates")
+        return " · ".join(details)
+
     if market in EXPERIMENTAL_CAROUSEL_MARKETS:
         price = meta.get("price")
         if price is not None:
@@ -7398,6 +7945,17 @@ def _daily_results_notes_display(
         return " · ".join(details)
 
     if market == "hits":
+        market_price = meta.get("market_price")
+        fair_price = meta.get("fair_price")
+        if market_price is not None:
+            details.append(f"Market {_format_price_text(market_price)}")
+        if fair_price is not None:
+            details.append(f"Fair {_format_price_text(fair_price)}")
+        if edge_value is not None:
+            details.append(f"Edge {edge_value:+.3f}")
+        return " · ".join(details)
+
+    if market == best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY:
         market_price = meta.get("market_price")
         fair_price = meta.get("fair_price")
         if market_price is not None:
@@ -7469,6 +8027,7 @@ def _fetch_game_recommendation_results(
             g.home_team,
             batter.hits AS actual_hits,
             batter.at_bats AS actual_at_bats,
+            batter.home_runs AS actual_home_runs,
             dp.full_name AS player_name,
             pitcher.full_name AS pitcher_name
         FROM prediction_outcomes_daily o
@@ -7482,17 +8041,19 @@ def _fetch_game_recommendation_results(
         LEFT JOIN dim_players dp ON dp.player_id = o.player_id
         LEFT JOIN dim_players pitcher ON pitcher.player_id = o.pitcher_id
         WHERE o.game_date = :target_date
-                    AND o.entity_type = 'game'
           AND o.recommended_side IS NOT NULL
+          AND (
+              o.entity_type = 'game'
+              OR (o.entity_type = 'pitcher' AND o.market = 'pitcher_strikeouts')
+          )
         ORDER BY
             COALESCE(g.game_start_ts, o.prediction_ts),
             o.game_id,
             CASE o.market
                 WHEN 'totals' THEN 0
                 WHEN 'first5' THEN 1
-                WHEN 'hits' THEN 2
-                WHEN 'pitcher_strikeouts' THEN 3
-                ELSE 4
+                WHEN 'pitcher_strikeouts' THEN 2
+                ELSE 3
             END,
             COALESCE(dp.full_name, pitcher.full_name, '')
         """,
@@ -7524,7 +8085,9 @@ def _fetch_game_recommendation_results(
             bool(record.get("game_final")),
         )
         is_green_pick = bool(meta.get("is_board_green_pick") or meta.get("is_green_pick"))
-        is_watchlist_pick = bool(meta.get("is_board_watchlist_pick"))
+        is_watchlist_pick = bool(
+            meta.get("is_board_watchlist_pick") or meta.get("is_hr_slate_pick")
+        )
         is_experimental_pick = bool(meta.get("is_experimental_pick")) or market in EXPERIMENTAL_CAROUSEL_MARKETS
         green_rank = meta.get("board_green_pick_rank") or meta.get("green_pick_rank")
         watchlist_rank = meta.get("board_watchlist_rank")
@@ -7532,7 +8095,7 @@ def _fetch_game_recommendation_results(
         if not recommendation_reason and is_green_pick:
             recommendation_reason = "Green board pick"
         if not recommendation_reason and is_watchlist_pick:
-            recommendation_reason = "Watchlist pick"
+            recommendation_reason = str(meta.get("hr_slate_reason") or "Watchlist pick")
         if not recommendation_reason and is_experimental_pick:
             recommendation_reason = str(meta.get("experimental_reason") or "Experimental first-inning tracking")
         price = meta.get("price")
@@ -7549,6 +8112,9 @@ def _fetch_game_recommendation_results(
         )
 
         if market == "hits":
+            subject_label = record.get("player_name") or meta.get("player_name") or f"Player {record.get('player_id') or '?'}"
+            subject_subtitle = f"{record.get('team') or '?'} vs {record.get('opponent') or 'TBD'}"
+        elif market == best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY:
             subject_label = record.get("player_name") or meta.get("player_name") or f"Player {record.get('player_id') or '?'}"
             subject_subtitle = f"{record.get('team') or '?'} vs {record.get('opponent') or 'TBD'}"
         elif market == "pitcher_strikeouts":
@@ -7610,10 +8176,12 @@ def _fetch_game_recommendation_results(
     # Green / watchlist must never use NRFI/YRFI (experimental-only). Those markets share
     # prediction_outcomes_daily with board lanes; without this filter the edge fallback can
     # surface nrfi as the only "pick" per game when snapshot flags are missing.
+    # Team best picks also exclude hitter lanes (hits / 1+ / HR); those are not tracked in this UI.
     board_rows = [
         row
         for row in rows
         if str(row.get("market") or "").lower() not in EXPERIMENTAL_CAROUSEL_MARKETS
+        and not _daily_results_excluded_from_team_best_picks(str(row.get("market") or ""))
     ]
 
     has_snapshot_flags = any(
@@ -7676,6 +8244,234 @@ def _fetch_experimental_pick_results(target_date: date, limit: int | None = None
     return _fetch_game_recommendation_results(target_date, bucket="experimental", limit=limit)
 
 
+def _lineup_player_by_id(detail: dict[str, Any], player_id: int) -> dict[str, Any] | None:
+    for side in ("away", "home"):
+        for pl in (detail.get("teams") or {}).get(side, {}).get("lineup") or []:
+            if pl.get("player_id") is not None and int(pl["player_id"]) == int(player_id):
+                return pl
+    return None
+
+
+def _starter_by_pitcher_id(detail: dict[str, Any], pitcher_id: int) -> dict[str, Any] | None:
+    for side in ("away", "home"):
+        st = (detail.get("starters") or {}).get(side)
+        if st and st.get("pitcher_id") is not None and int(st["pitcher_id"]) == int(pitcher_id):
+            return st
+    return None
+
+
+def _grade_top_ev_pick_for_daily_results(
+    detail: dict[str, Any],
+    pick: dict[str, Any],
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    market = str(pick.get("market_key") or "")
+    away_team = detail.get("away_team")
+    home_team = detail.get("home_team")
+    line_value = _coerce_float(pick.get("line_value"))
+    actual_result = dict(detail.get("actual_result") or {})
+    f5 = detail.get("first5_totals") or {}
+    first5_result = {
+        "away_runs": f5.get("away_runs"),
+        "home_runs": f5.get("home_runs"),
+        "total_runs": f5.get("actual_total_runs"),
+    }
+    pid = pick.get("player_id")
+    player_prop_actuals = None
+    pitcher_ks: float | None = None
+    if pid is not None:
+        pid_i = int(pid)
+        if market in (best_bets_utils.PLAYER_HITS_MARKET_KEY, best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY):
+            pl = _lineup_player_by_id(detail, pid_i)
+            if pl is not None:
+                player_prop_actuals = {"hits": pl.get("actual_hits"), "home_runs": pl.get("actual_home_runs")}
+        elif market == best_bets_utils.PITCHER_STRIKEOUTS_MARKET_KEY:
+            st = _starter_by_pitcher_id(detail, pid_i)
+            if st is not None:
+                pitcher_ks = best_bets_utils.to_float(st.get("strikeouts"))
+
+    card_for_grade = {
+        "market_key": market,
+        "bet_side": pick.get("bet_side"),
+        "line_value": line_value,
+        "away_team": away_team,
+        "home_team": home_team,
+    }
+    grade = best_bets_utils.grade_best_bet_pick(
+        card_for_grade,
+        actual_result=actual_result,
+        first5_result=first5_result,
+        player_prop_actuals=player_prop_actuals,
+        pitcher_strikeouts_actual=pitcher_ks,
+    )
+    meta: dict[str, Any] = {
+        "selection_label": pick.get("selection_label"),
+        "market_label": pick.get("market_label"),
+        "weighted_ev": pick.get("weighted_ev"),
+        "probability_edge": pick.get("probability_edge"),
+        "price": pick.get("price"),
+        "sportsbook": pick.get("sportsbook"),
+        "away_team": away_team,
+        "home_team": home_team,
+        "top_ev_candidate_count": pick.get("top_ev_candidate_count"),
+        "underlying_market_key": market,
+    }
+    meta["actual_measure"] = grade.get("actual_measure")
+    gres = str(grade.get("result") or "pending")
+    pick_result = gres if gres in ("won", "lost", "push") else "pending"
+    if not actual_result.get("is_final"):
+        pick_result = "pending"
+    record = {
+        "recommended_side": str(pick.get("bet_side") or ""),
+        "probability": pick.get("model_probability"),
+        "opposite_probability": None,
+        "graded": bool(grade.get("graded")),
+        "actual_side": grade.get("actual_side"),
+        "actual_value": grade.get("actual_value"),
+        "game_final": bool(actual_result.get("is_final")),
+    }
+    if market == best_bets_utils.PLAYER_HITS_MARKET_KEY and pid is not None:
+        pl = _lineup_player_by_id(detail, int(pid))
+        if pl is not None:
+            record["actual_hits"] = pl.get("actual_hits")
+            record["actual_at_bats"] = pl.get("actual_at_bats")
+    if market == best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY and pid is not None:
+        pl = _lineup_player_by_id(detail, int(pid))
+        if pl is not None:
+            record["actual_home_runs"] = pl.get("actual_home_runs")
+    return record, pick_result, meta
+
+
+def _detail_for_top_ev_from_board_row(game: dict[str, Any]) -> dict[str, Any]:
+    """Shape a main-board row into the ``detail`` subset ``collect_top_ev_candidates`` / grading need."""
+    away = game.get("away_team")
+    home = game.get("home_team")
+    ht = game.get("hit_targets") or {}
+    return {
+        "game_id": game.get("game_id"),
+        "away_team": away,
+        "home_team": home,
+        "game_date": game.get("game_date"),
+        "certainty": game.get("certainty"),
+        "totals": dict(game.get("totals") or {}),
+        "first5_totals": dict(game.get("first5_totals") or {}),
+        "teams": {
+            "away": {"lineup": list(ht.get(away) or [])},
+            "home": {"lineup": list(ht.get(home) or [])},
+        },
+        "starters": game.get("starters") or {"away": None, "home": None},
+        "actual_result": dict(game.get("actual_result") or {}),
+    }
+
+
+def _top_ev_pick_for_board_row(
+    game: dict[str, Any],
+    market_rows_by_type: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    """Same weighted-EV selector as game detail and Daily Results, using the board row shape."""
+    detail = _detail_for_top_ev_from_board_row(game)
+    return select_top_weighted_ev_pick(
+        collect_top_ev_candidates(detail, market_rows_by_type),
+    )
+
+
+def _live_top_ev_rows_for_daily_results(
+    target_date: date,
+    *,
+    board_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """One Top EV row per game — same selector as game detail, using main-board row shape (fast path).
+
+    Avoids one ``_fetch_game_detail`` call per game (that made Daily Results time out).
+    Uses the same board defaults as the green strip so EV pool matches the main board.
+
+    Pass ``board_rows`` from ``_fetch_daily_results`` to avoid a duplicate ``_fetch_game_board`` call.
+    """
+    if board_rows is None:
+        if not _table_exists("games"):
+            return []
+        board_rows = _fetch_game_board(
+            target_date,
+            hit_limit_per_team=GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM,
+            min_probability=GAME_BOARD_UI_DEFAULT_MIN_HIT_PROBABILITY,
+            confirmed_only=GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY,
+            include_inferred=GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED,
+        )
+    market_rows_by_game: dict[int, dict[str, list[dict[str, Any]]]] = {}
+    for market_row in _fetch_latest_game_market_rows(target_date):
+        gid_raw = market_row.get("game_id")
+        mt = str(market_row.get("market_type") or "")
+        if gid_raw is None or not mt:
+            continue
+        gid = int(gid_raw)
+        market_rows_by_game.setdefault(gid, {}).setdefault(mt, []).append(market_row)
+
+    out: list[dict[str, Any]] = []
+    for game in board_rows:
+        gid_raw = game.get("game_id")
+        if gid_raw is None:
+            continue
+        game_id = int(gid_raw)
+        detail = _detail_for_top_ev_from_board_row(game)
+        candidates = collect_top_ev_candidates(
+            detail,
+            market_rows_by_game.get(game_id, {}),
+        )
+        pick = select_top_weighted_ev_pick(candidates)
+        if not pick:
+            continue
+        away_team = game.get("away_team")
+        home_team = game.get("home_team")
+        matchup = f"{away_team or '?'} at {home_team or '?'}" if away_team or home_team else None
+        line_value = _coerce_float(pick.get("line_value"))
+        record, pick_result, meta = _grade_top_ev_pick_for_daily_results(detail, pick)
+        market_label = "Top EV"
+        confidence = _daily_results_confidence(record, "top_ev")
+        edge_value = _daily_results_edge_value(record, "top_ev", meta)
+
+        out.append(
+            {
+                "game_id": game_id,
+                "game_date": target_date.isoformat(),
+                "game_start_ts": game.get("game_start_ts"),
+                "market": "top_ev",
+                "market_label": market_label,
+                "subject_label": matchup or market_label,
+                "subject_subtitle": str(meta.get("underlying_market_key") or ""),
+                "pick_label": pick.get("selection_label") or pick.get("pick_label") or market_label,
+                "model_display": _daily_results_model_display(record, "top_ev", confidence),
+                "actual_display": _daily_results_actual_display(record, "top_ev", away_team, home_team, meta),
+                "notes_display": _daily_results_notes_display(
+                    record,
+                    "top_ev",
+                    market_label,
+                    confidence,
+                    edge_value,
+                    meta,
+                ),
+                "confidence": confidence,
+                "edge": edge_value,
+                "result": pick_result,
+                "market_backed": bool(
+                    meta.get("sportsbook") is not None
+                    or line_value is not None
+                    or meta.get("price") is not None
+                ),
+                "is_green_pick": False,
+                "is_watchlist_pick": False,
+                "is_experimental_pick": False,
+                "is_top_ev_pick": True,
+                "green_rank": None,
+                "watchlist_rank": None,
+                "green_reason": "Top EV pick (largest weighted EV among priced candidates for this game)",
+                "input_trust_grade": (pick.get("input_trust") or {}).get("grade"),
+                "promotion_tier": pick.get("promotion_tier"),
+                "green_strip_tier": None,
+            }
+        )
+    out.sort(key=lambda row: _recommendation_result_sort_key(row, "green_rank"))
+    return out
+
+
 def _grade_live_best_bet_card_for_daily_results(
     card: dict[str, Any],
     game: dict[str, Any],
@@ -7700,10 +8496,20 @@ def _grade_live_best_bet_card_for_daily_results(
         "away_team": away_team,
         "home_team": home_team,
     }
+    pitcher_ks: float | None = None
+    pid_raw = card.get("player_id")
+    if market == best_bets_utils.PITCHER_STRIKEOUTS_MARKET_KEY and pid_raw is not None:
+        st = _starter_by_pitcher_id(
+            {"starters": game.get("starters") or {}},
+            int(pid_raw),
+        )
+        if st is not None:
+            pitcher_ks = best_bets_utils.to_float(st.get("strikeouts"))
     grade = best_bets_utils.grade_best_bet_pick(
         card_for_grade,
         actual_result=actual_result,
         first5_result=first5_result,
+        pitcher_strikeouts_actual=pitcher_ks,
     )
     meta = dict(base_meta)
     meta["actual_measure"] = grade.get("actual_measure")
@@ -7721,18 +8527,24 @@ def _grade_live_best_bet_card_for_daily_results(
     return record, pick_result, meta
 
 
-def _live_green_board_rows_for_daily_results(target_date: date) -> list[dict[str, Any]]:
-    """When ``prediction_outcomes_daily`` has no green-board rows yet (common for today's slate),
-    mirror ``GET /api/games/board`` ``best_bets`` so Daily Results shows the same green strip picks.
+def _live_green_board_rows_for_daily_results(
+    target_date: date,
+    *,
+    board_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Build Daily Results green-board rows from the same board inputs as the main UI ``best_bets`` strip.
+
+    Uses ``GAME_BOARD_UI_*`` defaults so results match a fresh load of the game board (index.html filters).
     """
-    board_rows = _fetch_game_board(
-        target_date,
-        hit_limit_per_team=4,
-        min_probability=0.0,
-        confirmed_only=False,
-        include_inferred=True,
-    )
-    cards = _flatten_best_bets(board_rows)
+    if board_rows is None:
+        board_rows = _fetch_game_board(
+            target_date,
+            hit_limit_per_team=GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM,
+            min_probability=GAME_BOARD_UI_DEFAULT_MIN_HIT_PROBABILITY,
+            confirmed_only=GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY,
+            include_inferred=GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED,
+        )
+    cards = _flatten_best_bets(board_rows, target_date=target_date)
     game_by_id: dict[int, dict[str, Any]] = {}
     for row in board_rows:
         gid = row.get("game_id")
@@ -7827,16 +8639,21 @@ def _daily_results_row_identity(row: dict[str, Any]) -> tuple[int, str, str]:
     )
 
 
-def _live_watchlist_board_rows_for_daily_results(target_date: date) -> list[dict[str, Any]]:
+def _live_watchlist_board_rows_for_daily_results(
+    target_date: date,
+    *,
+    board_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """Mirror ``GET /api/games/board`` ``watchlist_markets`` for dates when archived outcomes are incomplete."""
-    board_rows = _fetch_game_board(
-        target_date,
-        hit_limit_per_team=4,
-        min_probability=0.0,
-        confirmed_only=False,
-        include_inferred=True,
-    )
-    cards = _flatten_watchlist_markets(board_rows)
+    if board_rows is None:
+        board_rows = _fetch_game_board(
+            target_date,
+            hit_limit_per_team=GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM,
+            min_probability=GAME_BOARD_UI_DEFAULT_MIN_HIT_PROBABILITY,
+            confirmed_only=GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY,
+            include_inferred=GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED,
+        )
+    cards = _flatten_watchlist_markets(board_rows, secondary_lines_only=True)
     game_by_id: dict[int, dict[str, Any]] = {}
     for row in board_rows:
         gid = row.get("game_id")
@@ -7974,19 +8791,24 @@ def _experimental_carousel_price(market: str, row: dict[str, Any]) -> float | No
     return _coerce_float(row.get("over_price")) or _coerce_float(row.get("under_price"))
 
 
-def _pick_experimental_nrfi_yrfi_row(
+def _pick_experimental_nrfi_yrfi_card(
     *,
     nrfi_row: dict[str, Any] | None,
     yrfi_row: dict[str, Any] | None,
+    model_recommended: str | None,
 ) -> tuple[str, dict[str, Any], str]:
-    """Choose which book row to show per game. First-five totals are not used — inning 1 is a different problem."""
+    """One experimental card per game: classifier side when available; else a single fallback row."""
     if nrfi_row and not yrfi_row:
         return "nrfi", nrfi_row, "nrfi_only"
     if yrfi_row and not nrfi_row:
         return "yrfi", yrfi_row, "yrfi_only"
     if nrfi_row and yrfi_row:
-        # Same convention as `dedupe_experimental_first_inning_by_game`: one card per game, NRFI row first.
-        return "nrfi", nrfi_row, "both_posted_prefer_nrfi"
+        side = str(model_recommended or "").lower()
+        if side == "nrfi":
+            return "nrfi", nrfi_row, "model_pick"
+        if side == "yrfi":
+            return "yrfi", yrfi_row, "model_pick"
+        return "nrfi", nrfi_row, "no_model_both_posted_fallback"
     raise ValueError("experimental NRFI/YRFI pick requires at least one market row")
 
 
@@ -7999,16 +8821,28 @@ def _experimental_first_inning_reasoning_notes(
     model_confidence: str | None = None,
 ) -> str:
     lines: list[str] = []
+    mkt = str(market or "").lower()
     if model_nrfi_probability is not None:
         p = float(model_nrfi_probability)
-        side = str(market or "").upper()
         lines.append(
-            f"Trained inning-1 model: P(NRFI)≈{p * 100:.0f}% — carousel side {side} matches this probability (experimental; not the green board)."
+            f"Trained inning-1 model: P(NRFI)≈{p * 100:.0f}% · P(YRFI)≈{(1.0 - p) * 100:.0f}% (experimental; not the green board)."
         )
+        pr = str(pick_reason or "")
+        if pr == "model_pick":
+            lines.append(
+                "This carousel card follows the classifier: it shows the NRFI or YRFI book line that matches the model’s favored side."
+            )
+        elif pr.startswith("model_only"):
+            lines.append(
+                "No NRFI/YRFI row from books in our feed for this game — this card is the classifier pick only "
+                "(add first-inning market ingest to attach prices / implied odds)."
+            )
+        elif mkt == "nrfi":
+            lines.append("Shown line: NRFI (no run in the 1st) from the book.")
+        elif mkt == "yrfi":
+            lines.append("Shown line: YRFI (≥1 run in the 1st) from the book.")
         if model_confidence:
             lines.append(f"Model input confidence: {model_confidence}.")
-        if pick_reason == "model_pick":
-            lines.append("Side is chosen from the model, not the old 'always show the NRFI row when both post' rule.")
     else:
         lines.append(
             "Experimental 1st-inning prop — not part of the green board. "
@@ -8019,9 +8853,10 @@ def _experimental_first_inning_reasoning_notes(
         lines.append("Only an NRFI line appears in our market feed for this game (no YRFI row).")
     elif pick_reason == "yrfi_only":
         lines.append("Only a YRFI line appears in our market feed for this game (no NRFI row).")
-    elif pick_reason == "both_posted_prefer_nrfi":
+    elif pick_reason == "no_model_both_posted_fallback":
         lines.append(
-            "Both NRFI and YRFI are posted from the book; this carousel defaulted to the NRFI row (legacy rule) because no model pick was available."
+            "Both NRFI and YRFI are posted, but there is no inning-1 prediction row for this game yet — "
+            "showing the NRFI book row until predict_inning1_nrfi runs (then the model will pick the side)."
         )
 
     pprice = _experimental_carousel_price(market, row)
@@ -8278,9 +9113,147 @@ def _fetch_inning1_nrfi_predictions_map(target_date: date) -> dict[int, dict[str
     return out
 
 
-def _fetch_experimental_market_cards(target_date: date, limit: int = 12) -> list[dict[str, Any]]:
-    if not _table_exists("game_markets"):
+def _infer_inning1_experimental_market_from_model(model_row: dict[str, Any]) -> tuple[str, str]:
+    """Return (market_key, pick_reason) for a classifier row when there is no book row."""
+    rec = str(model_row.get("recommended_side") or "").strip().lower()
+    if rec in ("nrfi", "yrfi"):
+        return rec, "model_only_classifier"
+    p = _coerce_float(model_row.get("predicted_nrfi_probability"))
+    if p is not None:
+        return ("nrfi", "model_only_infer_probability") if float(p) >= 0.5 else ("yrfi", "model_only_infer_probability")
+    return "nrfi", "model_only_default_nrfi"
+
+
+def _fetch_games_metadata_for_ids(target_date: date, game_ids: list[int]) -> dict[int, dict[str, Any]]:
+    if not game_ids or not _table_exists("games"):
+        return {}
+    unique_ids = sorted({int(g) for g in game_ids})
+    placeholders = ", ".join(f":gid{i}" for i in range(len(unique_ids)))
+    params: dict[str, Any] = {"d": str(target_date)}
+    for i, gid in enumerate(unique_ids):
+        params[f"gid{i}"] = int(gid)
+    frame = _safe_frame(
+        f"""
+        SELECT game_id, away_team, home_team, game_start_ts
+        FROM games
+        WHERE game_date = :d AND game_id IN ({placeholders})
+        """,
+        params,
+    )
+    out: dict[int, dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        gid = row.get("game_id")
+        if gid is None:
+            continue
+        out[int(gid)] = dict(row)
+    return out
+
+
+def _inning1_experimental_card_from_model_row(
+    *,
+    game_id: int,
+    model_row: dict[str, Any],
+    game_row: dict[str, Any],
+    ctx_map: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    market_key, pick_reason = _infer_inning1_experimental_market_from_model(model_row)
+    model_p = _coerce_float(model_row.get("predicted_nrfi_probability"))
+    model_conf = str(model_row.get("confidence_level") or "") if model_row else None
+    model_rec: str | None = None
+    if str(model_row.get("recommended_side") or "").lower() in ("nrfi", "yrfi"):
+        model_rec = str(model_row.get("recommended_side")).lower()
+    away_team = game_row.get("away_team") or "Away"
+    home_team = game_row.get("home_team") or "Home"
+    synthetic = {
+        "away_team": away_team,
+        "home_team": home_team,
+        "game_start_ts": game_row.get("game_start_ts"),
+        "over_price": None,
+        "under_price": None,
+        "sportsbook": None,
+        "book_row_present": False,
+    }
+    market_label = _experimental_market_display_name(market_key)
+    inning1_ctx = ctx_map.get(int(game_id))
+    notes = _experimental_first_inning_reasoning_notes(
+        market=market_key,
+        pick_reason=pick_reason,
+        row=synthetic,
+        model_nrfi_probability=model_p,
+        model_confidence=model_conf or None,
+    )
+    extra = _format_nrfi_experimental_context_block(inning1_ctx)
+    if extra:
+        notes = f"{notes}\n\n{extra}"
+    return {
+        "game_id": int(game_id),
+        "game_start_ts": game_row.get("game_start_ts"),
+        "market": market_key,
+        "market_label": market_label,
+        "subject_label": f"{away_team} at {home_team}",
+        "pick_label": f"Pick: {market_label}",
+        "sportsbook": None,
+        "price": None,
+        "experimental_pick_reason": pick_reason,
+        "inning1_context": inning1_ctx,
+        "notes_display": notes,
+        "model_nrfi_probability": model_p,
+        "model_confidence": model_conf or None,
+        "model_recommended_side": model_rec,
+        "model_agrees_with_card": (
+            True
+            if model_rec and str(market_key).lower() == model_rec
+            else (False if model_rec else None)
+        ),
+        "inning1_model_only": True,
+    }
+
+
+def _build_inning1_model_only_experimental_cards(
+    target_date: date,
+    ctx_map: dict[int, dict[str, Any]],
+    inning1_model_map: dict[int, dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """When ``game_markets`` has no NRFI/YRFI rows, still surface classifier output per game."""
+    if not inning1_model_map:
         return []
+    meta = _fetch_games_metadata_for_ids(target_date, list(inning1_model_map.keys()))
+    cards: list[dict[str, Any]] = []
+    for game_id in sorted(inning1_model_map.keys()):
+        g = meta.get(int(game_id))
+        model_row = inning1_model_map.get(int(game_id))
+        if not g or not model_row:
+            continue
+        cards.append(
+            _inning1_experimental_card_from_model_row(
+                game_id=int(game_id),
+                model_row=model_row,
+                game_row=g,
+                ctx_map=ctx_map,
+            )
+        )
+    cards.sort(
+        key=lambda card: (
+            str(card.get("game_start_ts") or ""),
+            str(card.get("subject_label") or ""),
+            str(card.get("market_label") or ""),
+        )
+    )
+    return cards[: max(1, min(limit, 48))]
+
+
+def _fetch_experimental_market_cards(target_date: date, limit: int = 24) -> list[dict[str, Any]]:
+    ctx_map = _fetch_nrfi_experimental_context_by_game(target_date)
+    inning1_model_map = _fetch_inning1_nrfi_predictions_map(target_date)
+
+    if not _table_exists("game_markets"):
+        return _build_inning1_model_only_experimental_cards(
+            target_date,
+            ctx_map,
+            inning1_model_map,
+            limit,
+        )
 
     params: dict[str, Any] = {"target_date": str(target_date)}
     market_conditions: list[str] = []
@@ -8319,35 +9292,30 @@ def _fetch_experimental_market_cards(target_date: date, limit: int = 12) -> list
         """,
         params,
     )
-    if frame.empty:
-        return []
-
-    grouped: dict[tuple[int, str], list[dict[str, Any]]] = {}
-    for record in _frame_records(frame):
-        game_id = record.get("game_id")
-        market = str(record.get("market_type") or "").lower()
-        if game_id is None or not market:
-            continue
-        grouped.setdefault((int(game_id), market), []).append(record)
-
     per_game: dict[int, dict[str, dict[str, Any]]] = {}
-    for (game_id, market), market_rows in grouped.items():
-        chosen = max(
-            market_rows,
-            key=lambda row: (
-                -999999
-                if _coerce_float(row.get("over_price")) is None and _coerce_float(row.get("under_price")) is None
-                else max(
-                    _coerce_float(row.get("over_price")) or -999999,
-                    _coerce_float(row.get("under_price")) or -999999,
-                ),
-                str(row.get("snapshot_ts") or ""),
-            ),
-        )
-        per_game.setdefault(int(game_id), {})[market] = chosen
+    if not frame.empty:
+        grouped: dict[tuple[int, str], list[dict[str, Any]]] = {}
+        for record in _frame_records(frame):
+            game_id = record.get("game_id")
+            market = str(record.get("market_type") or "").lower()
+            if game_id is None or not market:
+                continue
+            grouped.setdefault((int(game_id), market), []).append(record)
 
-    ctx_map = _fetch_nrfi_experimental_context_by_game(target_date)
-    inning1_model_map = _fetch_inning1_nrfi_predictions_map(target_date)
+        for (game_id, market), market_rows in grouped.items():
+            chosen = max(
+                market_rows,
+                key=lambda row: (
+                    -999999
+                    if _coerce_float(row.get("over_price")) is None and _coerce_float(row.get("under_price")) is None
+                    else max(
+                        _coerce_float(row.get("over_price")) or -999999,
+                        _coerce_float(row.get("under_price")) or -999999,
+                    ),
+                    str(row.get("snapshot_ts") or ""),
+                ),
+            )
+            per_game.setdefault(int(game_id), {})[market] = chosen
 
     cards: list[dict[str, Any]] = []
     for game_id in sorted(per_game.keys()):
@@ -8356,20 +9324,20 @@ def _fetch_experimental_market_cards(target_date: date, limit: int = 12) -> list
         yrfi = markets.get("yrfi")
         if not nrfi and not yrfi:
             continue
-        market_key, chosen, pick_reason = _pick_experimental_nrfi_yrfi_row(
-            nrfi_row=nrfi,
-            yrfi_row=yrfi,
-        )
-        if not chosen:
-            continue
         model_row = inning1_model_map.get(int(game_id))
         model_p = _coerce_float(model_row.get("predicted_nrfi_probability")) if model_row else None
         model_conf = str(model_row.get("confidence_level") or "") if model_row else None
+        model_rec: str | None = None
         if model_row and str(model_row.get("recommended_side") or "").lower() in ("nrfi", "yrfi"):
-            side = str(model_row.get("recommended_side")).lower()
-            market_key = side
-            chosen = nrfi or yrfi or chosen
-            pick_reason = "model_pick"
+            model_rec = str(model_row.get("recommended_side")).lower()
+        try:
+            market_key, chosen, pick_reason = _pick_experimental_nrfi_yrfi_card(
+                nrfi_row=nrfi,
+                yrfi_row=yrfi,
+                model_recommended=model_rec,
+            )
+        except ValueError:
+            continue
         price = _experimental_carousel_price(market_key, chosen)
         market_label = _experimental_market_display_name(market_key)
         away_team = chosen.get("away_team") or "Away"
@@ -8400,8 +9368,33 @@ def _fetch_experimental_market_cards(target_date: date, limit: int = 12) -> list
                 "notes_display": notes,
                 "model_nrfi_probability": model_p,
                 "model_confidence": model_conf or None,
+                "model_recommended_side": model_rec,
+                "model_agrees_with_card": (
+                    True
+                    if model_rec and str(market_key).lower() == model_rec
+                    else (False if model_rec else None)
+                ),
+                "inning1_model_only": False,
             }
         )
+
+    seen_game_ids = {int(c["game_id"]) for c in cards}
+    missing_ids = [int(gid) for gid in sorted(inning1_model_map.keys()) if int(gid) not in seen_game_ids]
+    if missing_ids:
+        meta_missing = _fetch_games_metadata_for_ids(target_date, missing_ids)
+        for gid in missing_ids:
+            model_row = inning1_model_map.get(int(gid))
+            g = meta_missing.get(int(gid))
+            if not model_row or not g:
+                continue
+            cards.append(
+                _inning1_experimental_card_from_model_row(
+                    game_id=int(gid),
+                    model_row=model_row,
+                    game_row=g,
+                    ctx_map=ctx_map,
+                )
+            )
 
     cards.sort(
         key=lambda card: (
@@ -8410,7 +9403,7 @@ def _fetch_experimental_market_cards(target_date: date, limit: int = 12) -> list
             str(card.get("market_label") or ""),
         )
     )
-    return cards[: max(1, min(limit, 24))]
+    return cards[: max(1, min(limit, 48))]
 
 
 def _fetch_experiment_summary(target_date: date, window_days: int = 14) -> dict[str, Any]:
@@ -8859,19 +9852,56 @@ def _fetch_experiment_daily_detail(target_date: date) -> dict[str, Any]:
     }
 
 
-def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) -> dict[str, Any]:
-    ai_pick_rows = _fetch_ai_pick_results(target_date)
-    live_green_fallback = False
-    if not ai_pick_rows:
-        ai_pick_rows = _live_green_board_rows_for_daily_results(target_date)
-        live_green_fallback = bool(ai_pick_rows)
+def _rank_and_cap_hitter_rows_by_probability(
+    rows: list[dict[str, Any]],
+    *,
+    top_n: int,
+) -> list[dict[str, Any]]:
+    """Highest model P(hit) first; optional cap for a short daily review list."""
+
+    def sort_key(row: dict[str, Any]) -> float:
+        v = _to_float(row.get("predicted_hit_probability"))
+        return float(v) if v is not None else float("-inf")
+
+    ordered = sorted(rows, key=sort_key, reverse=True)
+    if top_n <= 0 or len(ordered) <= top_n:
+        return ordered
+    return ordered[:top_n]
+
+
+def _fetch_daily_results(
+    target_date: date,
+    hit_min_probability: float = 0.35,
+    hitter_top_n: int = 24,
+) -> dict[str, Any]:
+    # Always mirror the main board ``best_bets`` (same defaults as index.html) so Daily Results matches the game board.
+    # Single board fetch for green + watchlist + Top EV (was 3× identical work per request).
+    daily_results_board_rows = _fetch_game_board(
+        target_date,
+        hit_limit_per_team=GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM,
+        min_probability=GAME_BOARD_UI_DEFAULT_MIN_HIT_PROBABILITY,
+        confirmed_only=GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY,
+        include_inferred=GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED,
+    )
+    ai_pick_rows = _live_green_board_rows_for_daily_results(
+        target_date,
+        board_rows=daily_results_board_rows,
+    )
+    live_green_fallback = True
     watchlist_archived = _fetch_watchlist_pick_results(target_date)
-    live_watchlist = _live_watchlist_board_rows_for_daily_results(target_date)
+    live_watchlist = _live_watchlist_board_rows_for_daily_results(
+        target_date,
+        board_rows=daily_results_board_rows,
+    )
     watchlist_rows, live_watchlist_fallback = _merge_watchlist_daily_results(
         watchlist_archived,
         live_watchlist,
     )
     experimental_rows = _fetch_experimental_pick_results(target_date)
+    top_ev_rows = _live_top_ev_rows_for_daily_results(
+        target_date,
+        board_rows=daily_results_board_rows,
+    )
     totals_rows: list[dict[str, Any]] = []
     hitter_rows: list[dict[str, Any]] = []
     strikeout_rows: list[dict[str, Any]] = []
@@ -9042,6 +10072,10 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
                     "actual_status_label": actual_meta.get("actual_status_label"),
                 }
             )
+        hitter_rows = _rank_and_cap_hitter_rows_by_probability(
+            hitter_rows,
+            top_n=hitter_top_n,
+        )
 
     if _table_exists("predictions_pitcher_strikeouts") and _table_exists("games"):
         strikeout_frame = _safe_frame(
@@ -9125,6 +10159,9 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
             )
 
     first5_rows: list[dict[str, Any]] = []
+    home_run_rows: list[dict[str, Any]] = []
+    if _table_exists("predictions_player_hr"):
+        home_run_rows = _fetch_daily_home_run_rows(target_date)
 
     if _table_exists("predictions_first5_totals") and _table_exists("games"):
         first5_frame = _safe_frame(
@@ -9200,6 +10237,10 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
     watchlist_summary = _summarize_category(watchlist_rows)
     watchlist_summary["live_board_supplement"] = live_watchlist_fallback
     experimental_summary = _summarize_category(experimental_rows)
+    top_ev_summary = _summarize_category(top_ev_rows)
+    hitter_summary = _summarize_category(hitter_rows)
+    hitter_summary["review_cap"] = hitter_top_n
+    hitter_summary["min_hit_probability"] = hit_min_probability
     return {
         "summary": {
             "final_games": final_games,
@@ -9210,18 +10251,22 @@ def _fetch_daily_results(target_date: date, hit_min_probability: float = 0.5) ->
             "ai_picks": ai_pick_summary,
             "watchlist": watchlist_summary,
             "experimental": experimental_summary,
+            "top_ev": top_ev_summary,
             "totals": _summarize_category(totals_rows),
-            "hitters": _summarize_category(hitter_rows),
+            "hitters": hitter_summary,
             "strikeouts": _summarize_category(strikeout_rows),
             "first5": _summarize_category(first5_rows),
+            "home_runs": _summarize_category(home_run_rows),
         },
         "ai_picks": ai_pick_rows,
         "watchlist": watchlist_rows,
         "experimental": experimental_rows,
+        "top_ev": top_ev_rows,
         "totals": totals_rows,
         "hitters": hitter_rows,
         "strikeouts": strikeout_rows,
         "first5": first5_rows,
+        "home_runs": home_run_rows,
     }
 
 
@@ -9255,13 +10300,32 @@ def _run_module(module_name: str, *args: str) -> dict[str, Any]:
         return _run_module_in_process(module_name, *args)
 
     command = [sys.executable, "-m", module_name, *args]
-    completed = subprocess.run(
-        command,
-        cwd=settings.base_dir,
-        capture_output=True,
-        text=True,
-        env=_child_process_env(),
-    )
+    timeout_sec = _pipeline_step_timeout_seconds()
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=settings.base_dir,
+            capture_output=True,
+            text=True,
+            env=_child_process_env(),
+            timeout=timeout_sec,
+        )
+    except subprocess.TimeoutExpired as exc:
+        log.error("Pipeline step timed out: %s (limit %ss)", module_name, timeout_sec)
+        out = (exc.stdout or "").strip() if isinstance(exc.stdout, str) else ""
+        err = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else ""
+        msg = (
+            f"Subprocess exceeded MLB_PIPELINE_STEP_TIMEOUT_SEC ({int(timeout_sec)}s). "
+            "Increase the limit or run heavy ingestors from the CLI. "
+            f"Module {module_name}."
+        )
+        return {
+            "module": module_name,
+            "command": command,
+            "returncode": 124,
+            "stdout": out[-8000:] if out else "",
+            "stderr": "\n".join(part for part in (msg, err) if part),
+        }
     return {
         "module": module_name,
         "command": command,
@@ -9354,19 +10418,25 @@ def _trim_finished_jobs_locked() -> None:
 
 
 def _persist_update_jobs() -> None:
-    with UPDATE_JOB_LOCK:
-        payload = [
-            _public_update_job(job)
-            for job in sorted(
-                UPDATE_JOBS.values(),
-                key=lambda item: item["created_at"],
-                reverse=True,
-            )
-        ]
-    UPDATE_JOB_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = UPDATE_JOB_STORE_PATH.with_suffix(".tmp")
-    temp_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    temp_path.replace(UPDATE_JOB_STORE_PATH)
+    """Write update-job history to disk. Must never raise — a failed write must not kill the pipeline thread."""
+    try:
+        with UPDATE_JOB_LOCK:
+            payload = [
+                _public_update_job(job)
+                for job in sorted(
+                    UPDATE_JOBS.values(),
+                    key=lambda item: item["created_at"],
+                    reverse=True,
+                )
+            ]
+        UPDATE_JOB_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = UPDATE_JOB_STORE_PATH.with_suffix(".tmp")
+        temp_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        temp_path.replace(UPDATE_JOB_STORE_PATH)
+    except OSError as exc:
+        log.warning("Failed to persist update job history to %s: %s", UPDATE_JOB_STORE_PATH, exc)
+    except (TypeError, ValueError) as exc:
+        log.warning("Failed to serialize update job history: %s", exc)
 
 
 def _hydrate_persisted_job(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -9383,20 +10453,49 @@ def _hydrate_persisted_job(payload: dict[str, Any]) -> dict[str, Any] | None:
     error = payload.get("error")
     if status in {"queued", "running"}:
         status = "failed"
-        error = error or "Application restarted before the update job finished."
+        interrupted = str(payload.get("current_step") or "").strip()
+        hint = ""
+        if interrupted:
+            hint = f" Last active step: {interrupted}."
+        error = error or (
+            "Application restarted before the update job finished (0 steps recorded). "
+            "Common causes: (1) uvicorn --reload watched a file written by the pipeline itself "
+            "(update job history under data/reports/update_jobs/ or SQLite under db/) and restarted mid-job — "
+            "use `make start-app-stable` or add --reload-exclude for data/** and db/**; "
+            "(2) dev auto-reload after saving a .py file during a long step; "
+            "(3) the desktop app or API process was closed; "
+            "(4) multiple API workers (in-memory jobs require a single worker). "
+            "Run the pipeline again with reload disabled and a single worker."
+            + hint
+        )
+        if interrupted and "lineups" in interrupted and "start-app-stable" not in str(error):
+            error = (
+                str(error)
+                + "\n\nTip: If you use `make start-app`, uvicorn runs with `--reload` — saving any `.py` file "
+                "restarts the API and aborts in-flight jobs. For long updates, run `make start-app-stable` "
+                "(no reload), or run the first step manually: "
+                "`python -m src.ingestors.lineups --target-date "
+                + target_date
+                + "` then retry Update Lineups & Markets."
+            )
+    rebuilt_sequence: list[tuple[str, list[str]]] = []
+    try:
+        rebuilt_sequence = _update_job_sequence(str(action), target_date)
+    except Exception as exc:
+        log.warning("Could not rebuild update job sequence for %s: %s", job_id, exc)
     job = {
         "job_id": job_id,
         "action": action,
         "label": _update_job_label(action),
         "target_date": target_date,
-        "sequence": [],
+        "sequence": rebuilt_sequence,
         "status": status,
         "created_at": created_at,
         "started_at": payload.get("started_at"),
         "finished_at": payload.get("finished_at") or _utc_now_iso(),
         "current_step": None,
         "completed_steps": int(payload.get("completed_steps") or len(steps)),
-        "total_steps": int(payload.get("total_steps") or len(steps)),
+        "total_steps": int(payload.get("total_steps") or len(rebuilt_sequence) or len(steps)),
         "steps": steps,
         "error": error,
         "status_snapshot": payload.get("status_snapshot"),
@@ -9501,41 +10600,102 @@ def _run_update_job_background(job_id: str) -> None:
     _persist_update_jobs()
 
     target_date = None
+    action_key = ""
     sequence: list[tuple[str, list[str]]] = []
     with UPDATE_JOB_LOCK:
         job = UPDATE_JOBS.get(job_id)
         if job is None:
             return
         target_date = str(job["target_date"])
-        sequence = list(job["sequence"])
+        action_key = str(job.get("action") or "")
+        sequence = list(job.get("sequence") or ())
 
-    for index, (module_name, args) in enumerate(sequence, start=1):
+    if not sequence and action_key and target_date:
+        try:
+            sequence = _update_job_sequence(action_key, target_date)
+            with UPDATE_JOB_LOCK:
+                job = UPDATE_JOBS.get(job_id)
+                if job is not None:
+                    job["sequence"] = sequence
+                    job["total_steps"] = len(sequence)
+        except Exception as exc:
+            log.warning("Update job %s could not rebuild sequence: %s", job_id, exc)
+            sequence = []
+        else:
+            _persist_update_jobs()
+
+    if not sequence:
+        log.error(
+            "Update job %s has no pipeline sequence (action=%r target_date=%r)",
+            job_id,
+            action_key,
+            target_date,
+        )
         with UPDATE_JOB_LOCK:
             job = UPDATE_JOBS.get(job_id)
             if job is None:
                 return
-            job["current_step"] = module_name
-        step = _run_module(module_name, *args)
-        _persist_pipeline_step(job_id, index, step)
-        with UPDATE_JOB_LOCK:
-            job = UPDATE_JOBS.get(job_id)
-            if job is None:
-                return
-            job["steps"].append(step)
-            job["completed_steps"] = len(job["steps"])
-            if step["returncode"] != 0:
-                job["status"] = "failed"
-                job["finished_at"] = _utc_now_iso()
-                job["current_step"] = None
-                job["error"] = _format_failed_step_message(module_name, step)
-                job["status_snapshot"] = _safe_fetch_status(target_date)
-                _trim_finished_jobs_locked()
-                _persist_pipeline_run(job)
-            else:
-                _persist_pipeline_run(job)
+            job["status"] = "failed"
+            job["finished_at"] = _utc_now_iso()
+            job["current_step"] = None
+            job["error"] = (
+                "Internal error: empty update job sequence. "
+                "Try Refresh Everything again; if this repeats, check server logs."
+            )
+            _trim_finished_jobs_locked()
+            _persist_pipeline_run(job)
         _persist_update_jobs()
-        if step["returncode"] != 0:
-            return
+        return
+
+    try:
+        for index, (module_name, args) in enumerate(sequence, start=1):
+            with UPDATE_JOB_LOCK:
+                job = UPDATE_JOBS.get(job_id)
+                if job is None:
+                    return
+                job["current_step"] = module_name
+            _persist_update_jobs()
+            step = _run_module(module_name, *args)
+            _persist_pipeline_step(job_id, index, step)
+            with UPDATE_JOB_LOCK:
+                job = UPDATE_JOBS.get(job_id)
+                if job is None:
+                    return
+                job["steps"].append(step)
+                job["completed_steps"] = len(job["steps"])
+                if step["returncode"] != 0:
+                    job["status"] = "failed"
+                    job["finished_at"] = _utc_now_iso()
+                    job["current_step"] = None
+                    job["error"] = _format_failed_step_message(module_name, step)
+                    job["status_snapshot"] = _safe_fetch_status(target_date)
+                    _trim_finished_jobs_locked()
+                    _persist_pipeline_run(job)
+                else:
+                    _persist_pipeline_run(job)
+            _persist_update_jobs()
+            if step["returncode"] != 0:
+                return
+    except Exception as exc:
+        log.exception("Update job %s crashed", job_id)
+        detail = traceback.format_exc()
+        tail = detail[-3500:] if len(detail) > 3500 else detail
+        with UPDATE_JOB_LOCK:
+            job = UPDATE_JOBS.get(job_id)
+            if job is None:
+                return
+            job["status"] = "failed"
+            job["finished_at"] = _utc_now_iso()
+            job["current_step"] = None
+            job["error"] = (
+                "Pipeline thread crashed before finishing a step (no subprocess result recorded). "
+                f"{type(exc).__name__}: {exc}\n{tail}"
+            )
+            job["status_snapshot"] = _safe_fetch_status(target_date)
+            _trim_finished_jobs_locked()
+            _persist_pipeline_run(job)
+        _persist_update_jobs()
+        return
 
     with UPDATE_JOB_LOCK:
         job = UPDATE_JOBS.get(job_id)

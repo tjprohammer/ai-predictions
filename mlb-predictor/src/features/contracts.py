@@ -237,6 +237,48 @@ HITS_FEATURE_COLUMNS = [
 
 HITS_TARGET_COLUMN = "got_hit"
 
+HR_META_COLUMNS = list(HITS_META_COLUMNS)
+
+HR_FEATURE_COLUMNS = [
+    "player_name",
+    "home_away",
+    "lineup_slot",
+    "is_confirmed_lineup",
+    "projected_plate_appearances",
+    "hr_per_pa_14",
+    "hr_per_pa_30",
+    "hr_per_pa_blended",
+    "hr_game_rate_30",
+    "xwoba_14",
+    "hard_hit_pct_14",
+    "k_pct_14",
+    "season_prior_hr_per_pa",
+    "season_prior_xwoba",
+    "opposing_starter_xwoba",
+    "opposing_starter_barrel_pct",
+    "opposing_starter_hard_hit_pct",
+    "opposing_starter_hr_per_9",
+    "opposing_bullpen_pitches_last3",
+    "opposing_bullpen_innings_last3",
+    "venue_run_factor",
+    "park_hr_factor",
+    "temperature_f",
+    "wind_speed_mph",
+    "wind_direction_deg",
+    "team_run_environment",
+    "streak_len_capped",
+    "streak_len",
+    "starter_certainty_score",
+    "lineup_certainty_score",
+    "weather_freshness_score",
+    "market_freshness_score",
+    "bullpen_completeness_score",
+    "missing_fallback_count",
+    "board_state",
+]
+
+HR_TARGET_COLUMN = "got_hr"
+
 STRIKEOUTS_META_COLUMNS = [
     "game_id",
     "game_date",
@@ -476,6 +518,44 @@ HITS_FIELD_ROLES = {
     "board_state": FIELD_ROLE_CERTAINTY_SIGNAL,
 }
 
+HR_FIELD_ROLES = {
+    "player_name": FIELD_ROLE_PRODUCT_ONLY,
+    "home_away": FIELD_ROLE_CORE_PREDICTOR,
+    "lineup_slot": FIELD_ROLE_CORE_PREDICTOR,
+    "is_confirmed_lineup": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "projected_plate_appearances": FIELD_ROLE_CORE_PREDICTOR,
+    "hr_per_pa_14": FIELD_ROLE_CORE_PREDICTOR,
+    "hr_per_pa_30": FIELD_ROLE_CORE_PREDICTOR,
+    "hr_per_pa_blended": FIELD_ROLE_CORE_PREDICTOR,
+    "hr_game_rate_30": FIELD_ROLE_CORE_PREDICTOR,
+    "xwoba_14": FIELD_ROLE_CORE_PREDICTOR,
+    "hard_hit_pct_14": FIELD_ROLE_CORE_PREDICTOR,
+    "k_pct_14": FIELD_ROLE_CORE_PREDICTOR,
+    "season_prior_hr_per_pa": FIELD_ROLE_CORE_PREDICTOR,
+    "season_prior_xwoba": FIELD_ROLE_CORE_PREDICTOR,
+    "opposing_starter_xwoba": FIELD_ROLE_CORE_PREDICTOR,
+    "opposing_starter_barrel_pct": FIELD_ROLE_CORE_PREDICTOR,
+    "opposing_starter_hard_hit_pct": FIELD_ROLE_CORE_PREDICTOR,
+    "opposing_starter_hr_per_9": FIELD_ROLE_CORE_PREDICTOR,
+    "opposing_bullpen_pitches_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "opposing_bullpen_innings_last3": FIELD_ROLE_CORE_PREDICTOR,
+    "venue_run_factor": FIELD_ROLE_CORE_PREDICTOR,
+    "park_hr_factor": FIELD_ROLE_CORE_PREDICTOR,
+    "temperature_f": FIELD_ROLE_ENVIRONMENT_CONTEXT,
+    "wind_speed_mph": FIELD_ROLE_ENVIRONMENT_CONTEXT,
+    "wind_direction_deg": FIELD_ROLE_ENVIRONMENT_CONTEXT,
+    "team_run_environment": FIELD_ROLE_CORE_PREDICTOR,
+    "streak_len_capped": FIELD_ROLE_PRODUCT_ONLY,
+    "streak_len": FIELD_ROLE_PRODUCT_ONLY,
+    "starter_certainty_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "lineup_certainty_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "weather_freshness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "market_freshness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "bullpen_completeness_score": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "missing_fallback_count": FIELD_ROLE_CERTAINTY_SIGNAL,
+    "board_state": FIELD_ROLE_CERTAINTY_SIGNAL,
+}
+
 STRIKEOUTS_FIELD_ROLES = {
     "throws": FIELD_ROLE_CORE_PREDICTOR,
     "days_rest": FIELD_ROLE_CORE_PREDICTOR,
@@ -601,6 +681,7 @@ LANE_FEATURE_COLUMNS = {
     "first5_totals": FIRST5_TOTALS_FEATURE_COLUMNS,
     "inning1_nrfi": FIRST5_TOTALS_FEATURE_COLUMNS,
     "hits": HITS_FEATURE_COLUMNS,
+    "hr": HR_FEATURE_COLUMNS,
     "strikeouts": STRIKEOUTS_FEATURE_COLUMNS,
     "total_bases": TOTAL_BASES_FEATURE_COLUMNS,
 }
@@ -610,6 +691,7 @@ LANE_FIELD_ROLES = {
     "first5_totals": FIRST5_TOTALS_FIELD_ROLES,
     "inning1_nrfi": FIRST5_TOTALS_FIELD_ROLES,
     "hits": HITS_FIELD_ROLES,
+    "hr": HR_FIELD_ROLES,
     "strikeouts": STRIKEOUTS_FIELD_ROLES,
     "total_bases": TOTAL_BASES_FIELD_ROLES,
 }
@@ -628,6 +710,11 @@ FIRST5_TOTALS_CERTAINTY_KEY_FIELDS = [
 
 HITS_CERTAINTY_KEY_FIELDS = [
     "opposing_starter_xwoba", "xwoba_14",
+    "temperature_f", "venue_run_factor",
+]
+
+HR_CERTAINTY_KEY_FIELDS = [
+    "opposing_starter_xwoba", "park_hr_factor", "hr_per_pa_blended",
     "temperature_f", "venue_run_factor",
 ]
 

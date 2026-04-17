@@ -237,6 +237,7 @@ def test_persist_totals_features_replaces_selected_date_rows(monkeypatch, tmp_pa
     ("table_name", "persist_fn", "id_column", "row_key"),
     [
         ("player_features_hits", feature_common.persist_hits_features, "player_id", 700001),
+        ("player_features_hr", feature_common.persist_hr_features, "player_id", 700003),
         ("game_features_pitcher_strikeouts", feature_common.persist_strikeout_features, "pitcher_id", 800001),
     ],
 )
@@ -265,7 +266,13 @@ def test_persist_entity_features_replaces_selected_date_rows(
                 feature_cutoff_ts TEXT,
                 feature_version TEXT,
                 feature_payload TEXT,
-                {'got_hit BOOLEAN' if id_column == 'player_id' else 'actual_strikeouts SMALLINT'},
+                {
+                    'got_hit BOOLEAN'
+                    if table_name == 'player_features_hits'
+                    else 'got_hr BOOLEAN'
+                    if table_name == 'player_features_hr'
+                    else 'actual_strikeouts SMALLINT'
+                },
                 created_at TEXT,
                 updated_at TEXT,
                 UNIQUE(game_id, {id_column}, feature_cutoff_ts, feature_version)
@@ -277,7 +284,13 @@ def test_persist_entity_features_replaces_selected_date_rows(
             INSERT INTO {table_name} (
                 game_id, game_date, {id_column}, team, opponent, prediction_ts, game_start_ts,
                 line_snapshot_ts, feature_cutoff_ts, feature_version, feature_payload,
-                {'got_hit' if id_column == 'player_id' else 'actual_strikeouts'}
+                {
+                    'got_hit'
+                    if table_name == 'player_features_hits'
+                    else 'got_hr'
+                    if table_name == 'player_features_hr'
+                    else 'actual_strikeouts'
+                }
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -309,7 +322,10 @@ def test_persist_entity_features_replaces_selected_date_rows(
         "feature_version": "v1_core",
     }
     if id_column == "player_id":
-        base_row["got_hit"] = None
+        if table_name == "player_features_hr":
+            base_row["got_hr"] = None
+        else:
+            base_row["got_hit"] = None
         base_row["projected_plate_appearances"] = 4.2
     else:
         base_row["actual_strikeouts"] = None

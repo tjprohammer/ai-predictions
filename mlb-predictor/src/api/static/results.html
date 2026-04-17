@@ -704,15 +704,31 @@
               <input id="targetDate" type="date" />
             </div>
             <div class="field">
-              <label for="hitMinProbability">Minimum hitter probability</label>
+              <label for="hitMinProbability">Hitter plays — min P(hit)</label>
               <select id="hitMinProbability">
-                <option value="0.35">35%+</option>
+                <option value="0">No floor (then cap still applies)</option>
+                <option value="0.30">30%+</option>
+                <option value="0.35" selected>35%+</option>
                 <option value="0.40">40%+</option>
                 <option value="0.45">45%+</option>
-                <option value="0.50" selected>50%+</option>
+                <option value="0.50">50%+</option>
                 <option value="0.55">55%+</option>
                 <option value="0.60">60%+</option>
               </select>
+            </div>
+            <div class="field">
+              <label for="hitterTopN">Hitter plays — list size</label>
+              <select id="hitterTopN">
+                <option value="12">Top 12 by model</option>
+                <option value="15">Top 15</option>
+                <option value="24" selected>Top 24</option>
+                <option value="36">Top 36</option>
+                <option value="48">Top 48</option>
+              </select>
+              <p class="small-copy muted" style="margin-top: 6px; line-height: 1.35">
+                Daily hitter hits are the <strong>highest P(hit)</strong> scored lines for
+                review — not the same section as <strong>Board best bets</strong> above.
+              </p>
             </div>
             <div class="field">
               <label for="resultFilter">Show</label>
@@ -730,8 +746,10 @@
                 <option value="ai_picks">Board best bets only</option>
                 <option value="watchlist">Watchlist only</option>
                 <option value="experimental">Experimental only</option>
+                <option value="top_ev">Top EV only</option>
                 <option value="totals">Totals only</option>
                 <option value="hitters">Hitter hits only</option>
+                <option value="home_runs">Home runs (slugger) only</option>
                 <option value="strikeouts">Pitcher Ks only</option>
                 <option value="first5">First-5 innings only</option>
               </select>
@@ -810,6 +828,13 @@
           </div>
         </article>
         <article class="summary-card">
+          <div class="section-tag">Top EV</div>
+          <div class="summary-value" id="topEvSummary">-</div>
+          <div class="summary-foot" id="topEvSummaryFoot">
+            Waiting for data
+          </div>
+        </article>
+        <article class="summary-card">
           <div class="section-tag">Totals</div>
           <div class="summary-value" id="totalsSummary">-</div>
           <div class="summary-foot" id="totalsSummaryFoot">
@@ -820,6 +845,13 @@
           <div class="section-tag">Hitter Hits</div>
           <div class="summary-value" id="hittersSummary">-</div>
           <div class="summary-foot" id="hittersSummaryFoot">
+            Waiting for data
+          </div>
+        </article>
+        <article class="summary-card">
+          <div class="section-tag">Home Runs</div>
+          <div class="summary-value" id="homeRunsSummary">-</div>
+          <div class="summary-foot" id="homeRunsSummaryFoot">
             Waiting for data
           </div>
         </article>
@@ -864,6 +896,10 @@
           <span>Experimental</span>
           <span class="jump-count" id="experimentalCount">-</span>
         </button>
+        <button class="jump-chip" data-section-target="top_ev" type="button">
+          <span>Top EV</span>
+          <span class="jump-count" id="topEvCount">-</span>
+        </button>
         <button class="jump-chip" data-section-target="totals" type="button">
           <span>Totals</span>
           <span class="jump-count" id="totalsCount">-</span>
@@ -871,6 +907,10 @@
         <button class="jump-chip" data-section-target="hitters" type="button">
           <span>Hitter Hits</span>
           <span class="jump-count" id="hittersCount">-</span>
+        </button>
+        <button class="jump-chip" data-section-target="home_runs" type="button">
+          <span>Home Runs</span>
+          <span class="jump-count" id="homeRunsCount">-</span>
         </button>
         <button
           class="jump-chip"
@@ -926,6 +966,26 @@
           <div class="table-shell" id="experimentalTable"></div>
         </section>
 
+        <section class="panel" id="top_evSection" data-section="top_ev">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Top EV</div>
+              <h2 class="panel-title">Best weighted EV line per game</h2>
+            </div>
+            <span class="panel-subtitle" id="topEvSubtitle"
+              >Loading Top EV picks</span
+            >
+          </div>
+          <p
+            class="muted"
+            style="margin: 0 0 12px; font-size: 0.86rem; line-height: 1.45"
+          >
+            Same selector as the game detail card: one priced pick per game (team markets, 1+ hit, HR yes, pitcher K)
+            ranked by weighted EV.
+          </p>
+          <div class="table-shell" id="topEvTable"></div>
+        </section>
+
         <section class="panel" id="totalsSection" data-section="totals">
           <div class="panel-head">
             <div>
@@ -942,14 +1002,35 @@
         <section class="panel" id="hittersSection" data-section="hitters">
           <div class="panel-head">
             <div>
-              <div class="section-tag">Hitter Hits</div>
-              <h2 class="panel-title">Did the player get a hit?</h2>
+              <div class="section-tag">Model hit plays</div>
+              <h2 class="panel-title">Top P(hit) lines — did they get a hit?</h2>
             </div>
             <span class="panel-subtitle" id="hittersSubtitle"
               >Loading hitter results</span
             >
           </div>
+          <p
+            class="muted"
+            style="margin: 0 0 12px; font-size: 0.86rem; line-height: 1.45"
+          >
+            Grades the <strong>highest model hit-probability</strong> batters for the day
+            (capped list). This is <strong>not</strong> the green-board &ldquo;best
+            bets&rdquo; lane — those are in <strong>Board best bets</strong>.
+          </p>
           <div class="table-shell" id="hittersTable"></div>
+        </section>
+
+        <section class="panel" id="homeRunsSection" data-section="home_runs">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Home Runs</div>
+              <h2 class="panel-title">Slugger picks — did they homer?</h2>
+            </div>
+            <span class="panel-subtitle" id="homeRunsSubtitle"
+              >Loading home run results</span
+            >
+          </div>
+          <div class="table-shell" id="homeRunsTable"></div>
         </section>
 
         <section class="panel" id="strikeoutsSection" data-section="strikeouts">
@@ -1009,6 +1090,46 @@
           path,
           `${window.location.origin}${normalizedBase}`,
         ).toString();
+      }
+
+      function isTransientFetchFailure(error) {
+        if (!error || error.name === "AbortError") return false;
+        if (!(error instanceof TypeError)) return false;
+        const m = String(error.message || "").toLowerCase();
+        return (
+          m.includes("failed to fetch") ||
+          m.includes("networkerror") ||
+          m.includes("load failed") ||
+          m.includes("network request failed")
+        );
+      }
+
+      async function fetchAppReliable(path, options = {}) {
+        const url =
+          typeof path === "string" && /^https?:\/\//i.test(path)
+            ? path
+            : appUrl(path);
+        const retries = 5;
+        const baseDelayMs = 200;
+        let lastError;
+        for (let attempt = 0; attempt < retries; attempt++) {
+          try {
+            return await fetch(url, options);
+          } catch (error) {
+            lastError = error;
+            if (
+              attempt < retries - 1 &&
+              isTransientFetchFailure(error)
+            ) {
+              await new Promise((r) =>
+                setTimeout(r, baseDelayMs * (attempt + 1)),
+              );
+              continue;
+            }
+            throw error;
+          }
+        }
+        throw lastError;
       }
 
       function applyAppLinks() {
@@ -1214,12 +1335,21 @@
       }
 
       function projectionValue(row, category) {
+        if (category === "top_ev") {
+          return numberOr(row.confidence, Number.NEGATIVE_INFINITY);
+        }
         if (category === "ai_picks" || category === "watchlist") {
           return numberOr(row.confidence, Number.NEGATIVE_INFINITY);
         }
         if (category === "hitters") {
           return numberOr(
             row.predicted_hit_probability,
+            Number.NEGATIVE_INFINITY,
+          );
+        }
+        if (category === "home_runs") {
+          return numberOr(
+            row.predicted_hr_probability,
             Number.NEGATIVE_INFINITY,
           );
         }
@@ -1242,6 +1372,9 @@
         if (category === "hitters") {
           return numberOr(row.market_price, numberOr(row.fair_price));
         }
+        if (category === "home_runs") {
+          return numberOr(row.market_price, numberOr(row.fair_price));
+        }
         if (category === "totals" || category === "first5") {
           return numberOr(row.market_total);
         }
@@ -1251,12 +1384,18 @@
         if (category === "ai_picks" || category === "watchlist") {
           return numberOr(row.edge, numberOr(row.confidence));
         }
+        if (category === "top_ev") {
+          return numberOr(row.edge, numberOr(row.confidence));
+        }
         return null;
       }
 
       function actualValue(row, category) {
         if (category === "hitters") {
           return numberOr(row.actual_hits);
+        }
+        if (category === "home_runs") {
+          return numberOr(row.actual_home_runs);
         }
         if (category === "totals" || category === "first5") {
           return numberOr(row.actual_total_runs);
@@ -1267,16 +1406,28 @@
         if (category === "ai_picks" || category === "watchlist") {
           return -resultRank(row.result);
         }
+        if (category === "top_ev") {
+          return -resultRank(row.result);
+        }
         return null;
       }
 
       function confidenceValue(row, category) {
+        if (category === "top_ev") {
+          return numberOr(row.confidence, Number.NEGATIVE_INFINITY);
+        }
         if (category === "ai_picks" || category === "watchlist") {
           return numberOr(row.confidence, Number.NEGATIVE_INFINITY);
         }
         if (category === "hitters") {
           return numberOr(
             row.predicted_hit_probability,
+            Number.NEGATIVE_INFINITY,
+          );
+        }
+        if (category === "home_runs") {
+          return numberOr(
+            row.predicted_hr_probability,
             Number.NEGATIVE_INFINITY,
           );
         }
@@ -1290,8 +1441,12 @@
         if (category === "ai_picks" || category === "watchlist") {
           return row.subject_label || row.pick_label;
         }
+        if (category === "top_ev") {
+          return row.pick_label || row.subject_label;
+        }
         if (category === "totals") return row.matchup;
         if (category === "hitters") return row.player_name;
+        if (category === "home_runs") return row.player_name;
         return row.pitcher_name;
       }
 
@@ -1469,7 +1624,7 @@
 
       function aiPickMarketGroup(row) {
         const market = String(row?.market || "").trim();
-        if (market === "totals") return "game_totals";
+        if (market === "totals" || market === "game_total") return "game_totals";
         if (market === "away_team_total" || market === "home_team_total") {
           return "team_totals";
         }
@@ -1544,7 +1699,9 @@
             ? '<span class="pill neutral">Watchlist</span>'
             : row.is_experimental_pick
               ? '<span class="pill neutral">Experimental</span>'
-            : "";
+              : row.is_top_ev_pick
+                ? '<span class="pill neutral">Top EV</span>'
+                : "";
         return `
           <div class="table-row ${escapeHtml(row.result || "pending")} ${row.is_green_pick ? "green-pick" : ""}">
             <div class="cell-main">
@@ -1585,6 +1742,41 @@
               <div class="result-note">Fair ${escapeHtml(formatPrice(row.fair_price))} · Edge <span style="${edgeTone(row.edge)}">${escapeHtml(formatSigned(row.edge, 3))}</span></div>
             </div>
             <div>${actualHits == null ? escapeHtml(row.actual_status_label || "Pending") : `${escapeHtml(formatNumber(actualHits, 0))} hit${actualHits === 1 ? "" : "s"}${actualAtBats == null ? "" : ` · ${escapeHtml(formatNumber(actualAtBats, 0))} AB`}`}</div>
+            <div>
+              <div class="pill-row">
+                <span class="pill ${row.market_backed ? "market" : "neutral"}">${row.market_backed ? "Market" : "Model only"}</span>
+              </div>
+            </div>
+            <div><span class="result-badge ${escapeHtml(row.result || "pending")}">${escapeHtml(resultLabel(row.result))}</span></div>
+          </div>
+        `;
+      }
+
+      function renderHomeRunRow(row) {
+        const actualHr = numberOr(row.actual_home_runs);
+        let hrLabel;
+        if (actualHr == null) {
+          hrLabel =
+            row.result === "missing" ? "Missing box score" : "Pending";
+        } else {
+          hrLabel = `${formatNumber(actualHr, 0)} HR`;
+        }
+        return `
+          <div class="table-row ${escapeHtml(row.result || "pending")}">
+            <div class="cell-main">
+              <div class="cell-title">${escapeHtml(row.player_name)}</div>
+              <div class="cell-subtitle">${escapeHtml(row.team)} vs ${escapeHtml(row.opponent || "TBD")} · Slugger #${escapeHtml(row.slugger_rank_in_game)} in game</div>
+            </div>
+            <div>${escapeHtml(
+              row.hr_probability_display != null && row.hr_probability_display !== ""
+                ? row.hr_probability_display
+                : formatPercent(row.predicted_hr_probability, 1)
+            )}</div>
+            <div class="cell-main">
+              <div>${escapeHtml(formatPrice(row.market_price))}</div>
+              <div class="result-note">Fair ${escapeHtml(formatPrice(row.fair_price))} · Edge <span style="${edgeTone(row.edge)}">${escapeHtml(formatSigned(row.edge, 3))}</span></div>
+            </div>
+            <div>${escapeHtml(hrLabel)}</div>
             <div>
               <div class="pill-row">
                 <span class="pill ${row.market_backed ? "market" : "neutral"}">${row.market_backed ? "Market" : "Model only"}</span>
@@ -1638,8 +1830,10 @@
         const aiPicks = summary?.ai_picks || {};
         const watchlist = summary?.watchlist || {};
         const experimental = summary?.experimental || {};
+        const topEv = summary?.top_ev || {};
         const totals = summary?.totals || {};
         const hitters = summary?.hitters || {};
+        const homeRuns = summary?.home_runs || {};
         const strikeouts = summary?.strikeouts || {};
         const first5 = summary?.first5 || {};
         gamesSummary.textContent = `${summary?.final_games || 0}/${summary?.total_games || 0}`;
@@ -1663,10 +1857,21 @@
           : `${watchlist.total || 0} archived watchlist picks · ${watchlist.pending || 0} pending`;
         experimentalSummary.textContent = `${experimental.won || 0}-${experimental.lost || 0}-${experimental.push || 0}`;
         experimentalSummaryFoot.textContent = `${experimental.total || 0} tracked experimental picks · ${experimental.pending || 0} pending`;
+        topEvSummary.textContent = `${topEv.won || 0}-${topEv.lost || 0}-${topEv.push || 0}`;
+        topEvSummaryFoot.textContent = `${topEv.total || 0} Top EV pick${(topEv.total || 0) === 1 ? "" : "s"} (one per game) · ${topEv.pending || 0} pending`;
         totalsSummary.textContent = `${totals.won || 0}-${totals.lost || 0}-${totals.push || 0}`;
         totalsSummaryFoot.textContent = `${totals.market_backed || 0} market-backed totals · ${totals.pending || 0} pending`;
         hittersSummary.textContent = `${hitters.hit || 0}-${hitters.no_hit || 0}`;
-        hittersSummaryFoot.textContent = `${hitters.market_backed || 0} market-backed hitters · ${hitters.missing || 0} missing box score rows`;
+        const hCap = hitters.review_cap;
+        const hMin = hitters.min_hit_probability;
+        const hMinPct =
+          hMin == null ? "—" : `${Math.round(Number(hMin) * 100)}%+`;
+        hittersSummaryFoot.textContent =
+          hCap != null
+            ? `Top ${hCap} by model P(hit), floor ${hMinPct} · ${hitters.market_backed || 0} market-backed · not board best bets`
+            : `${hitters.market_backed || 0} market-backed hitters · ${hitters.missing || 0} missing box score rows`;
+        homeRunsSummary.textContent = `${homeRuns.hit || 0}-${homeRuns.no_hit || 0}`;
+        homeRunsSummaryFoot.textContent = `${homeRuns.market_backed || 0} priced HR rows · ${homeRuns.missing || 0} missing box score · top slugger picks (round-robin slate cap, up to 3 per game)`;
         strikeoutsSummary.textContent = `${strikeouts.won || 0}-${strikeouts.lost || 0}`;
         strikeoutsSummaryFoot.textContent = `${strikeouts.market_backed || 0} market-backed Ks · ${strikeouts.no_line || 0} no-line starters`;
         first5Summary.textContent = `${first5.won || 0}-${first5.lost || 0}-${first5.push || 0}`;
@@ -1686,6 +1891,10 @@
           applyResultFilter(payload.experimental || []),
           "experimental",
         );
+        const topEvRows = sortRows(
+          applyResultFilter(payload.top_ev || []),
+          "top_ev",
+        );
         const totalsRows = sortRows(
           applyResultFilter(payload.totals || []),
           "totals",
@@ -1702,21 +1911,29 @@
           applyResultFilter(payload.first5 || []),
           "first5",
         );
+        const homeRunRows = sortRows(
+          applyResultFilter(payload.home_runs || []),
+          "home_runs",
+        );
 
         updateSummary(payload.summary || {});
         aiPicksCount.textContent = String(aiPickRows.length);
         watchlistCount.textContent = String(watchlistRows.length);
         experimentalCount.textContent = String(experimentalRows.length);
+        topEvCount.textContent = String(topEvRows.length);
         totalsCount.textContent = String(totalsRows.length);
         hittersCount.textContent = String(hitterRows.length);
         strikeoutsCount.textContent = String(strikeoutRows.length);
         first5Count.textContent = String(first5Rows.length);
+        homeRunsCount.textContent = String(homeRunRows.length);
         allCount.textContent = String(
           aiPickRows.length +
             watchlistRows.length +
             experimentalRows.length +
+            topEvRows.length +
             totalsRows.length +
             hitterRows.length +
+            homeRunRows.length +
             strikeoutRows.length +
             first5Rows.length,
         );
@@ -1729,8 +1946,15 @@
         aiPicksSubtitle.textContent = `${aiPickRows.length} board best bet${aiPickRows.length === 1 ? "" : "s"} shown${aiPickMarketSuffix}`;
         watchlistSubtitle.textContent = `${watchlistRows.length} watchlist pick${watchlistRows.length === 1 ? "" : "s"} shown${aiPickMarketSuffix}`;
         experimentalSubtitle.textContent = `${experimentalRows.length} experimental pick${experimentalRows.length === 1 ? "" : "s"} shown`;
+        topEvSubtitle.textContent = `${topEvRows.length} Top EV pick${topEvRows.length === 1 ? "" : "s"} shown`;
         totalsSubtitle.textContent = `${totalsRows.length} totals result${totalsRows.length === 1 ? "" : "s"} shown`;
-        hittersSubtitle.textContent = `${hitterRows.length} hitter result${hitterRows.length === 1 ? "" : "s"} shown`;
+        const hMeta = payload.summary?.hitters || {};
+        const capN = hMeta.review_cap;
+        hittersSubtitle.textContent =
+          capN != null
+            ? `${hitterRows.length} top model hit play${hitterRows.length === 1 ? "" : "s"} (cap ${capN} · separate from board best bets)`
+            : `${hitterRows.length} hitter result${hitterRows.length === 1 ? "" : "s"} shown`;
+        homeRunsSubtitle.textContent = `${homeRunRows.length} slugger HR pick${homeRunRows.length === 1 ? "" : "s"} shown`;
         strikeoutsSubtitle.textContent = `${strikeoutRows.length} pitcher result${strikeoutRows.length === 1 ? "" : "s"} shown`;
         first5Subtitle.textContent = `${first5Rows.length} first-5 result${first5Rows.length === 1 ? "" : "s"} shown`;
 
@@ -1773,6 +1997,19 @@
           renderAiPickRow,
           "No experimental picks match this filter.",
         );
+        topEvTable.innerHTML = renderTable(
+          [
+            makeHeading("Pick", "alpha"),
+            makeHeading("Model", "model"),
+            makeHeading("Ticket", "line"),
+            makeHeading("Actual", "actual"),
+            makeHeading("Notes", "edge"),
+            makeHeading("Result", "result"),
+          ],
+          topEvRows,
+          renderAiPickRow,
+          "No Top EV rows for this date (or no priced candidates).",
+        );
         totalsTable.innerHTML = renderTable(
           [
             makeHeading("Matchup", "alpha"),
@@ -1798,6 +2035,19 @@
           hitterRows,
           renderHitterRow,
           "No hitter rows match this filter.",
+        );
+        homeRunsTable.innerHTML = renderTable(
+          [
+            makeHeading("Player", "alpha"),
+            makeHeading("P(HR)", "model"),
+            makeHeading("Price", "line"),
+            makeHeading("Actual HR", "actual"),
+            makeHeading("Context", "edge"),
+            makeHeading("Result", "result"),
+          ],
+          homeRunRows,
+          renderHomeRunRow,
+          "No slugger HR rows match this filter.",
         );
         strikeoutsTable.innerHTML = renderTable(
           [
@@ -1829,18 +2079,23 @@
 
       async function refreshResults() {
         const dateValue = targetDateInput.value || localDateValue(-1);
-        const hitMinProbability = hitMinProbabilityInput.value || "0.5";
+        const hitMinProbability = hitMinProbabilityInput.value || "0.35";
+        const hitterTopN = hitterTopNInput?.value || "24";
         pageStatus.textContent = "Refreshing";
         aiPicksSubtitle.textContent = "Refreshing board best bets";
         watchlistSubtitle.textContent = "Refreshing watchlist picks";
         experimentalSubtitle.textContent = "Refreshing experimental picks";
+        if (topEvSubtitle) {
+          topEvSubtitle.textContent = "Refreshing Top EV picks";
+        }
         totalsSubtitle.textContent = "Refreshing totals";
         hittersSubtitle.textContent = "Refreshing hitters";
+        homeRunsSubtitle.textContent = "Refreshing home runs";
         strikeoutsSubtitle.textContent = "Refreshing strikeouts";
         first5Subtitle.textContent = "Refreshing first-5";
         const response = await fetch(
           appUrl(
-            `api/results/daily?target_date=${encodeURIComponent(dateValue)}&hit_min_probability=${encodeURIComponent(hitMinProbability)}`,
+            `api/results/daily?target_date=${encodeURIComponent(dateValue)}&hit_min_probability=${encodeURIComponent(hitMinProbability)}&hitter_top_n=${encodeURIComponent(hitterTopN)}`,
           ),
         );
         if (!response.ok) {
@@ -1848,13 +2103,19 @@
         }
         const payload = await response.json();
         latestResultsPayload = payload;
-        renderAll(payload);
+        try {
+          renderAll(payload);
+        } catch (err) {
+          pageStatus.textContent = `Render error: ${err?.message || err}`;
+          throw err;
+        }
         pageStatus.textContent = `${payload.summary?.final_games || 0} of ${payload.summary?.total_games || 0} games final`;
       }
 
       const targetDateInput = document.getElementById("targetDate");
       const hitMinProbabilityInput =
         document.getElementById("hitMinProbability");
+      const hitterTopNInput = document.getElementById("hitterTopN");
       const resultFilterInput = document.getElementById("resultFilter");
       const focusSectionInput = document.getElementById("focusSection");
       const aiPickMarketFilterInput =
@@ -1871,10 +2132,14 @@
       const watchlistSummaryFoot = document.getElementById("watchlistSummaryFoot");
       const experimentalSummary = document.getElementById("experimentalSummary");
       const experimentalSummaryFoot = document.getElementById("experimentalSummaryFoot");
+      const topEvSummary = document.getElementById("topEvSummary");
+      const topEvSummaryFoot = document.getElementById("topEvSummaryFoot");
       const totalsSummary = document.getElementById("totalsSummary");
       const totalsSummaryFoot = document.getElementById("totalsSummaryFoot");
       const hittersSummary = document.getElementById("hittersSummary");
       const hittersSummaryFoot = document.getElementById("hittersSummaryFoot");
+      const homeRunsSummary = document.getElementById("homeRunsSummary");
+      const homeRunsSummaryFoot = document.getElementById("homeRunsSummaryFoot");
       const strikeoutsSummary = document.getElementById("strikeoutsSummary");
       const strikeoutsSummaryFoot = document.getElementById(
         "strikeoutsSummaryFoot",
@@ -1884,23 +2149,29 @@
       const aiPicksSubtitle = document.getElementById("aiPicksSubtitle");
       const watchlistSubtitle = document.getElementById("watchlistSubtitle");
       const experimentalSubtitle = document.getElementById("experimentalSubtitle");
+      const topEvSubtitle = document.getElementById("topEvSubtitle");
       const totalsSubtitle = document.getElementById("totalsSubtitle");
       const hittersSubtitle = document.getElementById("hittersSubtitle");
+      const homeRunsSubtitle = document.getElementById("homeRunsSubtitle");
       const strikeoutsSubtitle = document.getElementById("strikeoutsSubtitle");
       const first5Subtitle = document.getElementById("first5Subtitle");
       const aiPicksTable = document.getElementById("aiPicksTable");
       const watchlistTable = document.getElementById("watchlistTable");
       const experimentalTable = document.getElementById("experimentalTable");
+      const topEvTable = document.getElementById("topEvTable");
       const totalsTable = document.getElementById("totalsTable");
       const hittersTable = document.getElementById("hittersTable");
+      const homeRunsTable = document.getElementById("homeRunsTable");
       const strikeoutsTable = document.getElementById("strikeoutsTable");
       const first5Table = document.getElementById("first5Table");
       const allCount = document.getElementById("allCount");
       const aiPicksCount = document.getElementById("aiPicksCount");
       const watchlistCount = document.getElementById("watchlistCount");
       const experimentalCount = document.getElementById("experimentalCount");
+      const topEvCount = document.getElementById("topEvCount");
       const totalsCount = document.getElementById("totalsCount");
       const hittersCount = document.getElementById("hittersCount");
+      const homeRunsCount = document.getElementById("homeRunsCount");
       const strikeoutsCount = document.getElementById("strikeoutsCount");
       const first5Count = document.getElementById("first5Count");
       const updateScoresButton = document.getElementById("updateScoresButton");
@@ -1958,8 +2229,8 @@
       async function pollUpdateJob(jobId) {
         const poll = async () => {
           try {
-            const response = await fetch(
-              appUrl(`api/update-jobs/${encodeURIComponent(jobId)}`),
+            const response = await fetchAppReliable(
+              `api/update-jobs/${encodeURIComponent(jobId)}`,
             );
             if (!response.ok) {
               throw new Error(`Poll failed: ${response.status}`);
@@ -1987,7 +2258,10 @@
               throw new Error(job.error || `Job ended with status: ${status}`);
             }
           } catch (error) {
-            updateJobStatus.textContent = `Update failed: ${error.message}`;
+            const msg = isTransientFetchFailure(error)
+              ? "Lost connection while polling (server may have restarted). Try Update Scores again."
+              : error.message;
+            updateJobStatus.textContent = `Update failed: ${msg}`;
             updateJobStatus.style.color = "var(--danger, #c62828)";
             updateScoresButton.disabled = false;
             updateScoresButton.innerHTML = "&#x21bb; Update Scores";
@@ -2008,17 +2282,31 @@
         refreshResults().catch((error) => {
           pageStatus.textContent = error.message;
           latestResultsPayload = null;
-          aiPicksTable.innerHTML = renderEmptyState(error.message);
-          totalsTable.innerHTML = renderEmptyState(error.message);
-          hittersTable.innerHTML = renderEmptyState(error.message);
-          strikeoutsTable.innerHTML = renderEmptyState(error.message);
-          first5Table.innerHTML = renderEmptyState(error.message);
+          const msg = error.message || String(error);
+          [
+            aiPicksTable,
+            watchlistTable,
+            experimentalTable,
+            topEvTable,
+            totalsTable,
+            hittersTable,
+            homeRunsTable,
+            strikeoutsTable,
+            first5Table,
+          ].forEach((el) => {
+            if (el) el.innerHTML = renderEmptyState(msg);
+          });
         });
       });
       targetDateInput.addEventListener("change", () => refreshButton.click());
       hitMinProbabilityInput.addEventListener("change", () =>
         refreshButton.click(),
       );
+      if (hitterTopNInput) {
+        hitterTopNInput.addEventListener("change", () =>
+          refreshButton.click(),
+        );
+      }
       resultFilterInput.addEventListener("change", () => {
         if (latestResultsPayload) {
           renderAll(latestResultsPayload);
@@ -2063,5 +2351,6 @@
 
       refreshButton.click();
     </script>
+    <script src="/assets/update_job_follower.js" defer></script>
   </body>
 </html>

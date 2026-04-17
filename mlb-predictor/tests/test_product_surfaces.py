@@ -5,6 +5,15 @@ import pandas as pd
 from src.transforms import product_surfaces
 
 
+def test_experimental_outcome_tracks_single_model_side():
+    assert product_surfaces._experimental_outcome_tracks_market(1, "nrfi", {1: "nrfi"}) is True
+    assert product_surfaces._experimental_outcome_tracks_market(1, "yrfi", {1: "nrfi"}) is False
+    assert product_surfaces._experimental_outcome_tracks_market(1, "yrfi", {1: "yrfi"}) is True
+    assert product_surfaces._experimental_outcome_tracks_market(1, "nrfi", {1: "yrfi"}) is False
+    assert product_surfaces._experimental_outcome_tracks_market(2, "nrfi", {}) is True
+    assert product_surfaces._experimental_outcome_tracks_market(2, "yrfi", {}) is False
+
+
 def test_grade_experimental_first_inning():
     assert product_surfaces._grade_experimental_first_inning(
         game_status="Final",

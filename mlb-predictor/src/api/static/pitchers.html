@@ -396,8 +396,20 @@
       .leaders-grid {
         display: grid;
         gap: 16px;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         margin-top: 18px;
+      }
+
+      @media (max-width: 1100px) {
+        .leaders-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 560px) {
+        .leaders-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
 
       .leader-card {
@@ -1443,6 +1455,7 @@
 
       function displayProjectedStrikeouts(projection) {
         return numberOr(
+          projection?.display_projected_strikeouts,
           projection?.public_projected_strikeouts,
           numberOr(
             projection?.projected_strikeouts_fundamentals,
@@ -1689,13 +1702,13 @@
       function renderLeaderboards() {
         const leaders = state.leaders || {};
         leadersSubtitle.textContent = leaders.season
-          ? `Season-to-date through ${leaders.through_date}`
+          ? `Season-to-date through ${leaders.through_date} · eight boards (scroll for all)`
           : "Season leaderboards unavailable";
         leadersGrid.innerHTML = [
           renderLeaderCard(
             "Pitcher Ks",
             "Ks",
-            leaders.pitcher_strikeouts,
+            leaders.pitcher_strikeouts || [],
             (row, rank, valueLabel) => `
               <div class="leader-row">
                 <div class="leader-rank">${rank}</div>
@@ -1708,9 +1721,39 @@
             `,
           ),
           renderLeaderCard(
+            "Pitcher ERA",
+            "ERA",
+            leaders.pitcher_era || [],
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.player_name)}</div>
+                  <div class="leader-meta">${escapeHtml(row.team || "-")} · ${formatNumber(row.innings_pitched, 1)} IP · ${formatNumber(row.starts, 0)} starts · ${formatNumber(row.earned_runs, 0)} ER</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.era, 2)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
+            "Pitcher WHIP",
+            "WHIP",
+            leaders.pitcher_whip || [],
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.player_name)}</div>
+                  <div class="leader-meta">${escapeHtml(row.team || "-")} · ${formatNumber(row.innings_pitched, 1)} IP · ${formatNumber(row.starts, 0)} starts</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.whip, 3)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
             "Hitter Hits",
             "Hits",
-            leaders.hitter_hits,
+            leaders.hitter_hits || [],
             (row, rank, valueLabel) => `
               <div class="leader-row">
                 <div class="leader-rank">${rank}</div>
@@ -1723,9 +1766,24 @@
             `,
           ),
           renderLeaderCard(
+            "Hitter HR",
+            "HR",
+            leaders.hitter_home_runs || [],
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.player_name)}</div>
+                  <div class="leader-meta">${escapeHtml(row.team || "-")} · ${formatNumber(row.home_runs_per_game, 2)} HR/game</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.home_runs, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
             "Team Runs",
             "Runs",
-            leaders.team_runs,
+            leaders.team_runs || [],
             (row, rank, valueLabel) => `
               <div class="leader-row">
                 <div class="leader-rank">${rank}</div>
@@ -1738,9 +1796,24 @@
             `,
           ),
           renderLeaderCard(
+            "Team HR",
+            "HR",
+            leaders.team_home_runs || [],
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.team)}</div>
+                  <div class="leader-meta">${formatNumber(row.home_runs_per_game, 2)} HR/game</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.home_runs, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
             "Team Strikeouts",
             "Ks",
-            leaders.team_strikeouts,
+            leaders.team_strikeouts || [],
             (row, rank, valueLabel) => `
               <div class="leader-row">
                 <div class="leader-rank">${rank}</div>
@@ -2085,5 +2158,6 @@
 
       refreshPage();
     </script>
+    <script src="/assets/update_job_follower.js" defer></script>
   </body>
 </html>

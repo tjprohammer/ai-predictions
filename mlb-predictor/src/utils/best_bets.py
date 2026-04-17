@@ -5,10 +5,11 @@ from statistics import median
 from typing import Any
 
 from src.utils.input_trust import ACTIONABLE_TRUST_GRADES
+from src.utils.settings import get_settings
 
 
 SUPPLEMENTAL_GAME_MARKET_TYPES = (
-    "team_total",
+    "total",
     "home_team_total",
     "away_team_total",
     "moneyline",
@@ -24,6 +25,7 @@ SUPPLEMENTAL_GAME_MARKET_TYPES = (
 BEST_BET_MARKET_KEYS = (
     "moneyline",
     "run_line",
+    "game_total",
     "away_team_total",
     "home_team_total",
     "first_five_moneyline",
@@ -43,15 +45,34 @@ BOARD_GREEN_STRIP_MAX_PER_GAME_FIRST_PASS = 1
 BOARD_WATCHLIST_LIMIT = 500
 
 # When strict `positive` is rare (slates, recalibrated models), still show meaningful edges on the green strip.
-# These sit between "watchlist noise" and full `passes_best_bet_thresholds` gates — old values were so loose
-# that the top-5 strip was often 100% soft picks with poor realized results.
+# These sit between "watchlist noise" and full `passes_best_bet_thresholds` gates.
+# Soft backfill also requires actionable (A/B) input trust — strict positives use EV gates only so the
+# strip can show one pick per game when the model clears the bar, even if lineups/markets are still B/C.
 BOARD_GREEN_SOFT_MIN_WEIGHTED_EV = 0.028
 BOARD_GREEN_SOFT_MIN_PROB_EDGE = 0.045
 BOARD_GREEN_SOFT_MIN_CERTAINTY = 0.70
 BOARD_GREEN_SOFT_MIN_MODEL_PROB = 0.53
 
-# First-inning experimental lines: at most one row per game across these keys (prefer nrfi if both exist).
+# First-inning experimental lines: nrfi and yrfi sort order when deduping / displaying.
 EXPERIMENTAL_FIRST_INNING_MARKETS_ORDER = ("nrfi", "yrfi")
+
+# Hitter props (1+ hits, HR yes) use EV machinery for grading/detail cards; they never belong on the team best-bet board.
+PLAYER_HITS_MARKET_KEY = "player_hits"
+# Priced "to hit a home run" / batter HR yes props.
+PLAYER_HOME_RUN_MARKET_KEY = "player_home_run"
+# HR probabilities are tiny; rounding to 4 decimals can collapse them to 0.0 in JSON/UI.
+HR_MODEL_PROBABILITY_DECIMALS = 8
+
+
+def is_player_prop_yes_market(market_key: str | None) -> bool:
+    mk = str(market_key or "")
+    return mk in (PLAYER_HITS_MARKET_KEY, PLAYER_HOME_RUN_MARKET_KEY)
+
+
+def excluded_from_team_best_pick_board(market_key: str | None) -> bool:
+    """True for markets that must not appear on green strip / team watchlist (best bets = team markets)."""
+    return str(market_key or "") in (PLAYER_HITS_MARKET_KEY, PLAYER_HOME_RUN_MARKET_KEY)
+
 
 BEST_BET_THRESHOLD_MAP: dict[str, dict[str, float]] = {
     "moneyline": {
@@ -65,6 +86,24 @@ BEST_BET_THRESHOLD_MAP: dict[str, dict[str, float]] = {
         "probability_edge": 0.08,
         "certainty_weight": 0.80,
         "model_probability": 0.57,
+    },
+    "game_total": {
+        "weighted_ev": 0.06,
+        "probability_edge": 0.08,
+        "certainty_weight": 0.80,
+        "model_probability": 0.57,
+    },
+    PLAYER_HITS_MARKET_KEY: {
+        "weighted_ev": 0.05,
+        "probability_edge": 0.06,
+        "certainty_weight": 0.70,
+        "model_probability": 0.52,
+    },
+    PLAYER_HOME_RUN_MARKET_KEY: {
+        "weighted_ev": 0.035,
+        "probability_edge": 0.04,
+        "certainty_weight": 0.66,
+        "model_probability": 0.12,
     },
     "away_team_total": {
         "weighted_ev": 0.05,
@@ -108,7 +147,24 @@ BEST_BET_THRESHOLD_MAP: dict[str, dict[str, float]] = {
         "certainty_weight": 0.80,
         "model_probability": 0.60,
     },
+    "pitcher_strikeouts": {
+        "weighted_ev": 0.05,
+        "probability_edge": 0.08,
+        "certainty_weight": 0.80,
+        "model_probability": 0.55,
+    },
 }
+
+# Team + pitcher K props + 1+ hit for Top EV. HR yes is excluded — rare events are poor anchors
+# for the single headline EV pick vs team markets and contact props.
+PITCHER_STRIKEOUTS_MARKET_KEY = "pitcher_strikeouts"
+# First-five *team* O/U lines are omitted from product surfaces — often unavailable at regional
+# books (e.g. FanDuel state menus) while another book in the consolidated feed still has a number.
+_TOP_EV_EXCLUDED_MARKET_KEYS = frozenset({"first_five_team_total_away", "first_five_team_total_home"})
+TOP_EV_ELIGIBLE_MARKET_KEYS = (
+    frozenset(BEST_BET_MARKET_KEYS)
+    | frozenset((PLAYER_HITS_MARKET_KEY, PITCHER_STRIKEOUTS_MARKET_KEY))
+) - _TOP_EV_EXCLUDED_MARKET_KEYS
 
 MARKET_SIM_MAX_RUNS = 16
 
@@ -123,6 +179,33 @@ def to_float(value: Any) -> float | None:
     if math.isnan(converted):
         return None
     return converted
+
+
+def format_hr_probability_pct_display(mp: float) -> str:
+    """HR is a rare event — avoid rounding tiny probabilities to 0.00% or 0.000%."""
+    pct = float(mp) * 100.0
+    if pct <= 0 and mp and float(mp) > 0:
+        pct = float(mp) * 100.0
+    if pct <= 0:
+        return "0%"
+    if pct < 0.01:
+        s = f"{pct:.8f}".rstrip("0").rstrip(".")
+        return f"{s}%" if s else "0%"
+    if pct < 0.1:
+        return f"{pct:.3f}%"
+    if pct < 1.0:
+        return f"{pct:.2f}%"
+    return f"{pct:.1f}%"
+
+
+def _sanitize_hr_fair_american_for_display(value: Any) -> int | None:
+    """Hide absurd placeholder fair odds from legacy rows (tiny p → huge American prices)."""
+    v = to_float(value)
+    if v is None:
+        return None
+    if abs(v) > 500_000:
+        return None
+    return int(round(v))
 
 
 def format_price_text(price: Any) -> str:
@@ -473,7 +556,11 @@ def passes_best_bet_thresholds(
 def _strict_ev_gate_hints(card: dict[str, Any]) -> list[str]:
     """Human-readable reasons a card is not `positive` (full gates), for game-detail UI."""
     market_key = str(card.get("market_key") or "")
-    if market_key not in BEST_BET_MARKET_KEYS or card.get("positive"):
+    if (
+        market_key not in BEST_BET_MARKET_KEYS
+        and not is_player_prop_yes_market(market_key)
+        and market_key != PITCHER_STRIKEOUTS_MARKET_KEY
+    ) or card.get("positive"):
         return []
     thresholds = market_thresholds(market_key)
     wev = to_float(card.get("weighted_ev"))
@@ -512,10 +599,15 @@ def annotate_market_card_for_display(card: dict[str, Any]) -> dict[str, Any]:
     badges: list[dict[str, str]] = []
     tier = "monitor"
 
+    if card.get("hr_model_only"):
+        badges.append({"key": "model_only", "label": "Model only (no book line)"})
+
     if card.get("positive"):
         tier = "strict"
         badges.append({"key": "strict", "label": "Full EV gates"})
-    elif mk in BEST_BET_MARKET_KEYS and qualifies_board_green_strip(card):
+    elif mk in BEST_BET_MARKET_KEYS and qualifies_board_green_strip(
+        card
+    ):
         tier = "soft_green"
         badges.append({"key": "soft_green", "label": "Soft green strip"})
     elif _is_watchlist_candidate(card):
@@ -536,16 +628,61 @@ def annotate_market_card_for_display(card: dict[str, Any]) -> dict[str, Any]:
     out = dict(card)
     out["board_pick_tier"] = tier
     out["board_badges"] = badges
-    if not card.get("positive") and mk in BEST_BET_MARKET_KEYS:
+    if not card.get("positive") and (
+        mk in BEST_BET_MARKET_KEYS or is_player_prop_yes_market(mk) or mk == PITCHER_STRIKEOUTS_MARKET_KEY
+    ):
         hints = _strict_ev_gate_hints(card)
         if hints:
             out["ev_gate_hints"] = hints
     return out
 
 
+def _game_certainty_pct_from_game(game: dict[str, Any]) -> float | None:
+    dq = game.get("data_quality") or {}
+    v = dq.get("certainty_pct")
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _meets_board_green_min_game_certainty(card: dict[str, Any]) -> bool:
+    """Optional gate: per-game ``data_quality.certainty_pct`` (0–100) vs settings."""
+    min_pct = get_settings().board_green_min_game_certainty_pct
+    if min_pct is None:
+        return True
+    gcp = card.get("game_certainty_pct")
+    if gcp is None:
+        return False
+    try:
+        return float(gcp) >= float(min_pct)
+    except (TypeError, ValueError):
+        return False
+
+
+def _input_trust_actionable_for_green_strip(card: dict[str, Any]) -> bool:
+    """Green strip: only A/B input trust — same bar as ``promotion_tier`` actionable (not edge-only C/D)."""
+    it = card.get("input_trust")
+    if not isinstance(it, dict):
+        return False
+    grade = str(it.get("grade") or "").strip().upper()
+    return grade in ACTIONABLE_TRUST_GRADES
+
+
 def qualifies_board_green_strip(card: dict[str, Any]) -> bool:
-    """Strict green (`positive`) or softer edge band so the main board is not empty on thin slates."""
-    if not card or str(card.get("market_key") or "") not in BEST_BET_MARKET_KEYS:
+    """Strict green (`positive`) uses full EV gates only. Soft backfill needs soft thresholds + A/B trust.
+
+    Rationale: `positive` already encodes strong model + price edges; input trust mainly filters
+    marginal soft greens when pregame context is weak.
+    """
+    mk = str(card.get("market_key") or "")
+    if excluded_from_team_best_pick_board(mk):
+        return False
+    if not card or mk not in BEST_BET_MARKET_KEYS:
+        return False
+    if not _meets_board_green_min_game_certainty(card):
         return False
     if card.get("positive"):
         return True
@@ -555,12 +692,14 @@ def qualifies_board_green_strip(card: dict[str, Any]) -> bool:
     mp = to_float(card.get("model_probability"))
     if wev is None or pe is None or cw is None or mp is None:
         return False
-    return bool(
+    if not (
         cw >= BOARD_GREEN_SOFT_MIN_CERTAINTY
         and wev >= BOARD_GREEN_SOFT_MIN_WEIGHTED_EV
         and pe >= BOARD_GREEN_SOFT_MIN_PROB_EDGE
         and mp >= BOARD_GREEN_SOFT_MIN_MODEL_PROB
-    )
+    ):
+        return False
+    return _input_trust_actionable_for_green_strip(card)
 
 
 def build_market_candidate(
@@ -600,10 +739,12 @@ def build_market_candidate(
         model_probability=model_probability,
     )
     it = card_input_trust_from_game(game)
+    gcp = _game_certainty_pct_from_game(game)
     return {
         "game_id": int(game.get("game_id") or 0),
         "away_team": game.get("away_team"),
         "home_team": game.get("home_team"),
+        "game_certainty_pct": gcp,
         "market_key": market_key,
         "market_label": market_label,
         "selection_label": selection_label,
@@ -639,6 +780,7 @@ def fallback_market_card(
         "game_id": int(game.get("game_id") or 0),
         "away_team": game.get("away_team"),
         "home_team": game.get("home_team"),
+        "game_certainty_pct": _game_certainty_pct_from_game(game),
         "market_key": market_key,
         "market_label": market_label,
         "selection_label": None,
@@ -676,9 +818,227 @@ def best_market_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | 
     )
 
 
+def hitter_lineup_certainty_weight(record: dict[str, Any]) -> float:
+    if record.get("is_confirmed_lineup"):
+        return 0.85
+    if record.get("has_lineup_snapshot"):
+        return 0.78
+    return 0.65
+
+
+def build_player_hits_board_card(record: dict[str, Any]) -> dict[str, Any] | None:
+    """1+ hit yes-side card aligned with team market EV tiers (hot hitter / detail surfaces)."""
+    mp = to_float(record.get("predicted_hit_probability"))
+    price = record.get("market_price")
+    if mp is None:
+        return None
+    price_f = to_float(price)
+    if price_f is None:
+        return None
+    implied = american_implied_probability(price_f)
+    pe = to_float(record.get("edge"))
+    if pe is None and implied is not None:
+        pe = mp - implied
+    if pe is None:
+        return None
+    profit = american_profit_per_unit(price_f)
+    if profit is None:
+        return None
+    loss_p = max(0.0, 1.0 - mp)
+    raw_ev = (mp * profit) - loss_p
+    cw = hitter_lineup_certainty_weight(record)
+    weighted_ev = raw_ev * cw
+    fair_p = implied if implied is not None else max(0.0, min(1.0, mp - pe))
+    player_name = str(record.get("player_name") or "Player")
+    team = str(record.get("team") or "")
+    away_team = str(record.get("away_team") or "")
+    home_team = str(record.get("home_team") or "")
+    market_summary = (
+        f"Yes (1+ H) {format_price_text(price_f)}"
+        + (f" · Fair {format_price_text(record.get('fair_price'))}" if record.get("fair_price") is not None else "")
+    )
+    model_summary = (
+        f"Model P(1+ H) {mp * 100:.1f}% · Market implied {fair_p * 100:.1f}%"
+        if fair_p is not None
+        else f"Model P(1+ H) {mp * 100:.1f}%"
+    )
+    positive = passes_best_bet_thresholds(
+        PLAYER_HITS_MARKET_KEY,
+        weighted_ev=float(weighted_ev),
+        probability_edge=float(pe),
+        certainty_weight=float(cw),
+        model_probability=float(mp),
+    )
+    trust_grade = "A" if record.get("is_confirmed_lineup") else ("B" if record.get("has_lineup_snapshot") else "C")
+    it = {"grade": trust_grade}
+    return {
+        "game_id": int(record.get("game_id") or 0),
+        "player_id": int(record["player_id"]) if record.get("player_id") is not None else None,
+        "away_team": away_team,
+        "home_team": home_team,
+        "market_key": PLAYER_HITS_MARKET_KEY,
+        "market_label": "1+ Hits",
+        "selection_label": f"{player_name} Yes (1+ H)",
+        "pick_label": f"{player_name} · 1+ Hits",
+        "subject_label": f"{player_name} ({team})" if team else player_name,
+        "subject_subtitle": f"{away_team} at {home_team}" if away_team and home_team else "",
+        "bet_side": "yes",
+        "sportsbook": record.get("sportsbook"),
+        "line_value": None,
+        "price": int(round(price_f)),
+        "opposing_price": None,
+        "model_probability": round(float(mp), 4),
+        "no_vig_probability": round(float(fair_p), 4) if fair_p is not None else None,
+        "probability_edge": round(float(pe), 4),
+        "raw_ev": round(float(raw_ev), 4),
+        "weighted_ev": round(float(weighted_ev), 4),
+        "certainty_weight": round(float(cw), 4),
+        "push_probability": 0.0,
+        "positive": positive,
+        "input_trust": it,
+        "promotion_tier": promotion_tier_for_card(positive=positive, input_trust=it),
+        "market_summary": market_summary,
+        "model_summary": model_summary,
+    }
+
+
+def _build_player_hr_board_card_model_only(record: dict[str, Any], mp: float) -> dict[str, Any]:
+    """HR card when the model scored the prop but no sportsbook line was ingested for that batter."""
+    player_name = str(record.get("player_name") or "Player")
+    team = str(record.get("team") or "")
+    away_team = str(record.get("away_team") or "")
+    home_team = str(record.get("home_team") or "")
+    cw = hitter_lineup_certainty_weight(record)
+    trust_grade = "A" if record.get("is_confirmed_lineup") else ("B" if record.get("has_lineup_snapshot") else "C")
+    it = {"grade": trust_grade}
+    fair_bits = ""
+    fair_disp = _sanitize_hr_fair_american_for_display(record.get("fair_price"))
+    if fair_disp is not None:
+        fair_bits = f"Fair {format_price_text(fair_disp)} · "
+    market_summary = (
+        f"{fair_bits}No priced HR line in player_prop_markets for this matchup — model projection only."
+    )
+    phr = format_hr_probability_pct_display(mp)
+    model_summary = f"Model P(HR) {phr}"
+    return {
+        "game_id": int(record.get("game_id") or 0),
+        "player_id": int(record["player_id"]) if record.get("player_id") is not None else None,
+        "away_team": away_team,
+        "home_team": home_team,
+        "market_key": PLAYER_HOME_RUN_MARKET_KEY,
+        "market_label": "To hit a HR",
+        "selection_label": f"{player_name} · HR (model)",
+        "pick_label": f"{player_name} · HR",
+        "subject_label": f"{player_name} ({team})" if team else player_name,
+        "subject_subtitle": f"{away_team} at {home_team}" if away_team and home_team else "",
+        "bet_side": "yes",
+        "sportsbook": record.get("sportsbook"),
+        "line_value": None,
+        "price": None,
+        "opposing_price": None,
+        "model_probability": round(float(mp), HR_MODEL_PROBABILITY_DECIMALS),
+        "no_vig_probability": None,
+        "probability_edge": None,
+        "raw_ev": None,
+        "weighted_ev": None,
+        "certainty_weight": round(float(cw), 4),
+        "push_probability": 0.0,
+        "positive": False,
+        "input_trust": it,
+        "promotion_tier": promotion_tier_for_card(positive=False, input_trust=it),
+        "market_summary": market_summary,
+        "model_summary": model_summary,
+        "hr_probability_display": phr,
+        "hr_reasoning": record.get("hr_reasoning") or [],
+        "hr_model_only": True,
+    }
+
+
+def build_player_hr_board_card(record: dict[str, Any]) -> dict[str, Any] | None:
+    """Yes-side HR prop card (priced over / yes lines). Rare events — thresholds are looser than 1+ hits."""
+    mp = to_float(record.get("predicted_hr_probability"))
+    price = record.get("market_price")
+    if mp is None:
+        return None
+    price_f = to_float(price)
+    if price_f is None:
+        return _build_player_hr_board_card_model_only(record, float(mp))
+    implied = american_implied_probability(price_f)
+    pe = to_float(record.get("edge"))
+    if pe is None and implied is not None:
+        pe = mp - implied
+    if pe is None:
+        return None
+    profit = american_profit_per_unit(price_f)
+    if profit is None:
+        return None
+    loss_p = max(0.0, 1.0 - mp)
+    raw_ev = (mp * profit) - loss_p
+    cw = hitter_lineup_certainty_weight(record)
+    weighted_ev = raw_ev * cw
+    fair_p = implied if implied is not None else max(0.0, min(1.0, mp - pe))
+    player_name = str(record.get("player_name") or "Player")
+    team = str(record.get("team") or "")
+    away_team = str(record.get("away_team") or "")
+    home_team = str(record.get("home_team") or "")
+    fair_disp = _sanitize_hr_fair_american_for_display(record.get("fair_price"))
+    market_summary = (
+        f"Yes (HR) {format_price_text(price_f)}"
+        + (f" · Fair {format_price_text(fair_disp)}" if fair_disp is not None else "")
+    )
+    phr = format_hr_probability_pct_display(mp)
+    model_summary = (
+        f"Model P(HR) {phr} · Market implied {fair_p * 100:.2f}%"
+        if fair_p is not None
+        else f"Model P(HR) {phr}"
+    )
+    positive = passes_best_bet_thresholds(
+        PLAYER_HOME_RUN_MARKET_KEY,
+        weighted_ev=float(weighted_ev),
+        probability_edge=float(pe),
+        certainty_weight=float(cw),
+        model_probability=float(mp),
+    )
+    trust_grade = "A" if record.get("is_confirmed_lineup") else ("B" if record.get("has_lineup_snapshot") else "C")
+    it = {"grade": trust_grade}
+    return {
+        "game_id": int(record.get("game_id") or 0),
+        "player_id": int(record["player_id"]) if record.get("player_id") is not None else None,
+        "away_team": away_team,
+        "home_team": home_team,
+        "market_key": PLAYER_HOME_RUN_MARKET_KEY,
+        "market_label": "To hit a HR",
+        "selection_label": f"{player_name} Yes (HR)",
+        "pick_label": f"{player_name} · HR",
+        "subject_label": f"{player_name} ({team})" if team else player_name,
+        "subject_subtitle": f"{away_team} at {home_team}" if away_team and home_team else "",
+        "bet_side": "yes",
+        "sportsbook": record.get("sportsbook"),
+        "line_value": None,
+        "price": int(round(price_f)),
+        "opposing_price": None,
+        "model_probability": round(float(mp), HR_MODEL_PROBABILITY_DECIMALS),
+        "no_vig_probability": round(float(fair_p), 4) if fair_p is not None else None,
+        "probability_edge": round(float(pe), 4),
+        "raw_ev": round(float(raw_ev), 4),
+        "weighted_ev": round(float(weighted_ev), 4),
+        "certainty_weight": round(float(cw), 4),
+        "push_probability": 0.0,
+        "positive": positive,
+        "input_trust": it,
+        "promotion_tier": promotion_tier_for_card(positive=positive, input_trust=it),
+        "market_summary": market_summary,
+        "model_summary": model_summary,
+        "hr_probability_display": phr,
+        "hr_reasoning": record.get("hr_reasoning") or [],
+    }
+
+
 def build_market_cards_for_game(
     game: dict[str, Any],
     market_rows_by_type: dict[str, list[dict[str, Any]]],
+    *,
+    all_scored_team_candidates: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     away_team = str(game.get("away_team") or "Away")
     home_team = str(game.get("home_team") or "Home")
@@ -688,6 +1048,9 @@ def build_market_cards_for_game(
 
     away_expected_runs = to_float(totals.get("away_expected_runs"))
     home_expected_runs = to_float(totals.get("home_expected_runs"))
+    full_game_total_mean = to_float(totals.get("predicted_total_runs"))
+    if full_game_total_mean is None and away_expected_runs is not None and home_expected_runs is not None:
+        full_game_total_mean = away_expected_runs + home_expected_runs
     first5_away_runs = to_float(first5_totals.get("away_runs") or first5_totals.get("away_expected_runs"))
     first5_home_runs = to_float(first5_totals.get("home_runs") or first5_totals.get("home_expected_runs"))
     first5_total_runs = to_float(first5_totals.get("total_runs") or first5_totals.get("predicted_total_runs"))
@@ -718,8 +1081,11 @@ def build_market_cards_for_game(
                         ],
                     )
                 )
-        best_candidate = best_market_candidate(candidates)
-        cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key="moneyline", market_label="Moneyline", market_summary=f"{away_team} / {home_team}", model_summary="Win probability unavailable."))
+        if all_scored_team_candidates:
+            cards.extend([c for c in candidates if c])
+        else:
+            best_candidate = best_market_candidate(candidates)
+            cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key="moneyline", market_label="Moneyline", market_summary=f"{away_team} / {home_team}", model_summary="Win probability unavailable."))
 
     run_line_rows, _ = market_focus_rows(market_rows_by_type.get("run_line") or [])
     if run_line_rows:
@@ -742,8 +1108,119 @@ def build_market_cards_for_game(
                         ],
                     )
                 )
-        best_candidate = best_market_candidate(candidates)
-        cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key="run_line", market_label="Run Line", market_summary=f"{away_team} / {home_team}", model_summary="Run-line probability unavailable."))
+        if all_scored_team_candidates:
+            cards.extend([c for c in candidates if c])
+        else:
+            best_candidate = best_market_candidate(candidates)
+            cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key="run_line", market_label="Run Line", market_summary=f"{away_team} / {home_team}", model_summary="Run-line probability unavailable."))
+
+    total_rows, _ = market_focus_rows(market_rows_by_type.get("total") or [])
+    # Book odds live in ``game_markets`` (``market_type='total'``). When that ingest is empty but
+    # ``predictions_totals`` already has ``market_total`` + projected runs, still build a game_total
+    # card using the model's consensus line and neutral −110/−110 for no-vig EV (same idea as a
+    # placeholder until ``game_markets`` rows land).
+    total_rows_effective: list[dict[str, Any]] = list(total_rows)
+    synthetic_total_prices = False
+    if not total_rows_effective and full_game_total_mean is not None:
+        mt = to_float(totals.get("market_total"))
+        if mt is not None:
+            total_rows_effective = [
+                {
+                    "line_value": mt,
+                    "over_price": -110,
+                    "under_price": -110,
+                    "sportsbook": totals.get("market_sportsbook") or "model_market_total",
+                }
+            ]
+            synthetic_total_prices = True
+
+    if total_rows_effective:
+        if full_game_total_mean is not None:
+            candidates = []
+            for row in total_rows_effective:
+                line_value = to_float(row.get("line_value"))
+                probabilities = team_total_side_probabilities(full_game_total_mean, line_value)
+                price_note = (
+                    " · EV vs −110/−110 placeholder (no game_markets total row)"
+                    if synthetic_total_prices
+                    else ""
+                )
+                market_summary = (
+                    f"Full-game run total {format(line_value, '.1f') if line_value is not None else '-'} · "
+                    f"Over {format_price_text(row.get('over_price'))} / Under {format_price_text(row.get('under_price'))}"
+                    f"{price_note}"
+                )
+                model_summary = (
+                    f"Mean {format(full_game_total_mean, '.2f') if full_game_total_mean is not None else '-'} runs · Over {format(probabilities['over']['win'] * 100, '.1f') if probabilities else '-'}% / "
+                    f"Under {format(probabilities['under']['win'] * 100, '.1f') if probabilities else '-'}%"
+                )
+                if probabilities is not None and line_value is not None:
+                    candidates.extend(
+                        filter(
+                            None,
+                            [
+                                build_market_candidate(
+                                    game=game,
+                                    market_key="game_total",
+                                    market_label="Game Total (Runs)",
+                                    selection_label=f"Over {line_value:.1f} runs",
+                                    bet_side="over",
+                                    sportsbook=row.get("sportsbook"),
+                                    line_value=line_value,
+                                    price=row.get("over_price"),
+                                    opposing_price=row.get("under_price"),
+                                    model_probability=probabilities["over"]["win"],
+                                    model_loss_probability=probabilities["over"]["loss"],
+                                    push_probability=probabilities["over"]["push"],
+                                    certainty_weight=certainty_weight,
+                                    market_summary=market_summary,
+                                    model_summary=model_summary,
+                                ),
+                                build_market_candidate(
+                                    game=game,
+                                    market_key="game_total",
+                                    market_label="Game Total (Runs)",
+                                    selection_label=f"Under {line_value:.1f} runs",
+                                    bet_side="under",
+                                    sportsbook=row.get("sportsbook"),
+                                    line_value=line_value,
+                                    price=row.get("under_price"),
+                                    opposing_price=row.get("over_price"),
+                                    model_probability=probabilities["under"]["win"],
+                                    model_loss_probability=probabilities["under"]["loss"],
+                                    push_probability=probabilities["under"]["push"],
+                                    certainty_weight=certainty_weight,
+                                    market_summary=market_summary,
+                                    model_summary=model_summary,
+                                ),
+                            ],
+                        )
+                    )
+            if all_scored_team_candidates:
+                cards.extend([c for c in candidates if c])
+            else:
+                best_candidate = best_market_candidate(candidates)
+                cards.append(
+                    best_candidate
+                    if best_candidate is not None
+                    else fallback_market_card(
+                        game=game,
+                        market_key="game_total",
+                        market_label="Game Total (Runs)",
+                        market_summary="Game total (runs)",
+                        model_summary="Full-game total probability unavailable.",
+                    )
+                )
+        elif not all_scored_team_candidates:
+            cards.append(
+                fallback_market_card(
+                    game=game,
+                    market_key="game_total",
+                    market_label="Game Total (Runs)",
+                    market_summary="Game total (runs)",
+                    model_summary="Projected full-game runs missing — run totals features + predict so EV can be scored.",
+                )
+            )
 
     for market_key, team_name, team_mean in (("away_team_total", away_team, away_expected_runs), ("home_team_total", home_team, home_expected_runs)):
         focused_rows, _ = market_focus_rows(market_rows_by_type.get(market_key) or [])
@@ -768,8 +1245,11 @@ def build_market_cards_for_game(
                         ],
                     )
                 )
-        best_candidate = best_market_candidate(candidates)
-        cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key=market_key, market_label="Away Team Total" if market_key == "away_team_total" else "Home Team Total", market_summary=f"{team_name} team total", model_summary="Team-total probability unavailable."))
+        if all_scored_team_candidates:
+            cards.extend([c for c in candidates if c])
+        else:
+            best_candidate = best_market_candidate(candidates)
+            cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key=market_key, market_label="Away Team Total" if market_key == "away_team_total" else "Home Team Total", market_summary=f"{team_name} team total", model_summary="Team-total probability unavailable."))
 
     first5_moneyline_rows = market_rows_by_type.get("first_five_moneyline") or []
     if first5_moneyline_rows:
@@ -787,8 +1267,11 @@ def build_market_cards_for_game(
                         ],
                     )
                 )
-        best_candidate = best_market_candidate(candidates)
-        cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key="first_five_moneyline", market_label="First 5 Moneyline", market_summary=f"F5 {away_team} / {home_team}", model_summary="First-five moneyline probability unavailable."))
+        if all_scored_team_candidates:
+            cards.extend([c for c in candidates if c])
+        else:
+            best_candidate = best_market_candidate(candidates)
+            cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key="first_five_moneyline", market_label="First 5 Moneyline", market_summary=f"F5 {away_team} / {home_team}", model_summary="First-five moneyline probability unavailable."))
 
     first5_total_rows, _ = market_focus_rows(market_rows_by_type.get("first_five_total") or [])
     if first5_total_rows:
@@ -806,13 +1289,16 @@ def build_market_cards_for_game(
                     filter(
                         None,
                         [
-                            build_market_candidate(game=game, market_key="first_five_total", market_label="First 5 Total", selection_label=f"F5 Over {line_value:.1f}", bet_side="over", sportsbook=row.get("sportsbook"), line_value=line_value, price=row.get("over_price"), opposing_price=row.get("under_price"), model_probability=probabilities["over"]["win"], model_loss_probability=probabilities["over"]["loss"], push_probability=probabilities["over"]["push"], certainty_weight=certainty_weight, market_summary=market_summary, model_summary=model_summary),
-                            build_market_candidate(game=game, market_key="first_five_total", market_label="First 5 Total", selection_label=f"F5 Under {line_value:.1f}", bet_side="under", sportsbook=row.get("sportsbook"), line_value=line_value, price=row.get("under_price"), opposing_price=row.get("over_price"), model_probability=probabilities["under"]["win"], model_loss_probability=probabilities["under"]["loss"], push_probability=probabilities["under"]["push"], certainty_weight=certainty_weight, market_summary=market_summary, model_summary=model_summary),
+                            build_market_candidate(game=game, market_key="first_five_total", market_label="First 5 Combined Total", selection_label=f"F5 Over {line_value:.1f}", bet_side="over", sportsbook=row.get("sportsbook"), line_value=line_value, price=row.get("over_price"), opposing_price=row.get("under_price"), model_probability=probabilities["over"]["win"], model_loss_probability=probabilities["over"]["loss"], push_probability=probabilities["over"]["push"], certainty_weight=certainty_weight, market_summary=market_summary, model_summary=model_summary),
+                            build_market_candidate(game=game, market_key="first_five_total", market_label="First 5 Combined Total", selection_label=f"F5 Under {line_value:.1f}", bet_side="under", sportsbook=row.get("sportsbook"), line_value=line_value, price=row.get("under_price"), opposing_price=row.get("over_price"), model_probability=probabilities["under"]["win"], model_loss_probability=probabilities["under"]["loss"], push_probability=probabilities["under"]["push"], certainty_weight=certainty_weight, market_summary=market_summary, model_summary=model_summary),
                         ],
                     )
                 )
-        best_candidate = best_market_candidate(candidates)
-        cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key="first_five_total", market_label="First 5 Total", market_summary="First 5 total", model_summary="First-five total probability unavailable."))
+        if all_scored_team_candidates:
+            cards.extend([c for c in candidates if c])
+        else:
+            best_candidate = best_market_candidate(candidates)
+            cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key="first_five_total", market_label="First 5 Combined Total", market_summary="First 5 combined total", model_summary="First-five total probability unavailable."))
 
     first5_spread_rows, _ = market_focus_rows(market_rows_by_type.get("first_five_spread") or [])
     if first5_spread_rows:
@@ -835,8 +1321,11 @@ def build_market_cards_for_game(
                         ],
                     )
                 )
-        best_candidate = best_market_candidate(candidates)
-        cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key="first_five_spread", market_label="First 5 Run Line", market_summary=f"F5 {away_team} / {home_team}", model_summary="First-five spread probability unavailable."))
+        if all_scored_team_candidates:
+            cards.extend([c for c in candidates if c])
+        else:
+            best_candidate = best_market_candidate(candidates)
+            cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key="first_five_spread", market_label="First 5 Run Line", market_summary=f"F5 {away_team} / {home_team}", model_summary="First-five spread probability unavailable."))
 
     for market_key, team_name, team_mean in (("first_five_team_total_away", away_team, first5_away_runs), ("first_five_team_total_home", home_team, first5_home_runs)):
         focused_rows, _ = market_focus_rows(market_rows_by_type.get(market_key) or [])
@@ -861,14 +1350,100 @@ def build_market_cards_for_game(
                         ],
                     )
                 )
-        best_candidate = best_market_candidate(candidates)
-        cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key=market_key, market_label="First 5 Away Team Total" if market_key == "first_five_team_total_away" else "First 5 Home Team Total", market_summary=f"F5 {team_name} team total", model_summary="First-five team-total probability unavailable."))
+        if all_scored_team_candidates:
+            cards.extend([c for c in candidates if c])
+        else:
+            best_candidate = best_market_candidate(candidates)
+            cards.append(best_candidate if best_candidate is not None else fallback_market_card(game=game, market_key=market_key, market_label="First 5 Away Team Total" if market_key == "first_five_team_total_away" else "First 5 Home Team Total", market_summary=f"F5 {team_name} team total", model_summary="First-five team-total probability unavailable."))
+
+    if all_scored_team_candidates:
+        scored = [
+            annotate_market_card_for_display(card)
+            for card in cards
+            if card.get("market_key") in BEST_BET_MARKET_KEYS and to_float(card.get("weighted_ev")) is not None
+        ]
+        scored.sort(
+            key=lambda card: (
+                float(card.get("weighted_ev") or -999.0),
+                float(card.get("probability_edge") or -999.0),
+            ),
+            reverse=True,
+        )
+        return scored, []
 
     cards = [card for card in cards if card.get("market_key") in BEST_BET_MARKET_KEYS]
     cards = [annotate_market_card_for_display(card) for card in cards]
     positive_cards = [card for card in cards if card.get("positive")]
     positive_cards.sort(key=lambda card: (float(card.get("weighted_ev") or -999.0), float(card.get("probability_edge") or -999.0)), reverse=True)
     return cards, positive_cards[:BEST_BET_SELECTION_LIMIT_PER_GAME]
+
+
+def collect_all_team_market_ev_candidates(
+    game: dict[str, Any],
+    market_rows_by_type: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Every scored team-market side (ML/RL/totals/F5…) for Top EV selection — not one pick per market type."""
+    scored, _ = build_market_cards_for_game(game, market_rows_by_type, all_scored_team_candidates=True)
+    return scored
+
+
+def build_pitcher_strikeouts_ev_cards_from_starter(
+    game: dict[str, Any],
+    starter: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Over/under K props for one starter when ``k_projection`` has probabilities and book prices."""
+    if not starter:
+        return []
+    kp = starter.get("k_projection")
+    if not isinstance(kp, dict):
+        return []
+    market = kp.get("market") or {}
+    line = to_float(market.get("consensus_line"))
+    over_price = market.get("best_over_price")
+    under_price = market.get("best_under_price")
+    op = to_float(kp.get("over_probability"))
+    un = to_float(kp.get("under_probability"))
+    if line is None or op is None or un is None:
+        return []
+    pname = str(starter.get("pitcher_name") or "Pitcher")
+    pid = starter.get("pitcher_id")
+    team = str(starter.get("team") or "")
+    cw = game_certainty_weight(game.get("certainty"))
+    out: list[dict[str, Any]] = []
+    for bet_side, mp, loss_p, price, opp, label in (
+        ("over", op, un, over_price, under_price, f"{pname} Over {line:g} K"),
+        ("under", un, op, under_price, over_price, f"{pname} Under {line:g} K"),
+    ):
+        if price is None:
+            continue
+        ms = (
+            f"{pname} K line {line:g} · Over {format_price_text(over_price)} / "
+            f"Under {format_price_text(under_price)}"
+        )
+        msum = f"Model P(over) {op * 100:.1f}% · P(under) {un * 100:.1f}%"
+        card = build_market_candidate(
+            game=game,
+            market_key=PITCHER_STRIKEOUTS_MARKET_KEY,
+            market_label="Pitcher strikeouts",
+            selection_label=label,
+            bet_side=bet_side,
+            sportsbook=None,
+            line_value=line,
+            price=price,
+            opposing_price=opp,
+            model_probability=mp,
+            model_loss_probability=loss_p,
+            push_probability=0.0,
+            certainty_weight=cw,
+            market_summary=ms,
+            model_summary=msum,
+        )
+        if not card:
+            continue
+        card["player_id"] = int(pid) if pid is not None else None
+        card["subject_label"] = f"{pname} ({team})" if team else pname
+        out.append(annotate_market_card_for_display(card))
+    return out
 
 
 def _green_strip_row_key(card: dict[str, Any]) -> tuple[int, str, str]:
@@ -954,6 +1529,8 @@ def flatten_best_bets(rows: list[dict[str, Any]], limit: int | None = None) -> l
         gid = int(row.get("game_id") or 0)
 
         def _add(card: dict[str, Any]) -> None:
+            if excluded_from_team_best_pick_board(card.get("market_key")):
+                return
             if not qualifies_board_green_strip(card):
                 return
             key = (gid, str(card.get("market_key") or ""), str(card.get("selection_label") or ""))
@@ -996,7 +1573,10 @@ def flatten_best_bets(rows: list[dict[str, Any]], limit: int | None = None) -> l
 def _is_watchlist_candidate(card: dict[str, Any]) -> bool:
     if not card or card.get("positive"):
         return False
-    if str(card.get("market_key") or "") not in BEST_BET_MARKET_KEYS:
+    mk = str(card.get("market_key") or "")
+    if excluded_from_team_best_pick_board(mk):
+        return False
+    if mk not in BEST_BET_MARKET_KEYS:
         return False
     model_probability = to_float(card.get("model_probability"))
     certainty_weight = to_float(card.get("certainty_weight"))
@@ -1016,8 +1596,44 @@ def _is_watchlist_candidate(card: dict[str, Any]) -> bool:
 def flatten_watchlist_markets(
     rows: list[dict[str, Any]],
     limit: int = BOARD_WATCHLIST_LIMIT,
+    *,
+    secondary_lines_only: bool = False,
 ) -> list[dict[str, Any]]:
-    selected: list[dict[str, Any]] = []
+    """Board strip: games with **no** green-strip pick (legacy behavior).
+
+    When ``secondary_lines_only`` is True (Daily Results / outcome snapshots), include
+    watchlist-tier team markets from **every** game **except** picks that already appear
+    on the green strip — so slates that fill the green board still have secondary lines to track.
+    """
+    if secondary_lines_only:
+        green_strip = flatten_best_bets(rows, limit=None)
+        green_keys = {_green_strip_row_key(c) for c in green_strip}
+        selected: list[dict[str, Any]] = []
+        for row in rows:
+            gid = int(row.get("game_id") or 0)
+            for card in row.get("market_cards") or []:
+                if excluded_from_team_best_pick_board(card.get("market_key")):
+                    continue
+                if not _is_watchlist_candidate(card):
+                    continue
+                keyed = dict(card)
+                if keyed.get("game_id") is None:
+                    keyed["game_id"] = gid
+                if _green_strip_row_key(keyed) in green_keys:
+                    continue
+                selected.append(keyed)
+        selected.sort(
+            key=lambda card: (
+                float(card.get("weighted_ev") or -999.0),
+                float(card.get("probability_edge") or -999.0),
+                float(card.get("raw_ev") or -999.0),
+                float(card.get("model_probability") or -999.0),
+            ),
+            reverse=True,
+        )
+        return selected[:limit]
+
+    selected = []
     green_game_ids = {
         int(card.get("game_id"))
         for card in flatten_best_bets(rows, limit=None)
@@ -1029,12 +1645,19 @@ def flatten_watchlist_markets(
             continue
         # Per-game `best_bets` are strict positives (≤1/game). If present, they are the game's
         # primary pick even when they miss the global green strip top-N — still show on watchlist.
-        raw_best = list(row.get("best_bets") or [])
+        raw_best = [
+            card
+            for card in (row.get("best_bets") or [])
+            if not excluded_from_team_best_pick_board(card.get("market_key"))
+        ]
         if raw_best:
             market_cards = raw_best
         else:
             market_cards = [
-                card for card in (row.get("market_cards") or []) if _is_watchlist_candidate(card)
+                card
+                for card in (row.get("market_cards") or [])
+                if _is_watchlist_candidate(card)
+                and not excluded_from_team_best_pick_board(card.get("market_key"))
             ]
         if not market_cards:
             continue
@@ -1047,7 +1670,11 @@ def flatten_watchlist_markets(
             ),
             reverse=True,
         )
-        selected.extend(market_cards)
+        selected.extend(
+            card
+            for card in market_cards
+            if not excluded_from_team_best_pick_board(card.get("market_key"))
+        )
     selected.sort(
         key=lambda card: (
             float(card.get("weighted_ev") or -999.0),
@@ -1074,9 +1701,14 @@ def snapshot_recommendation_tiers(
     *,
     green_limit: int | None = None,
     watchlist_limit: int = BOARD_WATCHLIST_LIMIT,
+    watchlist_secondary_lines: bool = False,
 ) -> dict[str, Any]:
     green_cards = flatten_best_bets(rows, limit=green_limit)
-    watchlist_cards = flatten_watchlist_markets(rows, limit=watchlist_limit)
+    watchlist_cards = flatten_watchlist_markets(
+        rows,
+        limit=watchlist_limit,
+        secondary_lines_only=watchlist_secondary_lines,
+    )
     return {
         "green_cards": green_cards,
         "watchlist_cards": watchlist_cards,
@@ -1097,9 +1729,9 @@ def dedupe_experimental_first_inning_by_game(
     market_field: str = "market_type",
     game_id_field: str = "game_id",
 ) -> list[dict[str, Any]]:
-    """Keep at most one nrfi/yrfi row per game_id; prefer nrfi when both exist."""
+    """Keep at most one row per (game_id, nrfi|yrfi). Both sides may appear for the same game."""
     order = {m: i for i, m in enumerate(EXPERIMENTAL_FIRST_INNING_MARKETS_ORDER)}
-    best_by_game: dict[int, dict[str, Any]] = {}
+    best_by_key: dict[tuple[int, str], dict[str, Any]] = {}
     for row in rows:
         gid_raw = row.get(game_id_field)
         if gid_raw is None:
@@ -1108,19 +1740,22 @@ def dedupe_experimental_first_inning_by_game(
         mkt = str(row.get(market_field) or "").lower()
         if mkt not in order:
             continue
-        existing = best_by_game.get(gid)
+        key = (gid, mkt)
+        existing = best_by_key.get(key)
         if existing is None:
-            best_by_game[gid] = row
+            best_by_key[key] = row
             continue
-        cur_m = str(existing.get(market_field) or "").lower()
-        if order[mkt] < order[cur_m]:
-            best_by_game[gid] = row
+        ts_new = str(row.get("snapshot_ts") or "")
+        ts_old = str(existing.get("snapshot_ts") or "")
+        if ts_new > ts_old:
+            best_by_key[key] = row
 
-    def _sort_key(r: dict[str, Any]) -> tuple[str, int]:
+    def _sort_key(r: dict[str, Any]) -> tuple[str, str, int]:
         ts = r.get("game_start_ts") or r.get("snapshot_ts") or r.get("game_date") or ""
-        return (str(ts), int(r.get(game_id_field) or 0))
+        mkt = str(r.get(market_field) or "").lower()
+        return (str(ts), mkt, int(r.get(game_id_field) or 0))
 
-    return sorted(best_by_game.values(), key=_sort_key)
+    return sorted(best_by_key.values(), key=_sort_key)
 
 
 def selected_team_for_card(card: dict[str, Any]) -> str | None:
@@ -1159,12 +1794,15 @@ def grade_best_bet_pick(
     *,
     actual_result: dict[str, Any] | None = None,
     first5_result: dict[str, Any] | None = None,
+    player_prop_actuals: dict[str, Any] | None = None,
+    pitcher_strikeouts_actual: float | None = None,
 ) -> dict[str, Any]:
     market_key = str(card.get("market_key") or "")
     bet_side = str(card.get("bet_side") or "")
     line_value = to_float(card.get("line_value"))
     actual_result = actual_result or {}
     first5_result = first5_result or {}
+    player_prop_actuals = player_prop_actuals or {}
 
     actual_side: str | None = None
     actual_measure: float | None = None
@@ -1200,6 +1838,22 @@ def grade_best_bet_pick(
             if team_runs > line_value:
                 actual_side = "over"
             elif team_runs < line_value:
+                actual_side = "under"
+            else:
+                actual_side = "push"
+    elif market_key == "game_total":
+        total_runs = to_float(actual_result.get("total_runs"))
+        if total_runs is None and bool(actual_result.get("is_final")):
+            away_runs = to_float(actual_result.get("away_runs"))
+            home_runs = to_float(actual_result.get("home_runs"))
+            if away_runs is not None and home_runs is not None:
+                total_runs = away_runs + home_runs
+        if total_runs is not None and line_value is not None and bool(actual_result.get("is_final")):
+            graded = True
+            actual_measure = total_runs
+            if total_runs > line_value:
+                actual_side = "over"
+            elif total_runs < line_value:
                 actual_side = "under"
             else:
                 actual_side = "push"
@@ -1244,6 +1898,27 @@ def grade_best_bet_pick(
             if team_runs > line_value:
                 actual_side = "over"
             elif team_runs < line_value:
+                actual_side = "under"
+            else:
+                actual_side = "push"
+    elif market_key == PLAYER_HITS_MARKET_KEY:
+        hit_ct = to_float(player_prop_actuals.get("hits"))
+        if hit_ct is not None and bool(actual_result.get("is_final")):
+            graded = True
+            actual_side = "yes" if hit_ct >= 1.0 else "no"
+    elif market_key == PLAYER_HOME_RUN_MARKET_KEY:
+        hr_ct = to_float(player_prop_actuals.get("home_runs"))
+        if hr_ct is not None and bool(actual_result.get("is_final")):
+            graded = True
+            actual_side = "yes" if hr_ct >= 1.0 else "no"
+    elif market_key == PITCHER_STRIKEOUTS_MARKET_KEY:
+        ks = to_float(pitcher_strikeouts_actual)
+        if ks is not None and line_value is not None and bool(actual_result.get("is_final")):
+            graded = True
+            actual_measure = ks
+            if ks > line_value:
+                actual_side = "over"
+            elif ks < line_value:
                 actual_side = "under"
             else:
                 actual_side = "push"

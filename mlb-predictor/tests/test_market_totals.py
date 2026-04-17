@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -15,6 +15,7 @@ from src.ingestors.market_totals import (
     _match_event_to_game,
     _parse_covers_date,
     _required_player_prop_coverage_gaps,
+    _every_expected_game_has_fresh_the_odds_api_snapshot,
 )
 
 
@@ -721,3 +722,34 @@ def test_game_lookup_builders_normalize_az_team_aliases():
     assert exact_lookup[(date(2026, 4, 3), "ARI", "ATL")]["home_team"] == "ARI"
     assert team_lookup[(date(2026, 4, 3), "ARI", "ATL")]["home_team"] == "ARI"
     assert team_lookup[(date(2026, 4, 3), "ATL", "ARI")]["away_team"] == "ATL"
+
+
+def test_every_expected_game_has_fresh_snapshot_false_when_empty_or_disabled():
+    now = datetime(2026, 4, 4, 12, 0, tzinfo=timezone.utc)
+    per = {1: now}
+    assert _every_expected_game_has_fresh_the_odds_api_snapshot([], per, fresh_within_minutes=30, now=now) is False
+    assert _every_expected_game_has_fresh_the_odds_api_snapshot([1], per, fresh_within_minutes=0, now=now) is False
+
+
+def test_every_expected_game_has_fresh_snapshot_requires_all_games():
+    now = datetime(2026, 4, 4, 12, 0, tzinfo=timezone.utc)
+    fresh = now - timedelta(minutes=10)
+    stale = now - timedelta(hours=2)
+    assert _every_expected_game_has_fresh_the_odds_api_snapshot(
+        [1, 2],
+        {1: fresh, 2: fresh},
+        fresh_within_minutes=30,
+        now=now,
+    )
+    assert not _every_expected_game_has_fresh_the_odds_api_snapshot(
+        [1, 2],
+        {1: fresh},
+        fresh_within_minutes=30,
+        now=now,
+    )
+    assert not _every_expected_game_has_fresh_the_odds_api_snapshot(
+        [1, 2],
+        {1: fresh, 2: stale},
+        fresh_within_minutes=30,
+        now=now,
+    )

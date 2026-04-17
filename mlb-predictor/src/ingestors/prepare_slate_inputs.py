@@ -10,6 +10,7 @@ from src.features.common import infer_lineup_from_history
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df
 from src.utils.logging import get_logger
+from src.utils.pregame_lock import filter_games_dataframe_pregame_unlocked
 from src.utils.settings import get_settings
 
 
@@ -337,8 +338,17 @@ def main() -> int:
 
     settings = get_settings()
     games = _load_games(start_date, end_date)
+    games = filter_games_dataframe_pregame_unlocked(
+        games,
+        settings.pregame_ingest_lock_minutes,
+        log_name="slate template games",
+    )
     if games.empty:
-        log.info("No games found for %s to %s; nothing to template", start_date, end_date)
+        log.info(
+            "No games to template for %s to %s (empty slate or all games inside pregame lock)",
+            start_date,
+            end_date,
+        )
         return 0
 
     snapshot_ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()

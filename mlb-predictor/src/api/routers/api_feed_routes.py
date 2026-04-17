@@ -37,8 +37,16 @@ def hot_hitters(
     min_probability: float = app_logic.Query(default=0.35, ge=0.0, le=1.0),
     confirmed_only: bool = app_logic.Query(default=False),
     include_inferred: bool = app_logic.Query(default=True),
+    streak_only: bool = app_logic.Query(default=False),
 ) -> app_logic.JSONResponse:
-    payload = app_logic._fetch_hot_hitters(target_date, min_probability, confirmed_only, limit, include_inferred)
+    payload = app_logic._fetch_hot_hitters(
+        target_date,
+        min_probability,
+        confirmed_only,
+        limit,
+        include_inferred,
+        streak_only,
+    )
     return app_logic._json_response({"target_date": target_date.isoformat(), **payload})
 
 
@@ -187,12 +195,13 @@ def player_recent_stats(
 @router.get("/api/results/daily")
 def daily_results(
     target_date: app_logic.date = app_logic.Query(default_factory=app_logic.date.today),
-    hit_min_probability: float = app_logic.Query(default=0.5, ge=0.0, le=1.0),
+    hit_min_probability: float = app_logic.Query(default=0.35, ge=0.0, le=1.0),
+    hitter_top_n: int = app_logic.Query(default=24, ge=1, le=200),
 ) -> app_logic.JSONResponse:
     return app_logic._json_response(
         {
             "target_date": target_date.isoformat(),
-            **app_logic._fetch_daily_results(target_date, hit_min_probability),
+            **app_logic._fetch_daily_results(target_date, hit_min_probability, hitter_top_n),
         }
     )
 

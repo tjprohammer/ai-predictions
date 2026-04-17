@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -9,6 +11,7 @@ import pandas as pd
 from sqlalchemy import inspect
 
 from src.utils import best_bets as best_bets_utils
+from src.utils.slugger_hr_selection import SLUGGER_HR_PER_GAME, iter_slugger_tracked_cards
 from src.utils.input_trust import input_trust_from_certainty
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import delete_for_date_range, get_engine, query_df, table_exists, upsert_rows
@@ -21,6 +24,13 @@ GREEN_HITTER_PICK_LIMIT_PER_DAY = 15
 EXPERIMENTAL_TRACKED_MARKETS = ("nrfi", "yrfi")
 EXPERIMENTAL_TRACKING_MODEL_NAME = "experimental_first_inning_markets"
 EXPERIMENTAL_TRACKING_MODEL_VERSION = "v1"
+TOP_EV_OUTCOME_MARKET = "top_ev"
+TOP_EV_TRACKING_MODEL_NAME = "top_ev_selector"
+TOP_EV_TRACKING_MODEL_VERSION = "v1"
+# Board UI caps the watchlist strip at ``BOARD_WATCHLIST_LIMIT`` (500). For ``prediction_outcomes_daily``
+# we must rank *every* watchlist-qualified card on the slate; otherwise picks below the cap never get
+# ``is_board_watchlist_pick`` metadata and disappear from Daily Results watchlist archives.
+OUTCOMES_SNAPSHOT_WATCHLIST_LIMIT = 10_000
 
 
 def _is_final_game_status(status: Any) -> bool:
@@ -435,6 +445,56 @@ def _experimental_selected_price(market_key: str, row: dict[str, Any]) -> float 
     return best_bets_utils.to_float(row.get("over_price"))
 
 
+def _fetch_inning1_recommended_market_by_game(start_date, end_date) -> dict[int, str]:
+    """Latest ``predictions_inning1_nrfi.recommended_side`` per ``game_id`` (``nrfi`` or ``yrfi``)."""
+    if not table_exists("predictions_inning1_nrfi"):
+        return {}
+    frame = query_df(
+        """
+        WITH ranked AS (
+            SELECT
+                game_id,
+                recommended_side,
+                ROW_NUMBER() OVER (
+                    PARTITION BY game_id
+                    ORDER BY prediction_ts DESC, model_version DESC, model_name DESC
+                ) AS row_rank
+            FROM predictions_inning1_nrfi
+            WHERE game_date BETWEEN :start_date AND :end_date
+        )
+        SELECT game_id, recommended_side
+        FROM ranked
+        WHERE row_rank = 1
+        """,
+        {"start_date": start_date, "end_date": end_date},
+    )
+    if frame.empty:
+        return {}
+    out: dict[int, str] = {}
+    for record in frame.to_dict(orient="records"):
+        gid = record.get("game_id")
+        side = str(record.get("recommended_side") or "").lower()
+        if gid is None or side not in EXPERIMENTAL_TRACKED_MARKETS:
+            continue
+        out[int(gid)] = side
+    return out
+
+
+def _experimental_outcome_tracks_market(
+    game_id: int,
+    market_key: str,
+    model_pick_by_game: dict[int, str],
+) -> bool:
+    """One experimental first-inning pick per game: model side, or NRFI if the model row is missing."""
+    mk = str(market_key or "").lower()
+    if mk not in EXPERIMENTAL_TRACKED_MARKETS:
+        return False
+    pick = model_pick_by_game.get(int(game_id))
+    if pick in EXPERIMENTAL_TRACKED_MARKETS:
+        return mk == pick
+    return mk == "nrfi"
+
+
 def _fetch_latest_experimental_market_rows(start_date, end_date) -> list[dict[str, Any]]:
     if not table_exists("game_markets"):
         return []
@@ -529,6 +589,19 @@ def _fetch_latest_experimental_market_rows(start_date, end_date) -> list[dict[st
 def _build_experimental_market_outcomes(start_date, end_date) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     market_rows = _fetch_latest_experimental_market_rows(start_date, end_date)
+    if not market_rows:
+        return rows
+
+    model_pick_by_game = _fetch_inning1_recommended_market_by_game(start_date, end_date)
+    market_rows = [
+        rec
+        for rec in market_rows
+        if _experimental_outcome_tracks_market(
+            int(rec["game_id"]),
+            str(rec.get("market_type") or ""),
+            model_pick_by_game,
+        )
+    ]
     if not market_rows:
         return rows
 
@@ -633,6 +706,8 @@ def _fetch_best_bet_totals_inputs(start_date, end_date) -> list[dict[str, Any]]:
             p.model_name,
             p.model_version,
             p.prediction_ts,
+            p.predicted_total_runs,
+            p.predicted_total_fundamentals,
             CAST(f.feature_payload ->> 'away_runs_rate_blended' AS DOUBLE PRECISION) AS away_expected_runs,
             CAST(f.feature_payload ->> 'home_runs_rate_blended' AS DOUBLE PRECISION) AS home_expected_runs,
             CAST(f.feature_payload ->> 'starter_certainty_score' AS DOUBLE PRECISION) AS starter_certainty_score,
@@ -870,6 +945,11 @@ def _best_bet_closing_probability(card: dict[str, Any], closing_market: dict[str
             return over_probability
         if bet_side == "under":
             return under_probability
+    if market_key == "game_total":
+        if bet_side == "over":
+            return over_probability
+        if bet_side == "under":
+            return under_probability
     return None
 
 
@@ -912,6 +992,8 @@ def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[s
             "totals": {
                 "away_expected_runs": record.get("away_expected_runs"),
                 "home_expected_runs": record.get("home_expected_runs"),
+                "predicted_total_runs": record.get("predicted_total_runs"),
+                "predicted_total_fundamentals": record.get("predicted_total_fundamentals"),
             },
             "first5_totals": {
                 "away_runs": (first5_map.get(game_id) or {}).get("away_runs"),
@@ -956,7 +1038,11 @@ def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[s
         )
 
     recommendation_snapshots_by_date = {
-        game_date: best_bets_utils.snapshot_recommendation_tiers(day_rows)
+        game_date: best_bets_utils.snapshot_recommendation_tiers(
+            day_rows,
+            watchlist_limit=OUTCOMES_SNAPSHOT_WATCHLIST_LIMIT,
+            watchlist_secondary_lines=True,
+        )
         for game_date, day_rows in recommendation_rows_by_date.items()
     }
 
@@ -1001,10 +1087,11 @@ def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[s
 
     closing_markets_by_market: dict[str, dict[int, dict[str, Any]]] = {}
     for market_key in best_bets_utils.BEST_BET_MARKET_KEYS:
+        db_market_type = "total" if market_key == "game_total" else market_key
         closing_markets_by_market[market_key] = _fetch_closing_market_by_game(
             start_date,
             end_date,
-            market_type=market_key,
+            market_type=db_market_type,
             preferred_sportsbook_by_game=preferred_books_by_market.get(market_key) or None,
             require_line_value=False,
         )
@@ -1126,6 +1213,192 @@ def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[s
     return rows
 
 
+def _build_top_ev_outcomes(start_date, end_date, weather_map: dict[int, dict[str, dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Track one Top EV pick per game (same selector as game detail ``top_ev_pick``)."""
+    import src.api.app_logic as app_logic
+
+    from src.api.constants import GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED
+
+    if not table_exists("games"):
+        return []
+
+    games_df = query_df(
+        """
+        SELECT game_id, game_date, status
+        FROM games
+        WHERE game_date BETWEEN :start_date AND :end_date
+        ORDER BY game_date, game_id
+        """,
+        {"start_date": start_date, "end_date": end_date},
+    )
+    if games_df.empty:
+        return []
+
+    bat_map: dict[tuple[int, int], dict[str, Any]] = {}
+    pit_map: dict[tuple[int, int], dict[str, Any]] = {}
+    if table_exists("player_game_batting"):
+        batting = query_df(
+            """
+            SELECT game_id, player_id, team, opponent, hits, home_runs
+            FROM player_game_batting
+            WHERE game_date BETWEEN :start_date AND :end_date
+            """,
+            {"start_date": start_date, "end_date": end_date},
+        )
+        for _, r in batting.iterrows():
+            bat_map[(int(r["game_id"]), int(r["player_id"]))] = dict(r)
+    if table_exists("player_game_pitching"):
+        pitching = query_df(
+            """
+            SELECT game_id, player_id, team, opponent, strikeouts
+            FROM player_game_pitching
+            WHERE game_date BETWEEN :start_date AND :end_date
+            """,
+            {"start_date": start_date, "end_date": end_date},
+        )
+        for _, r in pitching.iterrows():
+            pit_map[(int(r["game_id"]), int(r["player_id"]))] = dict(r)
+
+    first5_map = _fetch_best_bet_first5_inputs(start_date, end_date)
+    prediction_ts = datetime.now(timezone.utc)
+    out: list[dict[str, Any]] = []
+
+    for _, g in games_df.iterrows():
+        game_id = int(g["game_id"])
+        game_date = pd.to_datetime(g["game_date"]).date()
+        detail = app_logic._fetch_game_detail(
+            game_id,
+            game_date,
+            include_inferred=GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED,
+        )
+        if not detail:
+            continue
+        pick = detail.get("top_ev_pick")
+        if not pick:
+            continue
+
+        actual_result = dict(detail.get("actual_result") or {})
+        first5_result = {
+            "away_runs": (first5_map.get(game_id) or {}).get("actual_away_runs"),
+            "home_runs": (first5_map.get(game_id) or {}).get("actual_home_runs"),
+            "total_runs": (first5_map.get(game_id) or {}).get("actual_total_runs"),
+        }
+        mk = str(pick.get("market_key") or "")
+        pid = pick.get("player_id")
+        player_prop_actuals = None
+        pitcher_ks = None
+        team_abbr = best_bets_utils.selected_team_for_card(pick)
+        opponent_abbr = best_bets_utils.opposite_team_for_card(pick)
+        if pid is not None:
+            pid_i = int(pid)
+            if mk in (best_bets_utils.PLAYER_HITS_MARKET_KEY, best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY):
+                brow = bat_map.get((game_id, pid_i))
+                if brow is not None:
+                    player_prop_actuals = {"hits": brow.get("hits"), "home_runs": brow.get("home_runs")}
+                    team_abbr = brow.get("team") or team_abbr
+                    opponent_abbr = brow.get("opponent") or opponent_abbr
+            elif mk == best_bets_utils.PITCHER_STRIKEOUTS_MARKET_KEY:
+                prow = pit_map.get((game_id, pid_i))
+                if prow is not None:
+                    pitcher_ks = best_bets_utils.to_float(prow.get("strikeouts"))
+                    team_abbr = prow.get("team") or team_abbr
+                    opponent_abbr = prow.get("opponent") or opponent_abbr
+
+        grading = best_bets_utils.grade_best_bet_pick(
+            pick,
+            actual_result=actual_result,
+            first5_result=first5_result,
+            player_prop_actuals=player_prop_actuals,
+            pitcher_strikeouts_actual=pitcher_ks,
+        )
+        model_probability = best_bets_utils.to_float(pick.get("model_probability"))
+        market_probability = best_bets_utils.to_float(pick.get("no_vig_probability"))
+        push_probability = best_bets_utils.to_float(pick.get("push_probability")) or 0.0
+        loss_probability = None
+        if model_probability is not None:
+            loss_probability = max(0.0, 1.0 - model_probability - push_probability)
+        actual_value = grading.get("actual_value")
+        absolute_error = None
+        squared_error = None
+        brier_score = None
+        beat_market = None
+        if actual_value is not None and model_probability is not None:
+            absolute_error = abs(float(model_probability) - float(actual_value))
+            squared_error = (float(model_probability) - float(actual_value)) ** 2
+            brier_score = squared_error
+            if market_probability is not None:
+                beat_market = absolute_error < abs(float(market_probability) - float(actual_value))
+
+        entity_player_id = None
+        entity_pitcher_id = None
+        if mk == best_bets_utils.PITCHER_STRIKEOUTS_MARKET_KEY:
+            entity_pitcher_id = int(pid) if pid is not None else None
+        elif mk in (best_bets_utils.PLAYER_HITS_MARKET_KEY, best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY):
+            entity_player_id = int(pid) if pid is not None else None
+
+        out.append(
+            {
+                "game_date": game_date,
+                "market": TOP_EV_OUTCOME_MARKET,
+                "entity_type": "game",
+                "entity_id": game_id,
+                "game_id": game_id,
+                "player_id": entity_player_id,
+                "pitcher_id": entity_pitcher_id,
+                "team": team_abbr,
+                "opponent": opponent_abbr,
+                "model_name": TOP_EV_TRACKING_MODEL_NAME,
+                "model_version": TOP_EV_TRACKING_MODEL_VERSION,
+                "prediction_ts": prediction_ts,
+                "predicted_value": model_probability,
+                "actual_value": actual_value,
+                "market_line": market_probability,
+                "entry_market_sportsbook": pick.get("sportsbook"),
+                "entry_market_snapshot_ts": None,
+                "closing_market_sportsbook": None,
+                "closing_market_line": None,
+                "closing_market_snapshot_ts": None,
+                "closing_market_same_sportsbook": None,
+                "clv_line_delta": None,
+                "clv_side_value": None,
+                "beat_closing_line": None,
+                "probability": model_probability,
+                "opposite_probability": loss_probability,
+                "recommended_side": pick.get("bet_side"),
+                "actual_side": grading.get("actual_side"),
+                "graded": grading.get("graded"),
+                "success": grading.get("success"),
+                "beat_market": beat_market,
+                "absolute_error": absolute_error,
+                "squared_error": squared_error,
+                "brier_score": brier_score,
+                "meta_payload": {
+                    "game_date": str(game_date),
+                    "away_team": detail.get("away_team"),
+                    "home_team": detail.get("home_team"),
+                    "underlying_market_key": mk,
+                    "selection_label": pick.get("selection_label"),
+                    "market_label": pick.get("market_label"),
+                    "line_value": pick.get("line_value"),
+                    "sportsbook": pick.get("sportsbook"),
+                    "price": pick.get("price"),
+                    "opposing_price": pick.get("opposing_price"),
+                    "probability_edge": pick.get("probability_edge"),
+                    "weighted_ev": pick.get("weighted_ev"),
+                    "raw_ev": pick.get("raw_ev"),
+                    "top_ev_candidate_count": pick.get("top_ev_candidate_count"),
+                    "input_trust_grade": (pick.get("input_trust") or {}).get("grade"),
+                    "input_trust_score": (pick.get("input_trust") or {}).get("score"),
+                    "model_summary": pick.get("model_summary"),
+                    "market_summary": pick.get("market_summary"),
+                    "actual_measure": grading.get("actual_measure"),
+                },
+                **_weather_outcome_fields(game_id, weather_map),
+            }
+        )
+    return out
+
+
 def _build_prediction_outcomes(start_date, end_date) -> int:
     rows: list[dict[str, Any]] = []
     weather_map = _fetch_weather_by_game(start_date, end_date)
@@ -1244,6 +1517,7 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
 
     rows.extend(_build_best_bet_outcomes(start_date, end_date, weather_map))
     rows.extend(_build_experimental_market_outcomes(start_date, end_date))
+    rows.extend(_build_top_ev_outcomes(start_date, end_date, weather_map))
 
     hits = _latest_rows(
         """
@@ -1319,6 +1593,153 @@ def _build_prediction_outcomes(start_date, end_date) -> int:
                 **_weather_outcome_fields(int(record["game_id"]), weather_map),
             }
         )
+
+    if table_exists("predictions_player_hr") and table_exists("player_features_hr"):
+        hr = _latest_rows(
+            """
+            WITH ranked AS (
+                SELECT p.*, ROW_NUMBER() OVER (
+                    PARTITION BY p.game_date, p.game_id, p.player_id
+                    ORDER BY p.prediction_ts DESC, p.created_at DESC, p.model_version DESC, p.model_name DESC
+                ) AS row_rank
+                FROM predictions_player_hr p
+                WHERE p.game_date BETWEEN :start_date AND :end_date
+            )
+            SELECT
+                r.*,
+                f.opponent,
+                CAST(f.feature_payload ->> 'lineup_slot' AS INTEGER) AS lineup_slot,
+                CAST(NULLIF(f.feature_payload ->> 'hr_per_pa_blended', '') AS DOUBLE PRECISION) AS hr_per_pa_blended,
+                CAST(NULLIF(f.feature_payload ->> 'projected_plate_appearances', '') AS DOUBLE PRECISION) AS projected_plate_appearances,
+                actual.home_runs AS actual_home_runs,
+                g.status AS game_status,
+                g.away_team,
+                g.home_team,
+                COALESCE(dp.full_name, CAST(r.player_id AS TEXT)) AS player_name
+            FROM ranked r
+            LEFT JOIN player_features_hr f
+                ON f.game_id = r.game_id
+               AND f.player_id = r.player_id
+               AND f.game_date = r.game_date
+            LEFT JOIN player_game_batting actual
+                ON actual.game_id = r.game_id
+               AND actual.player_id = r.player_id
+               AND actual.game_date = r.game_date
+            LEFT JOIN games g
+                ON g.game_id = r.game_id
+               AND g.game_date = r.game_date
+            LEFT JOIN dim_players dp ON dp.player_id = r.player_id
+            WHERE r.row_rank = 1
+            """,
+            {"start_date": start_date, "end_date": end_date},
+        )
+        hr_record_list = hr.to_dict(orient="records")
+        hr_recs: list[dict[str, Any]] = []
+        for record in hr_record_list:
+            reasoning_raw = record.get("reasoning_json") or "[]"
+            try:
+                hr_reasoning = json.loads(reasoning_raw) if isinstance(reasoning_raw, str) else []
+            except json.JSONDecodeError:
+                hr_reasoning = []
+            hr_recs.append(
+                {
+                    "game_id": record.get("game_id"),
+                    "player_id": record.get("player_id"),
+                    "player_name": record.get("player_name") or str(record.get("player_id")),
+                    "team": record.get("team"),
+                    "away_team": record.get("away_team"),
+                    "home_team": record.get("home_team"),
+                    "predicted_hr_probability": record.get("predicted_hr_probability"),
+                    "fair_price": record.get("fair_price"),
+                    "market_price": record.get("market_price"),
+                    "edge": record.get("edge"),
+                    "is_confirmed_lineup": False,
+                    "has_lineup_snapshot": True,
+                    "hr_reasoning": hr_reasoning,
+                    "hr_per_pa_blended": record.get("hr_per_pa_blended"),
+                    "projected_plate_appearances": record.get("projected_plate_appearances"),
+                }
+            )
+        slugger_cards = iter_slugger_tracked_cards(
+            hr_recs, per_game=SLUGGER_HR_PER_GAME, max_cards=None
+        )
+        slugger_by_pair = {
+            (int(c["game_id"]), int(c["player_id"])): c for c in slugger_cards
+        }
+        hr_market = best_bets_utils.PLAYER_HOME_RUN_MARKET_KEY
+        for record in hr_record_list:
+            is_final_game = _is_final_game_status(record.get("game_status"))
+            actual_hr = record.get("actual_home_runs") if is_final_game else None
+            actual_yes = None if actual_hr is None else (1.0 if float(actual_hr) > 0 else 0.0)
+            probability = record.get("predicted_hr_probability")
+            pair = (int(record["game_id"]), int(record["player_id"]))
+            slugger_card = slugger_by_pair.get(pair)
+            recommend_yes = slugger_card is not None
+            meta_hr: dict[str, Any] = {
+                "fair_price": record.get("fair_price"),
+                "market_price": record.get("market_price"),
+                "edge": record.get("edge"),
+                "is_slugger_tracked_pick": slugger_card is not None,
+                "slugger_rank_in_game": None
+                if slugger_card is None
+                else slugger_card.get("slugger_rank_in_game"),
+                "is_green_pick": slugger_card is not None
+                and not bool(slugger_card.get("hr_model_only")),
+                "green_reason": None
+                if slugger_card is None or slugger_card.get("hr_model_only")
+                else (
+                    f"Slugger HR (priced) · #{slugger_card.get('slugger_rank_in_game')} in game"
+                ),
+                "green_pick_rank": None
+                if slugger_card is None or slugger_card.get("hr_model_only")
+                else slugger_card.get("slugger_rank_in_game"),
+            }
+            if slugger_card is not None and slugger_card.get("hr_model_only"):
+                meta_hr["is_hr_slate_pick"] = True
+                meta_hr["is_board_watchlist_pick"] = True
+                meta_hr["board_watchlist_rank"] = slugger_card.get("slugger_rank_in_game")
+                meta_hr["hr_slate_reason"] = (
+                    f"Slugger HR model · #{slugger_card.get('slugger_rank_in_game')} in game (no book line)"
+                )
+            rows.append(
+                {
+                    "game_date": pd.to_datetime(record["game_date"]).date(),
+                    "market": hr_market,
+                    "entity_type": "player",
+                    "entity_id": _composite_entity_id(record["game_id"], record["player_id"]),
+                    "game_id": int(record["game_id"]),
+                    "player_id": int(record["player_id"]),
+                    "pitcher_id": None,
+                    "team": record["team"],
+                    "opponent": record.get("opponent"),
+                    "model_name": record["model_name"],
+                    "model_version": record["model_version"],
+                    "prediction_ts": record["prediction_ts"],
+                    "predicted_value": probability,
+                    "actual_value": actual_yes,
+                    "market_line": None,
+                    "probability": probability,
+                    "opposite_probability": None,
+                    "recommended_side": "yes" if recommend_yes else None,
+                    "actual_side": None
+                    if actual_yes is None
+                    else ("yes" if actual_yes > 0 else "no"),
+                    "graded": actual_yes is not None,
+                    "success": None if actual_yes is None else bool(actual_yes > 0),
+                    "beat_market": None,
+                    "absolute_error": None
+                    if actual_yes is None or probability is None
+                    else abs(float(probability) - float(actual_yes)),
+                    "squared_error": None
+                    if actual_yes is None or probability is None
+                    else (float(probability) - float(actual_yes)) ** 2,
+                    "brier_score": None
+                    if actual_yes is None or probability is None
+                    else (float(probability) - float(actual_yes)) ** 2,
+                    "meta_payload": meta_hr,
+                    **_weather_outcome_fields(int(record["game_id"]), weather_map),
+                }
+            )
 
     strikeouts = _latest_rows(
         """

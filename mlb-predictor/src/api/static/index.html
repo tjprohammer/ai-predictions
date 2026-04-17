@@ -176,6 +176,24 @@
         background: rgba(20, 33, 25, 0.12);
       }
 
+      .activity-banner--pipeline {
+        padding: 18px 18px 20px;
+        margin-bottom: 22px;
+      }
+
+      .activity-banner--pipeline .activity-progress-rail {
+        height: 20px;
+        box-shadow: inset 0 1px 2px rgba(20, 33, 25, 0.08);
+      }
+
+      .activity-banner--pipeline .activity-progress-copy {
+        font-size: 0.9rem;
+      }
+
+      .activity-banner--pipeline .activity-progress-step {
+        font-size: 0.92rem;
+      }
+
       .activity-progress-fill {
         display: block;
         width: 0%;
@@ -183,6 +201,21 @@
         border-radius: inherit;
         background: linear-gradient(90deg, var(--accent), var(--accent-deep));
         transition: width 180ms ease;
+      }
+
+      .activity-progress-fill.activity-progress-fill--indeterminate {
+        width: 38%;
+        animation: activity-progress-pulse 1.4s ease-in-out infinite;
+      }
+
+      @keyframes activity-progress-pulse {
+        0%,
+        100% {
+          opacity: 0.45;
+        }
+        50% {
+          opacity: 1;
+        }
       }
 
       .activity-banner.good .activity-progress-fill {
@@ -775,8 +808,20 @@
       .leaders-grid {
         display: grid;
         gap: 16px;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         margin-top: 18px;
+      }
+
+      @media (max-width: 1100px) {
+        .leaders-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 560px) {
+        .leaders-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
 
       .leader-card {
@@ -1252,6 +1297,32 @@
         color: #92400e;
       }
 
+      /* Dedicated home-run strip (not mixed into team-total watchlist). */
+      .slugger-hr-section.panel {
+        border: 1px solid rgba(183, 121, 31, 0.35);
+        background: linear-gradient(
+          165deg,
+          rgba(183, 121, 31, 0.08),
+          rgba(255, 255, 255, 0.92)
+        );
+        box-shadow: 0 12px 40px rgba(20, 33, 25, 0.06);
+      }
+
+      .slugger-hr-section .section-tag.slugger-hr-tag {
+        background: rgba(183, 121, 31, 0.2);
+        border-color: rgba(146, 64, 14, 0.25);
+        color: #92400e;
+      }
+
+      .best-bet-card.slugger-hr {
+        border-color: rgba(183, 121, 31, 0.42);
+        background: linear-gradient(
+          180deg,
+          rgba(183, 121, 31, 0.1),
+          rgba(255, 251, 246, 0.95)
+        );
+      }
+
       .best-bet-card:hover {
         transform: translateY(-1px);
         border-color: rgba(21, 128, 61, 0.28);
@@ -1300,6 +1371,36 @@
 
       .game-best-bet-chip {
         background: rgba(21, 128, 61, 0.09);
+      }
+
+      .game-top-ev-strip {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px 12px;
+      }
+
+      .game-top-ev-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(11, 106, 88, 0.1);
+        color: var(--accent-deep);
+        border: 1px solid rgba(11, 106, 88, 0.22);
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .game-top-ev-chip .section-tag {
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 0.62rem;
+        opacity: 0.9;
       }
 
       .legend-row {
@@ -2501,6 +2602,8 @@
                   features, predictions, and published board. Mid-slate, this can
                   refresh odds and rescored edges for games that have not started
                   yet; use only when you want the whole board rebuilt.
+                  For long runs, start the API with <code>start-app-stable</code>
+                  (no <code>--reload</code>) so the job is not interrupted.
                 </dd>
                 <dt>Prepare Slate</dt>
                 <dd>
@@ -2900,16 +3003,45 @@
           <div class="best-bets-grid" id="watchlistGrid"></div>
         </section>
 
-        <section class="panel best-bets-panel" id="experimentalPanel" hidden>
+        <section class="panel best-bets-panel slugger-hr-section" id="sluggerHrPanel">
+          <div class="panel-head">
+            <div>
+              <div class="section-tag slugger-hr-tag">Home runs only</div>
+              <h2 class="panel-title">Home run picks</h2>
+            </div>
+            <span class="panel-subtitle" id="sluggerHrSubtitle"
+              >Best HR edges (capped; star bats lead most slates they play)</span
+            >
+          </div>
+          <p
+            class="summary-copy"
+            style="margin: 0 0 0.75rem; font-size: 0.9rem; line-height: 1.4"
+          >
+            Separate from Watchlist (team markets). Uses the HR model only — add
+            <code>player_prop_markets</code> HR lines if you want book prices and
+            EV; otherwise you still see fair / P(HR).
+          </p>
+          <div class="best-bets-grid" id="sluggerHrGrid"></div>
+        </section>
+
+        <section class="panel best-bets-panel" id="experimentalPanel">
           <div class="panel-head">
             <div>
               <div class="section-tag">Experimental</div>
-              <h2 class="panel-title">First-inning markets to monitor</h2>
+              <h2 class="panel-title">NRFI / YRFI — model pick &amp; book line</h2>
             </div>
             <span class="panel-subtitle" id="experimentalSubtitle"
-              >Waiting for experimental markets</span
+              >First-inning classifier + posted lines when available</span
             >
           </div>
+          <p
+            class="summary-copy"
+            style="margin: 0 0 0.75rem; font-size: 0.9rem; line-height: 1.4"
+          >
+            Separate from the green strip. Shows the inning-1 classifier side
+            (NRFI vs YRFI) whenever predictions exist; attaches book prices when
+            <code>game_markets</code> has NRFI/YRFI rows for that game.
+          </p>
           <div class="best-bets-grid" id="experimentalGrid"></div>
         </section>
 
@@ -3100,6 +3232,50 @@
         ).toString();
       }
 
+      /** True when fetch() failed before an HTTP response (reload, refused, dropped connection). */
+      function isTransientFetchFailure(error) {
+        if (!error || error.name === "AbortError") return false;
+        if (!(error instanceof TypeError)) return false;
+        const m = String(error.message || "").toLowerCase();
+        return (
+          m.includes("failed to fetch") ||
+          m.includes("networkerror") ||
+          m.includes("load failed") ||
+          m.includes("network request failed")
+        );
+      }
+
+      /**
+       * fetch() with a few retries on transient network errors (e.g. uvicorn --reload restart).
+       */
+      async function fetchAppReliable(path, options = {}) {
+        const url =
+          typeof path === "string" && /^https?:\/\//i.test(path)
+            ? path
+            : appUrl(path);
+        const retries = 5;
+        const baseDelayMs = 200;
+        let lastError;
+        for (let attempt = 0; attempt < retries; attempt++) {
+          try {
+            return await fetch(url, options);
+          } catch (error) {
+            lastError = error;
+            if (
+              attempt < retries - 1 &&
+              isTransientFetchFailure(error)
+            ) {
+              await new Promise((r) =>
+                setTimeout(r, baseDelayMs * (attempt + 1)),
+              );
+              continue;
+            }
+            throw error;
+          }
+        }
+        throw lastError;
+      }
+
       function applyAppLinks() {
         document.querySelectorAll("[data-app-link]").forEach((link) => {
           link.href = appUrl(link.dataset.appLink || "");
@@ -3129,6 +3305,9 @@
       const watchlistToolbar = document.getElementById("watchlistToolbar");
       const watchlistGrid = document.getElementById("watchlistGrid");
       const watchlistSubtitle = document.getElementById("watchlistSubtitle");
+      const sluggerHrPanel = document.getElementById("sluggerHrPanel");
+      const sluggerHrGrid = document.getElementById("sluggerHrGrid");
+      const sluggerHrSubtitle = document.getElementById("sluggerHrSubtitle");
       const experimentalPanel = document.getElementById("experimentalPanel");
       const experimentalGrid = document.getElementById("experimentalGrid");
       const experimentalSubtitle = document.getElementById("experimentalSubtitle");
@@ -3217,6 +3396,7 @@
         greenPicks: [],
         archivedGreenPicks: [],
         experimentalMarkets: [],
+        sluggerHrBets: [],
         bestBetMarketFilter: "all",
         bestBetHistory: null,
         bestBetHistoryFilter: "all",
@@ -3372,8 +3552,13 @@
         label = "Progress",
         value = 0,
         step = "",
+        indeterminate = false,
       } = {}) {
         activityProgress.hidden = !visible;
+        activityProgressFill.classList.toggle(
+          "activity-progress-fill--indeterminate",
+          Boolean(indeterminate),
+        );
         if (!visible) {
           activityProgressFill.style.width = "0%";
           activityProgressBar.setAttribute("aria-valuenow", "0");
@@ -3381,6 +3566,16 @@
           activityProgressLabel.textContent = "Progress";
           activityProgressValue.textContent = "0%";
           activityProgressStep.textContent = "Waiting for the next task.";
+          return;
+        }
+        if (indeterminate) {
+          activityProgressLabel.textContent = label || "Progress";
+          activityProgressValue.textContent = "\u2026";
+          activityProgressFill.style.width = "";
+          activityProgressBar.setAttribute("aria-valuetext", `In progress${step ? ` · ${step}` : ""}`);
+          activityProgressBar.setAttribute("aria-valuenow", "-1");
+          activityProgressStep.textContent =
+            step || "First step can take several minutes — not stuck at 0%.";
           return;
         }
         const percent = clampProgressPercent(value);
@@ -3424,13 +3619,20 @@
           };
         }
         if (job.status === "running") {
+          const indeterminate = totalSteps > 0 && completedSteps === 0;
+          const stepLabel = job.current_step
+            ? humanizeUpdateStep(job.current_step)
+            : "Waiting for the first pipeline step.";
           return {
             visible: true,
-            label: `Running · ${completedSteps}/${totalSteps || 0} steps finished`,
-            percent,
-            step: job.current_step
-              ? humanizeUpdateStep(job.current_step)
-              : "Waiting for the next pipeline step.",
+            label: indeterminate
+              ? `Running · preparing step 1 of ${totalSteps}`
+              : `Running · ${completedSteps}/${totalSteps || 0} steps finished`,
+            percent: indeterminate ? 0 : percent,
+            indeterminate,
+            step: indeterminate
+              ? `${stepLabel} (progress will advance after this step completes.)`
+              : stepLabel,
           };
         }
         if (job.status === "failed") {
@@ -3459,9 +3661,15 @@
         progressLabel = "Progress",
         progressValue = 0,
         progressStep = "",
+        progressIndeterminate = false,
+        pipelineEmphasis = false,
       } = {}) {
         activityBanner.hidden = !visible;
         activityBanner.className = `activity-banner${visible && tone ? ` ${tone}` : ""}`;
+        activityBanner.classList.toggle(
+          "activity-banner--pipeline",
+          Boolean(visible && pipelineEmphasis && progressVisible),
+        );
         activitySpinner.hidden = !visible || !spinning;
         activityTitle.textContent = title || "Working...";
         activityDetail.textContent = detail || "";
@@ -3470,6 +3678,7 @@
           label: progressLabel,
           value: progressValue,
           step: progressStep,
+          indeterminate: progressIndeterminate,
         });
       }
 
@@ -3662,6 +3871,37 @@
         }
         const number = Number(value);
         return Number.isFinite(number) ? number : fallback;
+      }
+
+      /** ``YYYY-MM-DD`` in local time — for comparing to ``<input type="date">``. */
+      function localTodayYmd() {
+        const n = new Date();
+        const y = n.getFullYear();
+        const m = String(n.getMonth() + 1).padStart(2, "0");
+        const day = String(n.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+      }
+
+      function isFutureSlateDate() {
+        const d = targetDateInput && targetDateInput.value;
+        return Boolean(d && d > localTodayYmd());
+      }
+
+      /** HR strip: prefer server ``hr_probability_display``; avoid rounding tiny P(HR) to 0.00%. */
+      function formatSluggerHrModelProbability(card) {
+        const d = card?.hr_probability_display;
+        if (d != null && String(d).trim() !== "") {
+          return String(d);
+        }
+        const mp = numberOr(card?.model_probability);
+        if (mp == null) {
+          return "—";
+        }
+        const pct = mp * 100;
+        if (pct > 0 && pct < 0.01) {
+          return `${Number(pct.toPrecision(4))}%`;
+        }
+        return formatPercent(mp, 2);
       }
 
       function windCardinal(deg) {
@@ -4274,11 +4514,13 @@
         if (market === "totals") return "Game Totals";
         if (market === "moneyline") return "Best Bets | Moneyline";
         if (market === "run_line") return "Best Bets | Run Line";
+        if (market === "game_total") return "Best Bets | Game Total (Runs)";
         if (market === "away_team_total") return "Best Bets | Away Team Total";
         if (market === "home_team_total") return "Best Bets | Home Team Total";
         if (market === "first_five_moneyline")
           return "Best Bets | First 5 Moneyline";
-        if (market === "first_five_total") return "Best Bets | First 5 Total";
+        if (market === "first_five_total")
+          return "Best Bets | First 5 Combined Total";
         if (market === "first_five_spread")
           return "Best Bets | First 5 Run Line";
         if (market === "first_five_team_total_away")
@@ -4295,6 +4537,7 @@
           [
             "moneyline",
             "run_line",
+            "game_total",
             "away_team_total",
             "home_team_total",
             "first_five_moneyline",
@@ -4321,11 +4564,20 @@
         };
       }
 
+      /** Best-bets / green strip / watchlist: team & game markets only (no hitter props). */
+      function filterTeamBestBetBoardRows(rows) {
+        const excluded = new Set(["player_hits", "player_home_run"]);
+        return (Array.isArray(rows) ? rows : []).filter(
+          (row) => !excluded.has(String(row.market_key || row.market || "")),
+        );
+      }
+
       function bestBetMarketFilterOptions() {
         return [
           { value: "all", label: "All markets" },
           { value: "moneyline", label: "Moneyline" },
           { value: "spread", label: "Run line" },
+          { value: "game_total", label: "Game total" },
           { value: "team_totals", label: "Team totals" },
           { value: "first5", label: "First 5" },
         ];
@@ -4333,6 +4585,8 @@
 
       function bestBetMarketGroup(market) {
         if (market === "moneyline") return "moneyline";
+        // Legacy ``prediction_outcomes_daily`` rows from predictions_totals use market "totals".
+        if (market === "game_total" || market === "totals") return "game_total";
         if (market === "run_line" || market === "first_five_spread")
           return "spread";
         if (market === "away_team_total" || market === "home_team_total") {
@@ -4342,7 +4596,8 @@
           market === "first_five_moneyline" ||
           market === "first_five_total" ||
           market === "first_five_team_total_away" ||
-          market === "first_five_team_total_home"
+          market === "first_five_team_total_home" ||
+          market === "first5"
         ) {
           return "first5";
         }
@@ -4891,13 +5146,13 @@
       function renderLeaderboards() {
         const leaders = state.leaders || {};
         leadersSubtitle.textContent = leaders.season
-          ? `Season-to-date through ${leaders.through_date}`
+          ? `Season-to-date through ${leaders.through_date} · eight boards (scroll for all)`
           : "Season leaderboards unavailable";
         leadersGrid.innerHTML = [
           renderLeaderCard(
             "Pitcher Ks",
             "Ks",
-            leaders.pitcher_strikeouts,
+            leaders.pitcher_strikeouts || [],
             (row, rank, valueLabel) => `
               <div class="leader-row">
                 <div class="leader-rank">${rank}</div>
@@ -4910,9 +5165,39 @@
             `,
           ),
           renderLeaderCard(
+            "Pitcher ERA",
+            "ERA",
+            leaders.pitcher_era || [],
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.player_name)}</div>
+                  <div class="leader-meta">${escapeHtml(row.team || "-")} · ${formatNumber(row.innings_pitched, 1)} IP · ${formatNumber(row.starts, 0)} starts · ${formatNumber(row.earned_runs, 0)} ER</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.era, 2)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
+            "Pitcher WHIP",
+            "WHIP",
+            leaders.pitcher_whip || [],
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.player_name)}</div>
+                  <div class="leader-meta">${escapeHtml(row.team || "-")} · ${formatNumber(row.innings_pitched, 1)} IP · ${formatNumber(row.starts, 0)} starts</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.whip, 3)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
             "Hitter Hits",
             "Hits",
-            leaders.hitter_hits,
+            leaders.hitter_hits || [],
             (row, rank, valueLabel) => `
               <div class="leader-row">
                 <div class="leader-rank">${rank}</div>
@@ -4925,9 +5210,24 @@
             `,
           ),
           renderLeaderCard(
+            "Hitter HR",
+            "HR",
+            leaders.hitter_home_runs || [],
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.player_name)}</div>
+                  <div class="leader-meta">${escapeHtml(row.team || "-")} · ${formatNumber(row.home_runs_per_game, 2)} HR/game</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.home_runs, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
             "Team Runs",
             "Runs",
-            leaders.team_runs,
+            leaders.team_runs || [],
             (row, rank, valueLabel) => `
               <div class="leader-row">
                 <div class="leader-rank">${rank}</div>
@@ -4940,9 +5240,24 @@
             `,
           ),
           renderLeaderCard(
+            "Team HR",
+            "HR",
+            leaders.team_home_runs || [],
+            (row, rank, valueLabel) => `
+              <div class="leader-row">
+                <div class="leader-rank">${rank}</div>
+                <div>
+                  <div class="leader-name">${escapeHtml(row.team)}</div>
+                  <div class="leader-meta">${formatNumber(row.home_runs_per_game, 2)} HR/game</div>
+                </div>
+                <div class="leader-value">${formatNumber(row.home_runs, 0)} ${escapeHtml(valueLabel)}</div>
+              </div>
+            `,
+          ),
+          renderLeaderCard(
             "Team Strikeouts",
             "Ks",
-            leaders.team_strikeouts,
+            leaders.team_strikeouts || [],
             (row, rank, valueLabel) => `
               <div class="leader-row">
                 <div class="leader-rank">${rank}</div>
@@ -5606,27 +5921,27 @@
           return {
             tone: "",
             short: "Late Pen pending",
-            detail: "No innings 7+ bullpen sample is loaded yet.",
+            detail: "No innings 6+ bullpen sample is loaded yet.",
           };
         }
         if ((era != null && era >= 6) || runs >= 4 || hits >= 6) {
           return {
             tone: "bad",
             short: `Late Pen ${team} high`,
-            detail: `${team} has allowed ${formatNumber(runs, 0)} runs in ${formatNumber(innings, 1)} innings across innings 7+ over the last 3 bullpen days (${formatNumber(era, 2)} ERA).`,
+            detail: `${team} has allowed ${formatNumber(runs, 0)} runs in ${formatNumber(innings, 1)} innings across innings 6+ over the last 3 bullpen days (${formatNumber(era, 2)} ERA).`,
           };
         }
         if ((era != null && era >= 3.5) || runs >= 2 || hits >= 4) {
           return {
             tone: "warn",
             short: `Late Pen ${team} watch`,
-            detail: `${team} has allowed ${formatNumber(runs, 0)} runs in ${formatNumber(innings, 1)} innings across innings 7+ over the last 3 bullpen days (${formatNumber(era, 2)} ERA).`,
+            detail: `${team} has allowed ${formatNumber(runs, 0)} runs in ${formatNumber(innings, 1)} innings across innings 6+ over the last 3 bullpen days (${formatNumber(era, 2)} ERA).`,
           };
         }
         return {
           tone: "good",
           short: `Late Pen ${team} stable`,
-          detail: `${team} has kept the last 3 bullpen days relatively clean in innings 7+ with ${formatNumber(innings, 1)} late innings and a ${formatNumber(era, 2)} late ERA.`,
+          detail: `${team} has kept the last 3 bullpen days relatively clean in innings 6+ with ${formatNumber(innings, 1)} late innings and a ${formatNumber(era, 2)} late ERA.`,
         };
       }
 
@@ -5827,6 +6142,23 @@
       }
 
       function classifyPlayerForm(player) {
+        const serverForm = player?.form;
+        if (
+          serverForm &&
+          typeof serverForm === "object" &&
+          serverForm.form_key
+        ) {
+          return {
+            label: serverForm.label,
+            tone: serverForm.tone || "",
+            summary: serverForm.summary,
+            detail: serverForm.detail,
+            reasons: Array.isArray(serverForm.reasons)
+              ? serverForm.reasons
+              : [],
+            form_key: serverForm.form_key,
+          };
+        }
         const hitRate7 = Number(player.hit_rate_7);
         const hitRate30 = Number(player.hit_rate_30);
         const xwoba14 = Number(player.xwoba_14);
@@ -7220,9 +7552,13 @@
             ),
           );
         if (awayB2b != null && awayB2b > 0)
-          envStats.push(stat(`${away} B2B`, `${awayB2b} rel`, "warn"));
+          envStats.push(
+            stat(`${away} B2B`, "Played yesterday", "warn"),
+          );
         if (homeB2b != null && homeB2b > 0)
-          envStats.push(stat(`${home} B2B`, `${homeB2b} rel`, "warn"));
+          envStats.push(
+            stat(`${home} B2B`, "Played yesterday", "warn"),
+          );
         if (awayLateRecentEra != null || awayLateSeasonEra != null)
           envStats.push(
             stat(
@@ -7277,9 +7613,9 @@
       }
 
       function renderGameBestBetStrip(game) {
-        const bets = Array.isArray(game?.best_bets)
-          ? game.best_bets.slice(0, 2)
-          : [];
+        const bets = filterTeamBestBetBoardRows(
+          Array.isArray(game?.best_bets) ? game.best_bets.slice(0, 2) : [],
+        );
         if (!bets.length) {
           return "";
         }
@@ -7306,6 +7642,28 @@
         `;
       }
 
+      function renderGameTopEvStrip(game) {
+        const pick = game?.top_ev_pick;
+        if (!pick || pick.weighted_ev == null) {
+          return "";
+        }
+        const label = pick.selection_label || pick.market_label || "Top EV";
+        const n = pick.top_ev_candidate_count;
+        const pool =
+          n != null && n > 0
+            ? ` · ${n} priced candidate${n === 1 ? "" : "s"}`
+            : "";
+        return `
+          <div class="game-top-ev-strip" title="Highest weighted EV among priced team markets, 1+ hit, HR yes, and pitcher K for this game — same logic as matchup page and Daily Results.">
+            <span class="game-top-ev-chip">
+              <span class="section-tag">Top EV</span>
+              ${escapeHtml(label)}${pick.price != null ? ` ${formatPrice(pick.price)}` : ""}
+              · EV ${formatSigned(numberOr(pick.weighted_ev, 0) * 100, 1)}%${pool}
+            </span>
+          </div>
+        `;
+      }
+
       function renderSlateTrustBanner() {
         if (!slateTrustBanner) {
           return;
@@ -7328,16 +7686,30 @@
           bets,
           (bet) => bet.market_key || bet.market,
         );
-        bestBetsToolbar.innerHTML = renderBestBetMarketFilterControl();
+        bestBetsPanel.hidden = false;
         if (!bets.length) {
-          bestBetsPanel.hidden = true;
           bestBetsToolbar.innerHTML = "";
-          bestBetsGrid.innerHTML = "";
           bestBetsGrid.classList.remove("empty");
-          bestBetsSubtitle.textContent = "No green picks on this slate yet";
+          const future = isFutureSlateDate();
+          bestBetsSubtitle.textContent = future
+            ? "No green strip picks — typical for tomorrow / pregame slates until lines and trust firm up"
+            : "No green strip picks — EV / certainty gates not met for team markets on this slate";
+          const futureNote = future
+            ? `<p class="summary-copy" style="margin-top:0.75rem"><strong>Future slate:</strong> You’re viewing a game date after today. Books, lineups, and ingest may still be catching up; strict/soft green edges often strengthen closer to lock. Watchlist below still surfaces next-best <em>team</em> markets from the same board run.</p>`
+            : "";
+          bestBetsGrid.innerHTML = `
+            <div class="summary-card" style="flex:1 1 100%;max-width:none;">
+              <div class="summary-copy">
+                The green board only shows picks that pass strict or <strong>soft green</strong> thresholds
+                (see <code>best_bets.qualifies_board_green_strip</code>). When input trust is thin or edges are small,
+                this list can be empty even on a full slate. Use <strong>Watchlist</strong> below for next-best team markets,
+                and <strong>Home runs only</strong> / <strong>Experimental</strong> for separate models.
+              </div>
+              ${futureNote}
+            </div>`;
           return;
         }
-        bestBetsPanel.hidden = false;
+        bestBetsToolbar.innerHTML = renderBestBetMarketFilterControl();
         const activeMarketLabel = bestBetMarketFilterLabel();
         const filterSuffix =
           state.bestBetMarketFilter !== "all"
@@ -7476,6 +7848,90 @@
           `;
       }
 
+      function renderSluggerHrBoard() {
+        const cards = Array.isArray(state.sluggerHrBets)
+          ? state.sluggerHrBets
+          : [];
+        if (!sluggerHrPanel || !sluggerHrGrid || !sluggerHrSubtitle) {
+          return;
+        }
+        sluggerHrPanel.hidden = false;
+        if (!cards.length) {
+          sluggerHrSubtitle.textContent =
+            "No HR projections loaded — run features + predict_hr for this date";
+          sluggerHrGrid.classList.add("empty");
+          sluggerHrGrid.innerHTML = `
+            <div class="summary-card" style="flex:1 1 100%;max-width:none;">
+              <div class="summary-copy">
+                Nothing returned from <code>/api/games/board</code> field
+                <code>slugger_hr_bets</code>. After lineups exist, run
+                <code>python -m src.features.hr_builder --target-date …</code> and
+                <code>python -m src.models.predict_hr --target-date …</code>, then
+                refresh the board.
+              </div>
+            </div>`;
+          return;
+        }
+        const pricedCt = cards.filter((c) => c.price != null && !c.hr_model_only).length;
+        const modelOnlyCt = cards.length - pricedCt;
+        sluggerHrSubtitle.textContent =
+          pricedCt > 0 && modelOnlyCt > 0
+            ? `${cards.length} HR picks · ${pricedCt} priced · ${modelOnlyCt} model-only (no book line ingested)`
+            : pricedCt > 0
+              ? `${cards.length} priced HR pick${cards.length === 1 ? "" : "s"} · rare-event thresholds`
+              : `${cards.length} HR model projection${cards.length === 1 ? "" : "s"} · add player_prop_markets for prices/EV`;
+        sluggerHrGrid.classList.remove("empty");
+        sluggerHrGrid.innerHTML = cards
+          .map((card) => {
+            const matchupHref = appUrl(
+              `game?game_id=${encodeURIComponent(card.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(includeInferredInput.checked))}`,
+            );
+            const marketLabel = card.market_label || "To hit a HR";
+            const title =
+              card.selection_label ||
+              card.subject_label ||
+              card.pick_label ||
+              "HR prop";
+            const subtitle =
+              card.subject_subtitle ||
+              `${card.away_team || "Away"} at ${card.home_team || "Home"}`;
+            const notesLine =
+              card.market_summary || "Market snapshot pending";
+            const modelLine =
+              card.model_summary || "Model context pending";
+            const why = Array.isArray(card.hr_reasoning)
+              ? card.hr_reasoning
+              : [];
+            const whyHtml = why.length
+              ? `<div class="best-bet-copy muted"><strong>Why:</strong> ${why.map((w) => escapeHtml(w)).join(" ")}</div>`
+              : "";
+            const kicker =
+              card.hr_model_only || (card.price == null && card.weighted_ev == null)
+                ? "Model projection"
+                : "Sluggers";
+            const phrDisp = formatSluggerHrModelProbability(card);
+            const metricsLine =
+              card.hr_model_only || (card.price == null && card.weighted_ev == null)
+                ? `P(HR) ${phrDisp} · Run player props ingest so HR yes prices land in player_prop_markets`
+                : `EV ${formatSigned(numberOr(card.weighted_ev, 0) * 100, 1)}% · No-vig edge ${formatSigned(numberOr(card.probability_edge, 0) * 100, 1)} pts · P(HR) ${phrDisp}`;
+            return `
+              <a class="best-bet-card slugger-hr" href="${matchupHref}">
+                <div class="best-bet-topline">
+                  <span class="best-bet-kicker">${escapeHtml(kicker)}</span>
+                  <span class="section-tag">${escapeHtml(marketLabel)}</span>
+                </div>
+                <div class="best-bet-title">${escapeHtml(title)}${card.price != null ? ` ${formatPrice(card.price)}` : ""}</div>
+                <div class="best-bet-meta">${escapeHtml(subtitle)}</div>
+                <div class="best-bet-copy">${escapeHtml(notesLine)}</div>
+                <div class="best-bet-copy">${escapeHtml(modelLine)}</div>
+                ${whyHtml}
+                <div class="best-bet-meta">${metricsLine}</div>
+              </a>
+            `;
+          })
+          .join("");
+      }
+
       function formatExperimentalNotes(raw) {
         if (raw == null || raw === "") {
           return escapeHtml(
@@ -7492,16 +7948,18 @@
         const markets = Array.isArray(state.experimentalMarkets)
           ? state.experimentalMarkets
           : [];
-        experimentalPanel.hidden = false;
+        if (experimentalPanel) {
+          experimentalPanel.hidden = false;
+        }
         if (!markets.length) {
           experimentalGrid.classList.add("empty");
           experimentalGrid.innerHTML =
-            '<div class="empty-state">No experimental first-inning markets are available on this slate yet. Tracked NRFI and YRFI picks will appear here under the watchlist when books post them.</div>';
+            '<div class="empty-state">No inning-1 NRFI/YRFI cards for this date yet. Run <code>predict_inning1_nrfi</code> after features (and ingest first-inning book rows if you want prices on the card).</div>';
           experimentalSubtitle.textContent =
-            "0 experimental markets tracked right now";
+            "0 NRFI/YRFI picks on this slate";
           return;
         }
-        experimentalSubtitle.textContent = `${markets.length} experimental market${markets.length === 1 ? "" : "s"}`;
+        experimentalSubtitle.textContent = `${markets.length} NRFI/YRFI pick${markets.length === 1 ? "" : "s"}`;
         experimentalGrid.classList.remove("empty");
         experimentalGrid.innerHTML = markets
           .map((market) => {
@@ -7513,13 +7971,16 @@
               mp != null && Number.isFinite(Number(mp))
                 ? ` · Model ${(Number(mp) * 100).toFixed(0)}% NRFI`
                 : "";
+            const modelOnly = Boolean(market.inning1_model_only);
+            const kicker = modelOnly ? "Model pick (no book row)" : "Experimental";
+            const sideTag = escapeHtml(market.market_label || "NRFI/YRFI");
             return `
               <a class="best-bet-card experimental" href="${matchupHref}">
                 <div class="best-bet-topline">
-                  <span class="best-bet-kicker">Experimental</span>
-                  <span class="section-tag">${escapeHtml(market.market_label || "Experimental")}</span>
+                  <span class="best-bet-kicker">${escapeHtml(kicker)}</span>
+                  <span class="section-tag">${sideTag}</span>
                 </div>
-                <div class="best-bet-title">${escapeHtml(market.pick_label || market.market_label || "Experimental market")}${mpStr}${market.price != null ? ` ${formatPrice(market.price)}` : ""}</div>
+                <div class="best-bet-title">${escapeHtml(market.pick_label || market.market_label || "NRFI/YRFI")}${mpStr}${market.price != null ? ` ${formatPrice(market.price)}` : ""}</div>
                 <div class="best-bet-meta">${escapeHtml(market.subject_label || "Matchup pending")}${market.sportsbook ? ` · ${escapeHtml(market.sportsbook)}` : ""}</div>
                 <div class="best-bet-copy">${formatExperimentalNotes(market.notes_display)}</div>
               </a>
@@ -7599,6 +8060,7 @@
             ${renderCompactOutcome(game)}
             ${renderGameStatsBar(game)}
             ${renderGameBestBetStrip(game)}
+            ${renderGameTopEvStrip(game)}
             <span class="toggle-copy">Open Matchup Page →</span>
           </a>
         </article>
@@ -7698,6 +8160,7 @@
         renderSlateTrustBanner();
         renderBestBetsBoard();
         renderWatchlistBoard();
+        renderSluggerHrBoard();
         renderExperimentalBoard();
         renderGames();
         applyDashboardView();
@@ -7721,18 +8184,24 @@
           appUrl(
             `api/games/board?target_date=${encodeURIComponent(date)}&hit_limit_per_team=${encodeURIComponent(filters.limit)}&min_probability=${encodeURIComponent(filters.minProbability)}&confirmed_only=${encodeURIComponent(filters.confirmedOnly)}&include_inferred=${encodeURIComponent(filters.includeInferred)}`,
           ),
+          { cache: "no-store" },
         );
         if (!response.ok) {
           throw new Error(`Board request failed: ${response.status}`);
         }
         const payload = await response.json();
         state.boardSummary = payload.summary || null;
-        state.bestBets = payload.watchlist_markets || [];
+        state.bestBets = filterTeamBestBetBoardRows(
+          payload.watchlist_markets || [],
+        );
+        state.sluggerHrBets = payload.slugger_hr_bets || [];
         state.experimentalMarkets = payload.experimental_markets || [];
         // Green board = live positive-EV cards (same as API `best_bets`). `green_picks` is archived
         // graded rows from prediction_outcomes_daily — empty for today's slate until surfaces run.
-        state.greenPicks = payload.best_bets || [];
-        state.archivedGreenPicks = payload.green_picks || [];
+        state.greenPicks = filterTeamBestBetBoardRows(payload.best_bets || []);
+        state.archivedGreenPicks = filterTeamBestBetBoardRows(
+          payload.green_picks || [],
+        );
         state.games = payload.games || [];
       }
 
@@ -7829,6 +8298,9 @@
             .then(loader)
             .finally(() => {
               completedLoads += 1;
+              if (state.activeUpdateJobId) {
+                return;
+              }
               setActivityState({
                 visible: true,
                 title: `Loading ${date} board...`,
@@ -7847,18 +8319,20 @@
           `Loading ${date} board...`,
           "Fetching games, scorecards, review panels, and CLV data.",
         );
-        setActivityState({
-          visible: true,
-          title: `Loading ${date} board...`,
-          detail:
-            "Fetching games, scorecards, Best Bet history, review panels, and CLV data.",
-          tone: "running",
-          spinning: true,
-          progressVisible: true,
-          progressLabel: `0/${totalLoads} board checks finished`,
-          progressValue: 0,
-          progressStep: "Starting the dashboard refresh.",
-        });
+        if (!state.activeUpdateJobId) {
+          setActivityState({
+            visible: true,
+            title: `Loading ${date} board...`,
+            detail:
+              "Fetching games, scorecards, Best Bet history, review panels, and CLV data.",
+            tone: "running",
+            spinning: true,
+            progressVisible: true,
+            progressLabel: `0/${totalLoads} board checks finished`,
+            progressValue: 0,
+            progressStep: "Starting the dashboard refresh.",
+          });
+        }
         if (!preserveLog) {
           setLog(
             `Refreshing board for ${date}\n` +
@@ -7892,6 +8366,7 @@
           if (boardResult.status === "rejected") {
             state.boardSummary = null;
             state.bestBets = [];
+            state.sluggerHrBets = [];
             state.greenPicks = [];
             state.archivedGreenPicks = [];
             state.games = [];
@@ -7975,6 +8450,24 @@
         } finally {
           setBusyButton(refreshButton, false);
         }
+        await restoreActiveUpdateJobActivityIfNeeded();
+      }
+
+      async function restoreActiveUpdateJobActivityIfNeeded() {
+        if (!state.activeUpdateJobId) {
+          return;
+        }
+        try {
+          const active = await loadActiveUpdateJob();
+          if (
+            active &&
+            (active.status === "queued" || active.status === "running")
+          ) {
+            applyUpdateJobState(active);
+          }
+        } catch {
+          /* ignore */
+        }
       }
 
       function formatStepLog(step) {
@@ -8032,6 +8525,17 @@
         if (!job) {
           return "";
         }
+        if (job.status === "queued" || job.status === "running") {
+          const now = job.current_step
+            ? `Working on: ${humanizeUpdateStep(job.current_step)}. `
+            : "";
+          return (
+            now +
+            "This runs on the server in the background — you can leave this page or switch tabs. " +
+            "Come back anytime; the status line updates when you return. " +
+            "The first step (lineups) can take several minutes before the step counter moves."
+          );
+        }
         const runningStep = Array.isArray(job.steps)
           ? [...job.steps].reverse().find((step) => step.returncode == null)
           : null;
@@ -8065,12 +8569,39 @@
         return lines.join("\n\n");
       }
 
+      const UPDATE_JOB_FOLLOW_STORAGE_KEY = "mlb_predictor_update_job_follow";
+
+      function syncUpdateJobSessionStorage(job) {
+        try {
+          if (!job) {
+            sessionStorage.removeItem(UPDATE_JOB_FOLLOW_STORAGE_KEY);
+            return;
+          }
+          if (job.status === "queued" || job.status === "running") {
+            sessionStorage.setItem(
+              UPDATE_JOB_FOLLOW_STORAGE_KEY,
+              JSON.stringify({
+                job_id: job.job_id,
+                label: job.label || "Pipeline",
+                target_date: job.target_date || "",
+                status: job.status,
+              }),
+            );
+            return;
+          }
+          sessionStorage.removeItem(UPDATE_JOB_FOLLOW_STORAGE_KEY);
+        } catch {
+          /* ignore quota / private mode */
+        }
+      }
+
       function applyUpdateJobState(job) {
         if (!job) {
           state.activeUpdateJobId = null;
           setUpdateButtonsDisabled(false);
           setUpdateJobStatusCopy("No update job running.");
           setActivityState({ visible: false });
+          syncUpdateJobSessionStorage(null);
           return;
         }
         state.activeUpdateJobId =
@@ -8101,12 +8632,16 @@
           progressLabel: progress.label,
           progressValue: progress.percent,
           progressStep: progress.step,
+          progressIndeterminate: Boolean(progress.indeterminate),
+          pipelineEmphasis:
+            job.status === "queued" || job.status === "running",
         });
         setLog(renderUpdateJobLog(job));
+        syncUpdateJobSessionStorage(job);
       }
 
       async function loadActiveUpdateJob() {
-        const response = await fetch(appUrl("api/update-jobs/active"));
+        const response = await fetchAppReliable("api/update-jobs/active");
         if (!response.ok) {
           throw new Error(
             `Active update job request failed: ${response.status}`,
@@ -8117,8 +8652,8 @@
       }
 
       async function loadUpdateJob(jobId) {
-        const response = await fetch(
-          appUrl(`api/update-jobs/${encodeURIComponent(jobId)}`),
+        const response = await fetchAppReliable(
+          `api/update-jobs/${encodeURIComponent(jobId)}`,
         );
         if (!response.ok) {
           throw new Error(`Update job request failed: ${response.status}`);
@@ -8128,7 +8663,7 @@
       }
 
       async function loadUpdateJobHistory() {
-        const response = await fetch(appUrl("api/update-jobs/history"));
+        const response = await fetchAppReliable("api/update-jobs/history");
         if (!response.ok) {
           throw new Error(
             `Update job history request failed: ${response.status}`,
@@ -8146,6 +8681,7 @@
             state.activeUpdateJobId = null;
             setUpdateButtonsDisabled(false);
             setUpdateJobStatusCopy("Active update job not found.", "warn");
+            syncUpdateJobSessionStorage(null);
             return;
           }
 
@@ -8164,8 +8700,16 @@
         } catch (error) {
           state.activeUpdateJobId = null;
           setUpdateButtonsDisabled(false);
-          setUpdateJobStatusCopy("Update job polling failed.", "warn");
-          setLog(`Update job polling failed: ${describeError(error)}`);
+          const transient = isTransientFetchFailure(error);
+          setUpdateJobStatusCopy(
+            transient
+              ? "Lost connection while polling the update job (server may have restarted). Refresh or run the update again."
+              : "Update job polling failed.",
+            "warn",
+          );
+          setLog(
+            `Update job polling failed: ${describeError(error)}`,
+          );
         }
       }
 
@@ -8200,6 +8744,7 @@
           progressLabel: "Queued · starting",
           progressValue: 0,
           progressStep: meta.pending,
+          pipelineEmphasis: true,
         });
         setLog(`${meta.pending} for ${date}...`);
         try {
@@ -8239,6 +8784,7 @@
         } catch (error) {
           const failureMessage = describeError(error);
           state.activeUpdateJobId = null;
+          syncUpdateJobSessionStorage(null);
           setUpdateButtonsDisabled(false);
           setUpdateJobStatusCopy(failureMessage, "warn");
           setActivityState({

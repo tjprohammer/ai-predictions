@@ -45,6 +45,7 @@ DYNAMIC_MODULES = [
     "src.features.first5_totals_builder",
     "src.features.inning1_nrfi_builder",
     "src.features.hits_builder",
+    "src.features.hr_builder",
     "src.features.strikeouts_builder",
     "src.models.predict_totals",
     "src.models.predict_first5_totals",

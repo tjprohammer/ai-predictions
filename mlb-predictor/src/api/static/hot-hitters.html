@@ -68,6 +68,9 @@
         padding: 28px 20px 44px;
         position: relative;
         z-index: 1;
+        min-width: 0;
+        width: 100%;
+        box-sizing: border-box;
       }
 
       .topbar {
@@ -225,6 +228,9 @@
       .control-card,
       .panel {
         padding: 24px;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
       }
 
       .eyebrow,
@@ -490,8 +496,10 @@
       }
 
       .cards-grid {
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, min(380px, 100%)), 1fr));
         margin-top: 18px;
+        min-width: 0;
+        width: 100%;
       }
 
       .cards-grid.team-sections {
@@ -514,13 +522,19 @@
       .team-group-grid {
         display: grid;
         gap: 18px;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, min(380px, 100%)), 1fr));
+        min-width: 0;
+        width: 100%;
       }
 
       .player-card {
         display: grid;
         gap: 14px;
         background: rgba(255, 255, 255, 0.75);
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
       }
 
       .player-name {
@@ -601,6 +615,9 @@
         );
         border: 1px solid rgba(53, 65, 81, 0.78);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
       }
 
       .history-head {
@@ -609,12 +626,15 @@
         align-items: center;
         gap: 12px;
         flex-wrap: wrap;
+        min-width: 0;
       }
 
       .history-caption {
         color: #9ca3af;
         font-size: 0.74rem;
         line-height: 1.45;
+        min-width: 0;
+        flex: 1 1 min(100%, 280px);
       }
 
       .history-caption strong {
@@ -632,6 +652,21 @@
         font-weight: 900;
       }
 
+      .history-caption.warm strong {
+        color: #bbf7d0;
+        font-weight: 900;
+      }
+
+      .history-toolbar {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        align-items: center;
+        min-width: 0;
+        max-width: 100%;
+        justify-content: flex-end;
+      }
+
       .history-filters {
         display: inline-flex;
         align-items: center;
@@ -640,6 +675,8 @@
         border-radius: 999px;
         background: rgba(15, 23, 42, 0.96);
         border: 1px solid rgba(55, 65, 81, 0.92);
+        max-width: 100%;
+        flex-wrap: wrap;
       }
 
       .history-filter {
@@ -667,6 +704,12 @@
         --history-gap: 4px;
         --history-baseline-offset: 0px;
         position: relative;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
       }
 
       .history-baseline {
@@ -694,7 +737,11 @@
 
       .history-grid {
         display: grid;
-        gap: 6px;
+        gap: 4px;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
       }
 
       .history-game {
@@ -704,7 +751,10 @@
           auto auto;
         gap: var(--history-gap);
         justify-items: center;
+        align-content: start;
         min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
       }
 
       .history-value {
@@ -713,6 +763,11 @@
         font-size: 0.78rem;
         font-weight: 900;
         line-height: 1;
+        min-width: 0;
+        max-width: 100%;
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .history-bar-wrap {
@@ -744,19 +799,29 @@
 
       .history-date {
         color: #d1d5db;
-        font-size: 0.56rem;
+        font-size: clamp(0.45rem, 1.1vw, 0.56rem);
         font-weight: 800;
         letter-spacing: 0.02em;
-        line-height: 1;
+        line-height: 1.1;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: center;
       }
 
       .history-opponent {
         color: #6ee7b7;
-        font-size: 0.5rem;
+        font-size: clamp(0.42rem, 1vw, 0.5rem);
         font-weight: 900;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
-        line-height: 1;
+        line-height: 1.1;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: center;
       }
 
       .history-empty {
@@ -908,6 +973,8 @@
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 8px;
+        min-width: 0;
+        width: 100%;
       }
       .bc-pill {
         padding: 9px 10px;
@@ -937,6 +1004,253 @@
         text-transform: uppercase;
         color: var(--muted);
         margin-top: 3px;
+      }
+
+      .model-lines-panel {
+        margin: 12px 0 14px;
+        padding: 12px 14px;
+        border-radius: var(--radius-md);
+        background: linear-gradient(
+          135deg,
+          rgba(11, 106, 88, 0.09),
+          rgba(255, 251, 246, 0.96)
+        );
+        border: 1px solid rgba(11, 106, 88, 0.14);
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+      .model-lines-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .model-lines-title {
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--accent-deep);
+      }
+      .model-lines-note {
+        font-size: 0.72rem;
+        color: var(--muted);
+        max-width: 46ch;
+        line-height: 1.35;
+      }
+      .model-lines-grid {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+        min-width: 0;
+        width: 100%;
+      }
+      .ml-line {
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid rgba(20, 33, 25, 0.08);
+      }
+      .ml-line-muted {
+        opacity: 0.88;
+      }
+      .ml-line-stat {
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .ml-line-body {
+        font-size: 0.86rem;
+        font-weight: 650;
+        color: var(--ink);
+        line-height: 1.35;
+      }
+      .ml-line-detail {
+        font-size: 0.76rem;
+        color: var(--muted);
+        margin-top: 4px;
+        font-weight: 500;
+      }
+
+      .hh-markets-lede {
+        font-size: 0.86rem;
+        line-height: 1.45;
+        margin: 0 0 14px;
+      }
+
+      .hh-market-grid.market-grid {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+      }
+
+      .hh-market-grid .market-card {
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.74);
+        padding: 16px 18px;
+        display: grid;
+        gap: 8px;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+
+      .hh-market-grid .market-card.positive {
+        border-color: rgba(22, 101, 52, 0.2);
+        background: linear-gradient(
+          180deg,
+          rgba(22, 101, 52, 0.12),
+          rgba(255, 255, 255, 0.8)
+        );
+      }
+
+      .hh-market-grid .market-card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .hh-market-grid .data-label {
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent-deep);
+      }
+
+      .hh-market-grid .market-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(20, 33, 25, 0.06);
+        color: var(--muted);
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .hh-market-grid .market-badge.good {
+        background: rgba(22, 101, 52, 0.12);
+        color: var(--good);
+      }
+
+      .hh-market-grid .market-badge.warn {
+        background: rgba(245, 158, 11, 0.16);
+        color: var(--warn);
+      }
+
+      .hh-market-grid .market-badge.info {
+        background: rgba(11, 106, 88, 0.1);
+        color: var(--accent-deep);
+      }
+
+      .hh-market-grid .market-badge-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+        max-width: 72%;
+      }
+
+      .hh-market-grid .market-card.tier-soft_green {
+        border-color: rgba(180, 83, 9, 0.22);
+      }
+
+      .hh-market-grid .market-card.tier-watchlist {
+        border-color: rgba(11, 106, 88, 0.18);
+      }
+
+      .hh-market-grid .market-card.tier-raw_edge,
+      .hh-market-grid .market-card.tier-lean {
+        border-color: rgba(183, 121, 31, 0.2);
+      }
+
+      .hh-market-grid .market-card-title {
+        font-size: 0.96rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+      }
+
+      .hh-market-grid .market-card-copy,
+      .hh-market-grid .market-card-meta {
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.5;
+      }
+
+      .hh-market-grid .market-gate-hint {
+        font-size: 0.78rem;
+        color: var(--muted);
+        line-height: 1.45;
+        margin-top: 4px;
+      }
+
+      a.hh-market-card-link {
+        text-decoration: none;
+        color: inherit;
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+
+      .hh-market-grid a.hh-market-card-link {
+        min-width: 0;
+      }
+
+      .hh-market-grid .market-card:has(.hh-market-card-link:hover) {
+        border-color: rgba(11, 106, 88, 0.35);
+      }
+
+      .hh-market-history-block {
+        margin-top: 4px;
+        min-width: 0;
+        width: 100%;
+        max-width: 100%;
+      }
+
+      .hh-market-history-block .history-block {
+        margin-top: 0;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+
+      .hh-market-history-block .history-chart {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+      }
+
+      .hh-market-history-block .history-grid {
+        width: 100%;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .hh-market-history-block .history-game {
+        overflow: hidden;
+      }
+
+      .hh-market-history-block .history-date,
+      .hh-market-history-block .history-opponent {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       @media (max-width: 820px) {
@@ -1126,15 +1440,27 @@
                 <option value="edge">Betting edge</option>
                 <option value="lineup">Lineup slot</option>
               </select>
+              <div class="small-copy muted" style="margin-top: 6px; line-height: 1.35">
+                Sort only reorders cards. To hide non-streak hitters, use
+                <strong>Streak only</strong> (2+ consecutive hit games).
+              </div>
             </div>
             <div class="field">
-              <label for="resultLimit">Card Limit</label>
-              <select id="resultLimit">
-                <option value="24">24</option>
-                <option value="36">36</option>
-                <option value="50">50</option>
-                <option value="75" selected>75</option>
+              <label for="boardSize">Board size</label>
+              <select id="boardSize">
+                <option value="12" selected>Top 12 on board</option>
+                <option value="15">Top 15</option>
+                <option value="24">Top 24</option>
+                <option value="36">Top 36</option>
+                <option value="50">Top 50</option>
+                <option value="0">All matching hitters</option>
               </select>
+              <div class="small-copy muted" style="margin-top: 6px; line-height: 1.35">
+                Short list by default. Uses your <strong>Sort by</strong> order (e.g. hit
+                streak, model probability). Pick <strong>All matching hitters</strong> to
+                show everyone who passes filters. <strong>Streak only</strong> still
+                narrows the pool first.
+              </div>
             </div>
             <div class="field">
               <label for="teamFilter">Team</label>
@@ -1316,6 +1642,39 @@
         <div id="playerSearchCard"></div>
       </section>
 
+      <section class="panel hh-markets-panel" id="hitterMarketsSection" hidden>
+        <div class="panel-head">
+          <div>
+            <div class="section-tag">Markets</div>
+            <h2>Best price plus model edge · 1+ Hits</h2>
+          </div>
+          <span class="muted" id="hitterMarketsSummary">—</span>
+        </div>
+        <p class="hh-markets-lede muted">
+          Same EV tiers as the matchup page: full gates, soft green, watchlist,
+          and raw edge — scoped to hot-list hitters with a priced 1+ hit line.
+          Separate from each streak card&apos;s <strong>Model lines</strong> block
+          (raw projections below).
+        </p>
+        <div class="market-grid hh-market-grid" id="hitterMarketsGrid"></div>
+      </section>
+
+      <section class="panel hh-markets-panel" id="sluggerHrSection" hidden>
+        <div class="panel-head">
+          <div>
+            <div class="section-tag">Sluggers</div>
+            <h2>Home run model · priced yes lines</h2>
+          </div>
+          <span class="muted" id="sluggerHrSummary">—</span>
+        </div>
+        <p class="hh-markets-lede muted">
+          P(HR) from the HR lane (rolling HR/PA, quality of contact, park, opposing
+          starter barrels). Needs <code>player_prop_markets</code> rows for HR /
+          “to homer” markets plus <code>predict_hr</code> after features.
+        </p>
+        <div class="market-grid hh-market-grid" id="sluggerHrGrid"></div>
+      </section>
+
       <section class="panel" style="position: relative; z-index: 1">
         <div class="panel-head">
           <div>
@@ -1326,6 +1685,15 @@
             >Loading hitter board</span
           >
         </div>
+        <p
+          class="muted"
+          style="margin: 0 0 14px; font-size: 0.86rem; line-height: 1.45"
+        >
+          <strong>Model lines</strong> on each card summarize our prop projections
+          (1+ hits, TB, HR). They are not the same as the <strong>Markets</strong>
+          strips above (priced EV cards) or the main board best-bet / watchlist
+          lanes.
+        </p>
         <div class="cards-grid" id="cardsGrid">
           <div class="empty-state">Loading hitter board...</div>
         </div>
@@ -1513,6 +1881,7 @@
             tone: "warn",
             chip: "Pitcher-hand pending",
             detail: "Starter hand is not available yet",
+            isStrong: false,
           };
         }
 
@@ -1526,6 +1895,7 @@
             tone: "warn",
             chip: `No read vs ${handLabel}`,
             detail: `No recorded at-bats yet versus ${handLabel}`,
+            isStrong: false,
           };
         }
 
@@ -1622,6 +1992,8 @@
       const state = {
         rows: [],
         summary: null,
+        hitterBestBets: [],
+        sluggerHrBets: [],
         historyFilters: {},
         statFilters: {},
       };
@@ -1631,7 +2003,7 @@
       const targetDateInput = document.getElementById("targetDate");
       const minProbabilityInput = document.getElementById("minProbability");
       const sortModeInput = document.getElementById("sortMode");
-      const resultLimitInput = document.getElementById("resultLimit");
+      const boardSizeInput = document.getElementById("boardSize");
       const teamFilterInput = document.getElementById("teamFilter");
       const confirmedOnlyInput = document.getElementById("confirmedOnly");
       const includeInferredInput = document.getElementById("includeInferred");
@@ -1643,6 +2015,12 @@
       const cardsGrid = document.getElementById("cardsGrid");
       const resultsSubtitle = document.getElementById("resultsSubtitle");
       const pageStatus = document.getElementById("pageStatus");
+      const hitterMarketsSection = document.getElementById("hitterMarketsSection");
+      const hitterMarketsGrid = document.getElementById("hitterMarketsGrid");
+      const hitterMarketsSummary = document.getElementById("hitterMarketsSummary");
+      const sluggerHrSection = document.getElementById("sluggerHrSection");
+      const sluggerHrGrid = document.getElementById("sluggerHrGrid");
+      const sluggerHrSummary = document.getElementById("sluggerHrSummary");
       const hotCountCopy = document.getElementById("hotCountCopy");
       const hitterDataWarning = document.getElementById("hitterDataWarning");
       const hitterDataWarningMeta = document.getElementById(
@@ -1668,12 +2046,35 @@
         return parsed.getTime() <= Date.now();
       }
 
+      /** Consecutive games with a hit: max of game-log chain and API streak fields. */
+      function rowHitStreak(row) {
+        const history = Array.isArray(row?.recent_hit_history)
+          ? row.recent_hit_history
+          : [];
+        let fromHistory = 0;
+        for (const g of history) {
+          const hit =
+            Boolean(g?.had_hit) || (numberOr(g?.hits, 0) ?? 0) > 0;
+          if (hit) fromHistory++;
+          else break;
+        }
+        const fromApi = Math.max(
+          numberOr(row?.streak_len, 0),
+          numberOr(row?.streak_len_capped, 0),
+        );
+        return Math.max(fromHistory, fromApi);
+      }
+
       function playerFormTone(player) {
+        const fk = player?.form?.form_key;
+        if (fk === "hot" || fk === "warm" || fk === "cold" || fk === "steady") {
+          return fk;
+        }
         const hitRate7 = numberOr(player?.hit_rate_7);
         const hitRate30 = numberOr(player?.hit_rate_30);
         const xwoba14 = numberOr(player?.xwoba_14);
         const hardHit14 = numberOr(player?.hard_hit_pct_14);
-        const streak = numberOr(player?.streak_len_capped, 0) ?? 0;
+        const streak = rowHitStreak(player);
         const hitDelta =
           hitRate7 == null || hitRate30 == null ? null : hitRate7 - hitRate30;
         if (
@@ -1804,8 +2205,7 @@
         if (sortMode === "streak") {
           return sorted.sort(
             (left, right) =>
-              numberOr(right.streak_len_capped, -1) -
-                numberOr(left.streak_len_capped, -1) ||
+              rowHitStreak(right) - rowHitStreak(left) ||
               numberOr(right.form?.heat_score, -1) -
                 numberOr(left.form?.heat_score, -1) ||
               numberOr(right.predicted_hit_probability, -1) -
@@ -1843,8 +2243,7 @@
             (left, right) =>
               numberOr(right.form?.heat_score, -1) -
                 numberOr(left.form?.heat_score, -1) ||
-              numberOr(right.streak_len_capped, -1) -
-                numberOr(left.streak_len_capped, -1) ||
+              rowHitStreak(right) - rowHitStreak(left) ||
               numberOr(right.predicted_hit_probability, -1) -
                 numberOr(left.predicted_hit_probability, -1),
           );
@@ -1865,8 +2264,7 @@
         }
         return sorted.sort(
           (left, right) =>
-            numberOr(right.streak_len_capped, -1) -
-              numberOr(left.streak_len_capped, -1) ||
+            rowHitStreak(right) - rowHitStreak(left) ||
             numberOr(right.form?.heat_score, -1) -
               numberOr(left.form?.heat_score, -1) ||
             numberOr(right.predicted_hit_probability, -1) -
@@ -1906,7 +2304,7 @@
           <div class="history-block">
             <div class="history-head">
               <div class="history-caption ${formTone}"><strong>${filterKey === "h2h" ? filterTitle : defaultHistoryTitle}</strong>${filterKey === "h2h" ? ` · ${filterTitle}` : ""} · newest on left · ${hitGames}/${shownHistory.length || 0} hit games</div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <div class="history-toolbar">
                 <div class="history-filters">
                   ${historyFilterOptions()
                     .map(
@@ -1996,13 +2394,17 @@
         `;
       }
 
+      function applyBoardSizeCap(pool) {
+        if (!boardSizeInput) return pool;
+        const n = Number.parseInt(String(boardSizeInput.value || "12"), 10);
+        if (!Number.isFinite(n) || n <= 0) return pool;
+        return pool.slice(0, n);
+      }
+
       function filteredRows() {
         return sortRows(
           (state.rows || []).filter((row) => {
-            if (
-              streakOnlyInput.checked &&
-              numberOr(row.streak_len_capped, 0) < 2
-            )
+            if (streakOnlyInput.checked && rowHitStreak(row) < 2)
               return false;
             if (
               hideStartedOnlyInput.checked &&
@@ -2017,24 +2419,32 @@
               return false;
             if (availableOnlyInput.checked && row.is_available === false)
               return false;
-            const teamValue = teamFilterInput.value;
-            if (teamValue && row.team !== teamValue) return false;
+            const teamValue = String(teamFilterInput.value || "").trim();
+            if (
+              teamValue &&
+              String(row.team || "").trim() !== teamValue
+            )
+              return false;
             return true;
           }),
         );
       }
 
-      function updateSummary(rows) {
+      function updateSummary(displayedRows, poolLength) {
         const summary = state.summary || {};
-        const filteredCount = rows.length;
+        const poolN =
+          poolLength != null ? poolLength : (displayedRows || []).length;
+        const filteredCount = (displayedRows || []).length;
         const totalHotCount = Number(summary.total_hot_count || 0);
-        const visibleConfirmedCount = rows.filter(
+        const visibleConfirmedCount = (displayedRows || []).filter(
           (row) => row.is_confirmed_lineup,
         ).length;
         const visibleGamesCount = new Set(
-          rows.map((row) => row.game_id).filter((value) => value != null),
+          (displayedRows || [])
+            .map((row) => row.game_id)
+            .filter((value) => value != null),
         ).size;
-        const visibleProbabilities = rows
+        const visibleProbabilities = (displayedRows || [])
           .map((row) => numberOr(row.predicted_hit_probability))
           .filter((value) => value != null);
         document.getElementById("hotCount").textContent = String(filteredCount);
@@ -2055,15 +2465,19 @@
           summary.latest_prediction_ts
             ? `Latest prediction snapshot ${formatDateTime(summary.latest_prediction_ts)}`
             : "Latest prediction snapshot pending";
-        hotCountCopy.textContent =
-          totalHotCount > filteredCount
-            ? `${filteredCount} shown of ${totalHotCount} streak and form hitters on this slate`
-            : "Streak and form hitters matching this filter";
+        const hiddenByBoard = poolN > filteredCount ? poolN - filteredCount : 0;
+        hotCountCopy.textContent = (() => {
+          if (hiddenByBoard > 0) {
+            return `${filteredCount} on the streak board · ${poolN} match your filters (${hiddenByBoard} more below the board size — raise Board size for the full list)`;
+          }
+          if (totalHotCount > filteredCount) {
+            return `${filteredCount} shown of ${totalHotCount} streak and form hitters on this slate`;
+          }
+          return "Streak and form hitters matching this filter";
+        })();
         const suppressed = Number(summary.suppressed_inferred_count || 0);
         const hiddenByStreak = streakOnlyInput.checked
-          ? (state.rows || []).filter(
-              (row) => numberOr(row.streak_len_capped, 0) < 2,
-            ).length
+          ? (state.rows || []).filter((row) => rowHitStreak(row) < 2).length
           : 0;
         const hiddenStarted =
           hideStartedOnlyInput.checked && isTodayTarget()
@@ -2071,10 +2485,14 @@
                 .length
             : 0;
         const confirmedFallback = Boolean(summary.confirmed_fallback_active);
+        const boardFrag =
+          hiddenByBoard > 0
+            ? ` | ${hiddenByBoard} hidden by board size cap`
+            : "";
         pageStatus.textContent =
           totalHotCount > filteredCount
-            ? `${filteredCount} of ${totalHotCount} streak and form hitters shown for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}${confirmedFallback ? " | confirmed filter fell back to latest projected order" : ""}`
-            : `${filteredCount} streak and form hitters for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}${confirmedFallback ? " | confirmed filter fell back to latest projected order" : ""}`;
+            ? `${filteredCount} of ${totalHotCount} streak and form hitters shown for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}${boardFrag}${confirmedFallback ? " | confirmed filter fell back to latest projected order" : ""}`
+            : `${filteredCount} streak and form hitters for ${targetDateInput.value}${suppressed ? ` | ${suppressed} inferred rows hidden` : ""}${hiddenByStreak ? ` | ${hiddenByStreak} non-streak rows hidden` : ""}${hiddenStarted ? ` | ${hiddenStarted} started rows hidden` : ""}${boardFrag}${confirmedFallback ? " | confirmed filter fell back to latest projected order" : ""}`;
       }
 
       function updateDataWarning() {
@@ -2153,15 +2571,7 @@
           : "";
       }
       function _hhComputeStreak(row) {
-        const history = Array.isArray(row?.recent_hit_history)
-          ? row.recent_hit_history
-          : [];
-        let streak = 0;
-        for (const g of history) {
-          if (g.had_hit) streak++;
-          else break;
-        }
-        return streak;
+        return rowHitStreak(row);
       }
 
       const _hhBioCache = {};
@@ -2201,6 +2611,113 @@
             .filter(Boolean)
             .join(" · ");
         });
+      }
+
+      function renderModelLinesPanel(row) {
+        const hitsP = numberOr(row.predicted_hit_probability);
+        const mk = row.market_price;
+        const fair = row.fair_price;
+        const tb =
+          row.total_bases && typeof row.total_bases === "object"
+            ? row.total_bases
+            : null;
+        const hr =
+          row.hr_prediction && typeof row.hr_prediction === "object"
+            ? row.hr_prediction
+            : null;
+
+        const lines = [];
+
+        const hitParts = [];
+        if (hitsP != null) hitParts.push(`${formatPercent(hitsP, 1)} model`);
+        if (mk != null) hitParts.push(`${formatPrice(mk)} book`);
+        if (fair != null) hitParts.push(`Fair ${formatPrice(fair)}`);
+        lines.push({
+          stat: "1+ Hits",
+          body: hitParts.length ? hitParts.join(" · ") : "—",
+          detail: "P(record a hit) vs priced yes line",
+        });
+
+        if (
+          tb &&
+          (tb.predicted_tb != null ||
+            tb.market_line != null ||
+            tb.edge != null ||
+            tb.over_probability != null)
+        ) {
+          const tp = [];
+          if (tb.predicted_tb != null)
+            tp.push(`Proj ${formatNumber(tb.predicted_tb, 2)} TB`);
+          if (tb.market_line != null)
+            tp.push(`Line O/U ${formatNumber(tb.market_line, 1)}`);
+          if (tb.over_probability != null)
+            tp.push(`P(over) ${formatPercent(tb.over_probability, 0)}`);
+          if (tb.edge != null) tp.push(`Edge ${formatSigned(tb.edge, 2)}`);
+          lines.push({
+            stat: "Total bases",
+            body: tp.join(" · "),
+            detail: "TB regression vs optional book line",
+          });
+        } else {
+          lines.push({
+            stat: "Total bases",
+            body: "No TB projection row yet",
+            detail: "Run total_bases features + predict_total_bases",
+            muted: true,
+          });
+        }
+
+        const hrp = hr ? numberOr(hr.predicted_hr_probability) : null;
+        if (hrp != null) {
+          const hp = [];
+          hp.push(`${formatPercent(hrp, 2)} P(HR)`);
+          if (hr.market_price != null) hp.push(`${formatPrice(hr.market_price)} book`);
+          if (hr.fair_price != null) hp.push(`Fair ${formatPrice(hr.fair_price)}`);
+          if (hr.edge != null) hp.push(`Edge ${formatSigned(hr.edge, 3)}`);
+          lines.push({
+            stat: "Home run (yes)",
+            body: hp.join(" · "),
+            detail: "HR lane — compare Slugger strip for slate-wide HR cards",
+          });
+        } else {
+          lines.push({
+            stat: "Home run (yes)",
+            body: "No HR model row yet",
+            detail: "Needs predict_hr + priced HR prop",
+            muted: true,
+          });
+        }
+
+        lines.push({
+          stat: "Runs & RBI",
+          body: "No separate batter runs / RBI props modeled here",
+          detail: "Use team totals & game markets for script; we may add lanes later",
+          muted: true,
+        });
+
+        return `
+        <div class="model-lines-panel" aria-label="Model prop projections for this hitter">
+          <div class="model-lines-head">
+            <span class="model-lines-title">Model lines</span>
+            <span class="model-lines-note">Slate projections — not the Hitter Markets EV strip or main-board best bets.</span>
+          </div>
+          <div class="model-lines-grid">
+            ${lines
+              .map(
+                (L) => `
+              <div class="ml-line ${L.muted ? "ml-line-muted" : ""}">
+                <div class="ml-line-stat">${escapeHtml(L.stat)}</div>
+                <div class="ml-line-body">${escapeHtml(L.body)}</div>
+                ${
+                  L.detail
+                    ? `<div class="ml-line-detail">${escapeHtml(L.detail)}</div>`
+                    : ""
+                }
+              </div>`,
+              )
+              .join("")}
+          </div>
+        </div>`;
       }
 
       function renderCard(row) {
@@ -2277,6 +2794,7 @@
             </div>
           </div>
           ${reasons ? `<div class="reason-list">${reasons}</div>` : `<div class="reason-list"><div class="reason-chip good">${escapeHtml(form.summary || "Recent form above baseline")}</div></div>`}
+          ${renderModelLinesPanel(row)}
           <div class="bc-pills">
             <div class="bc-pill accent"><div class="bc-pill-val" style="color:${hitProbColor}">${formatPercent(row.predicted_hit_probability, 0)}</div><div class="bc-pill-lbl">Hit Prob</div></div>
             <div class="bc-pill gold"><div class="bc-pill-val" style="color:${edgeColor}">${hasMarket ? formatSigned(row.edge, 3) : "Pending"}</div><div class="bc-pill-lbl">${hasMarket ? "Edge" : "Market"}</div></div>
@@ -2287,24 +2805,6 @@
             <div class="bc-pill"><div class="bc-pill-val" style="color:${numberOr(row.batting_avg_season) >= 0.28 ? "var(--good)" : numberOr(row.batting_avg_season) <= 0.22 ? "var(--warn)" : "inherit"}">${formatBattingAverage(row.batting_avg_season)}</div><div class="bc-pill-lbl">Season BA</div></div>
             <div class="bc-pill"><div class="bc-pill-val" style="color:${numberOr(row.batting_avg_last7) >= 0.3 ? "var(--good)" : numberOr(row.batting_avg_last7) <= 0.2 ? "var(--warn)" : "inherit"}">${formatBattingAverage(row.batting_avg_last7)}</div><div class="bc-pill-lbl">Last 7 BA</div></div>
             <div class="bc-pill"><div class="bc-pill-val">${_hhComputeStreak(row)}G</div><div class="bc-pill-lbl">Hit Streak</div></div>
-            ${(() => {
-              const tb = row.total_bases;
-              if (!tb) return "";
-              const pills = [];
-              if (tb.predicted_tb != null)
-                pills.push(
-                  `<div class="bc-pill accent"><div class="bc-pill-val" style="color:${tb.predicted_tb >= 1.8 ? "var(--good)" : "inherit"}">${formatNumber(tb.predicted_tb, 2)}</div><div class="bc-pill-lbl">Proj TB</div></div>`,
-                );
-              if (tb.market_line != null)
-                pills.push(
-                  `<div class="bc-pill"><div class="bc-pill-val">${formatNumber(tb.market_line, 1)}</div><div class="bc-pill-lbl">TB Line</div></div>`,
-                );
-              if (tb.edge != null)
-                pills.push(
-                  `<div class="bc-pill gold"><div class="bc-pill-val" style="color:${tb.edge >= 0.3 ? "var(--good)" : tb.edge <= -0.3 ? "var(--bad)" : "inherit"}">${formatSigned(tb.edge, 2)}</div><div class="bc-pill-lbl">TB Edge</div></div>`,
-                );
-              return pills.join("");
-            })()}
           </div>
           ${renderRecentHistory(row)}
           <div class="data-stack">
@@ -2342,13 +2842,14 @@
       }
 
       function renderRows() {
-        const rows = filteredRows();
+        const pool = filteredRows();
+        const rows = applyBoardSizeCap(pool);
         const totalHotCount = Number(
           (state.summary || {}).total_hot_count || 0,
         );
-        updateSummary(rows);
+        updateSummary(rows, pool.length);
         updateDataWarning();
-        if (!rows.length) {
+        if (!pool.length) {
           cardsGrid.innerHTML = `
           <div class="empty-state">
             No streak or form hitters matched this date and filter. ${confirmedOnlyInput.checked ? "Confirmed lineups are not loaded yet for this date." : "Try turning off streak-only, showing started games, or removing the model probability floor."}
@@ -2364,10 +2865,14 @@
         const confirmedFallback = Boolean(
           (state.summary || {}).confirmed_fallback_active,
         );
+        const boardNote =
+          pool.length > rows.length
+            ? ` Showing ${rows.length} of ${pool.length} after sort (board size).`
+            : "";
         resultsSubtitle.textContent =
-          totalHotCount > rows.length
-            ? `${rows.length} of ${totalHotCount} streak and form hitters cleared the ${Math.round(probabilityFloor * 100)}% model floor for ${targetDateInput.value}.${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`
-            : `${rows.length} streak and form hitters qualified for ${targetDateInput.value}.${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`;
+          totalHotCount > pool.length
+            ? `${rows.length} of ${totalHotCount} streak and form hitters cleared the ${Math.round(probabilityFloor * 100)}% model floor for ${targetDateInput.value}.${boardNote}${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`
+            : `${rows.length} streak and form hitters qualified for ${targetDateInput.value}.${boardNote}${confirmedFallback ? " No confirmed lineups were available, so lineup slots are coming from the latest projected order." : ""}`;
         if (sortModeInput.value === "team") {
           const groups = new Map();
           rows.forEach((row) => {
@@ -2402,13 +2907,225 @@
         if (playerIds.length) _hhFetchBios(playerIds);
       }
 
+      function hhMarketBoardBadgeClass(key) {
+        if (key === "strict") return "good";
+        if (key === "soft_green" || key === "raw_edge") return "warn";
+        if (key === "watchlist") return "info";
+        if (key === "lean") return "warn";
+        return "";
+      }
+
+      function findHitterRowForMarketCard(card) {
+        const pid = card.player_id;
+        const gid = card.game_id;
+        if (pid == null || gid == null) return null;
+        return (
+          (state.rows || []).find(
+            (r) =>
+              Number(r.player_id) === Number(pid) &&
+              Number(r.game_id) === Number(gid),
+          ) || null
+        );
+      }
+
+      function renderHitterBestBetsPanel() {
+        const cards = Array.isArray(state.hitterBestBets)
+          ? state.hitterBestBets
+          : [];
+        if (!hitterMarketsSection || !hitterMarketsGrid || !hitterMarketsSummary) {
+          return;
+        }
+        if (!cards.length) {
+          hitterMarketsSection.hidden = false;
+          hitterMarketsGrid.innerHTML = `<div class="empty-state">No hot-list hitter rows with a priced 1+ hit line yet. Run <strong>Refresh Everything</strong> on the main board after odds ingest, or lower filters if hitters lack market prices.</div>`;
+          hitterMarketsSummary.textContent =
+            "Waiting for priced 1+ hit props on hot hitters";
+          return;
+        }
+        hitterMarketsSection.hidden = false;
+        const countTier = (t) =>
+          cards.filter((c) => (c.board_pick_tier || "monitor") === t).length;
+        const nStrict = countTier("strict");
+        const nSoft = countTier("soft_green");
+        const nWatch = countTier("watchlist");
+        const nRaw = countTier("raw_edge");
+        const nLean = countTier("lean");
+        const parts = [];
+        if (nStrict)
+          parts.push(`${nStrict} full-gate${nStrict === 1 ? "" : "s"}`);
+        if (nSoft) parts.push(`${nSoft} soft green`);
+        if (nWatch) parts.push(`${nWatch} watchlist`);
+        if (nRaw) parts.push(`${nRaw} raw EV only`);
+        if (nLean) parts.push(`${nLean} lean vs no-vig`);
+        hitterMarketsSummary.textContent = parts.length
+          ? `${parts.join(" · ")} · weighted EV uses price × model, then lineup certainty`
+          : "Market context · compare tiers on each card";
+
+        hitterMarketsGrid.innerHTML = cards
+          .map((card) => {
+            const tier = card.board_pick_tier || "monitor";
+            const toneClass = card.positive ? "positive" : "";
+            const tierClass = tier !== "monitor" ? ` tier-${tier}` : "";
+            const badges = Array.isArray(card.board_badges)
+              ? card.board_badges
+              : [];
+            const badgeHtml = badges.length
+              ? `<div class="market-badge-row">${badges
+                  .map((b) => {
+                    const cls = hhMarketBoardBadgeClass(b.key);
+                    return `<span class="market-badge ${cls ? escapeHtml(cls) : ""}">${escapeHtml(b.label || b.key)}</span>`;
+                  })
+                  .join("")}</div>`
+              : `<span class="market-badge">Context</span>`;
+            const selectionText = card.selection_label
+              ? `${escapeHtml(card.selection_label)}${card.price != null ? ` ${formatPrice(card.price)}` : ""}`
+              : "Line pending";
+            const metricParts = [];
+            if (card.weighted_ev != null) {
+              metricParts.push(
+                `Weighted EV ${formatSigned(card.weighted_ev * 100, 1)}%`,
+              );
+            }
+            if (card.probability_edge != null) {
+              metricParts.push(
+                `No-vig edge ${formatSigned(card.probability_edge * 100, 1)} pts`,
+              );
+            }
+            if (card.certainty_weight != null) {
+              metricParts.push(
+                `Certainty ${formatPercent(card.certainty_weight, 0)}`,
+              );
+            }
+            const hints = Array.isArray(card.ev_gate_hints)
+              ? card.ev_gate_hints
+              : [];
+            const hintBlock = hints.length
+              ? `<div class="market-gate-hint">Not full-gate yet: ${hints.map((h) => escapeHtml(h)).join(" · ")}</div>`
+              : "";
+            const matchupHref = appUrl(
+              `game?game_id=${encodeURIComponent(card.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(includeInferredInput.checked))}`,
+            );
+            const hitterRow = findHitterRowForMarketCard(card);
+            const historyHtml = hitterRow
+              ? `<div class="hh-market-history-block">${renderRecentHistory(hitterRow)}</div>`
+              : "";
+            return `
+                <article class="market-card ${toneClass}${tierClass}">
+              <a class="hh-market-card-link" href="${matchupHref}">
+                <div class="market-card-head">
+                  <div class="data-label">${escapeHtml(card.market_label || "Market")}</div>
+                  ${badgeHtml}
+                </div>
+                <div class="market-card-title">${selectionText}</div>
+                <div class="market-card-copy">${escapeHtml(card.subject_subtitle || "")}</div>
+                <div class="market-card-copy">${escapeHtml(card.market_summary || "Market snapshot pending")}</div>
+                <div class="market-card-copy">${escapeHtml(card.model_summary || "Model context pending")}</div>
+                <div class="market-card-meta">${metricParts.join(" · ") || "Model edge unavailable"}${card.sportsbook ? ` · ${escapeHtml(card.sportsbook)}` : ""}</div>
+                ${hintBlock}
+              </a>
+              ${historyHtml}
+                </article>
+            `;
+          })
+          .join("");
+      }
+
+      function renderSluggerHrPanel() {
+        const cards = Array.isArray(state.sluggerHrBets)
+          ? state.sluggerHrBets
+          : [];
+        if (!sluggerHrSection || !sluggerHrGrid || !sluggerHrSummary) {
+          return;
+        }
+        if (!cards.length) {
+          sluggerHrSection.hidden = true;
+          return;
+        }
+        sluggerHrSection.hidden = false;
+        sluggerHrSummary.textContent = `${cards.length} priced HR pick${cards.length === 1 ? "" : "s"} · rare-event thresholds`;
+        sluggerHrGrid.innerHTML = cards
+          .map((card) => {
+            const tier = card.board_pick_tier || "monitor";
+            const toneClass = card.positive ? "positive" : "";
+            const tierClass = tier !== "monitor" ? ` tier-${tier}` : "";
+            const badges = Array.isArray(card.board_badges)
+              ? card.board_badges
+              : [];
+            const badgeHtml = badges.length
+              ? `<div class="market-badge-row">${badges
+                  .map((b) => {
+                    const cls = hhMarketBoardBadgeClass(b.key);
+                    return `<span class="market-badge ${cls ? escapeHtml(cls) : ""}">${escapeHtml(b.label || b.key)}</span>`;
+                  })
+                  .join("")}</div>`
+              : `<span class="market-badge">Context</span>`;
+            const selectionText = card.selection_label
+              ? `${escapeHtml(card.selection_label)}${card.price != null ? ` ${formatPrice(card.price)}` : ""}`
+              : "Line pending";
+            const metricParts = [];
+            if (card.weighted_ev != null) {
+              metricParts.push(
+                `Weighted EV ${formatSigned(card.weighted_ev * 100, 1)}%`,
+              );
+            }
+            if (card.probability_edge != null) {
+              metricParts.push(
+                `No-vig edge ${formatSigned(card.probability_edge * 100, 1)} pts`,
+              );
+            }
+            if (card.model_probability != null) {
+              const phrDisp =
+                card.hr_probability_display != null &&
+                card.hr_probability_display !== ""
+                  ? card.hr_probability_display
+                  : formatPercent(card.model_probability, 2);
+              metricParts.push(`P(HR) ${phrDisp}`);
+            }
+            const hints = Array.isArray(card.ev_gate_hints)
+              ? card.ev_gate_hints
+              : [];
+            const hintBlock = hints.length
+              ? `<div class="market-gate-hint">Not full-gate yet: ${hints.map((h) => escapeHtml(h)).join(" · ")}</div>`
+              : "";
+            const why = Array.isArray(card.hr_reasoning)
+              ? card.hr_reasoning
+              : [];
+            const whyBlock = why.length
+              ? `<div class="market-card-copy muted"><strong>Why:</strong> ${why.map((w) => escapeHtml(w)).join(" ")}</div>`
+              : "";
+            const matchupHref = appUrl(
+              `game?game_id=${encodeURIComponent(card.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(includeInferredInput.checked))}`,
+            );
+            return `
+                <article class="market-card ${toneClass}${tierClass}">
+              <a class="hh-market-card-link" href="${matchupHref}">
+                <div class="market-card-head">
+                  <div class="data-label">${escapeHtml(card.market_label || "HR")}</div>
+                  ${badgeHtml}
+                </div>
+                <div class="market-card-title">${selectionText}</div>
+                <div class="market-card-copy">${escapeHtml(card.subject_subtitle || "")}</div>
+                <div class="market-card-copy">${escapeHtml(card.market_summary || "")}</div>
+                <div class="market-card-copy">${escapeHtml(card.model_summary || "")}</div>
+                ${whyBlock}
+                <div class="market-card-meta">${metricParts.join(" · ") || "Model edge unavailable"}${card.sportsbook ? ` · ${escapeHtml(card.sportsbook)}` : ""}</div>
+                ${hintBlock}
+              </a>
+                </article>
+            `;
+          })
+          .join("");
+      }
+
       async function loadHotHitters() {
+        const limit = 200;
         const params = new URLSearchParams({
           target_date: targetDateInput.value,
           min_probability: minProbabilityInput.value,
           confirmed_only: confirmedOnlyInput.checked ? "true" : "false",
           include_inferred: includeInferredInput.checked ? "true" : "false",
-          limit: resultLimitInput.value,
+          streak_only: streakOnlyInput.checked ? "true" : "false",
+          limit: String(limit),
         });
         const response = await fetch(
           appUrl(`api/hot-hitters?${params.toString()}`),
@@ -2419,6 +3136,8 @@
         const payload = await response.json();
         state.rows = payload.rows || [];
         state.summary = payload.summary || null;
+        state.hitterBestBets = payload.hitter_best_bets || [];
+        state.sluggerHrBets = payload.slugger_hr_bets || [];
         populateTeamFilter();
       }
 
@@ -2427,12 +3146,13 @@
         const teams = [
           ...new Set((state.rows || []).map((r) => r.team).filter(Boolean)),
         ].sort();
+        const safeCurrent = teams.includes(current) ? current : "";
         teamFilterInput.innerHTML =
           '<option value="">All teams</option>' +
           teams
             .map(
               (t) =>
-                `<option value="${escapeHtml(t)}"${t === current ? " selected" : ""}>${escapeHtml(t)}</option>`,
+                `<option value="${escapeHtml(t)}"${t === safeCurrent ? " selected" : ""}>${escapeHtml(t)}</option>`,
             )
             .join("");
       }
@@ -2444,6 +3164,8 @@
         pageStatus.textContent = `Loading ${targetDateInput.value}`;
         try {
           await loadHotHitters();
+          renderHitterBestBetsPanel();
+          renderSluggerHrPanel();
           renderRows();
         } catch (error) {
           cardsGrid.innerHTML = `<div class="empty-state">${escapeHtml(String(error))}</div>`;
@@ -2457,16 +3179,18 @@
       refreshButton.addEventListener("click", refreshPage);
       minProbabilityInput.addEventListener("change", refreshPage);
       sortModeInput.addEventListener("change", renderRows);
-      resultLimitInput.addEventListener("change", refreshPage);
+      if (boardSizeInput) {
+        boardSizeInput.addEventListener("change", renderRows);
+      }
       confirmedOnlyInput.addEventListener("change", refreshPage);
       includeInferredInput.addEventListener("change", refreshPage);
       teamFilterInput.addEventListener("change", renderRows);
-      streakOnlyInput.addEventListener("change", renderRows);
+      streakOnlyInput.addEventListener("change", refreshPage);
       hideStartedOnlyInput.addEventListener("change", renderRows);
       strongHandOnlyInput.addEventListener("change", renderRows);
       availableOnlyInput.addEventListener("change", renderRows);
       targetDateInput.addEventListener("change", refreshPage);
-      cardsGrid.addEventListener("click", (event) => {
+      function handleHotHitterHistoryFilterClick(event) {
         const filterButton = event.target.closest("[data-history-filter]");
         if (filterButton) {
           const playerKey = String(filterButton.dataset.playerKey || "");
@@ -2474,6 +3198,7 @@
           if (playerKey) {
             state.historyFilters[playerKey] = filterKey;
             renderRows();
+            renderHitterBestBetsPanel();
           }
           return;
         }
@@ -2484,10 +3209,17 @@
           if (playerKey) {
             state.statFilters[playerKey] = statKey;
             renderRows();
+            renderHitterBestBetsPanel();
           }
-          return;
         }
-      });
+      }
+      cardsGrid.addEventListener("click", handleHotHitterHistoryFilterClick);
+      if (hitterMarketsGrid) {
+        hitterMarketsGrid.addEventListener(
+          "click",
+          handleHotHitterHistoryFilterClick,
+        );
+      }
       showProjectedHittersButton.addEventListener("click", () => {
         confirmedOnlyInput.checked = false;
         includeInferredInput.checked = true;
@@ -3000,5 +3732,6 @@
 
       refreshPage();
     </script>
+    <script src="/assets/update_job_follower.js" defer></script>
   </body>
 </html>

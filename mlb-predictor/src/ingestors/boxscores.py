@@ -144,7 +144,7 @@ def _late_bullpen_stats_by_pitcher(
             defensive_team is not None
             and pitcher_id is not None
             and inning is not None
-            and int(inning) >= 7
+            and int(inning) >= 6
             and int(pitcher_id) != starter_ids_by_team.get(defensive_team)
         ):
             runners = play.get("runners") or []

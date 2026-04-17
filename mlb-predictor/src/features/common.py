@@ -10,6 +10,8 @@ import pandas as pd
 from src.features.contracts import (
     FIRST5_TOTALS_META_COLUMNS,
     FIRST5_TOTALS_TARGET_COLUMN,
+    HR_META_COLUMNS,
+    HR_TARGET_COLUMN,
     HITS_META_COLUMNS,
     HITS_TARGET_COLUMN,
     TOTALS_META_COLUMNS,
@@ -167,6 +169,8 @@ def build_pitcher_priors(pitcher_starts: pd.DataFrame, prior_season: int) -> pd.
     else:
         prior["_ip_decimal"] = None
         prior["_k_per_9"] = None
+    if "home_runs_allowed" in prior.columns and "_ip_decimal" in prior.columns:
+        prior["_hra"] = pd.to_numeric(prior["home_runs_allowed"], errors="coerce").fillna(0.0)
     # Build aggregation spec — only include columns that exist
     agg_spec: dict = {
         "prior_xwoba": ("xwoba_against", "mean"),
@@ -185,6 +189,13 @@ def build_pitcher_priors(pitcher_starts: pd.DataFrame, prior_season: int) -> pd.
     agg_spec["prior_avg_ip"] = ("_ip_decimal", "mean")
     agg_spec["prior_k_per_9"] = ("_k_per_9", "mean")
     agg = prior.groupby("pitcher_id", as_index=True).agg(**agg_spec)
+    if "home_runs_allowed" in prior.columns and "_ip_decimal" in prior.columns:
+        hr_ip = prior.groupby("pitcher_id", as_index=True).agg(
+            _hra_sum=("_hra", "sum"),
+            _ipd_sum=("_ip_decimal", "sum"),
+        )
+        hr_ip["prior_hr_per_9"] = hr_ip["_hra_sum"] / hr_ip["_ipd_sum"].replace(0, np.nan) * 9.0
+        agg = agg.join(hr_ip[["prior_hr_per_9"]], how="left")
     return agg
 
 
@@ -200,7 +211,7 @@ def pitcher_snapshot(
     _NULL_SNAPSHOT = {
         "xwoba": None, "csw": None, "avg_fb_velo": None, "days_rest": None,
         "whiff_pct": None, "hard_hit_pct": None, "barrel_pct": None,
-        "avg_ip": None, "k_per_9": None,
+        "avg_ip": None, "k_per_9": None, "hr_per_9": None,
     }
     if pitcher_id is None:
         return dict(_NULL_SNAPSHOT)
@@ -228,6 +239,7 @@ def pitcher_snapshot(
     # Derive per-start K/9 and decimal IP for the sample window
     current_avg_ip = None
     current_k_per_9 = None
+    current_hr_per_9 = None
     if "ip" in sample.columns and "strikeouts" in sample.columns and not sample.empty:
         outs = sample["ip"].apply(baseball_ip_to_outs)
         ip_decimal = outs / 3.0
@@ -235,6 +247,13 @@ def pitcher_snapshot(
         if not valid.empty:
             current_avg_ip = float(ip_decimal.mean())
             current_k_per_9 = float((sample.loc[valid.index, "strikeouts"] / valid * 9.0).mean())
+    if "ip" in sample.columns and "home_runs_allowed" in sample.columns and not sample.empty:
+        outs_h = sample["ip"].apply(baseball_ip_to_outs)
+        ipd = outs_h / 3.0
+        hra = pd.to_numeric(sample["home_runs_allowed"], errors="coerce").fillna(0.0)
+        total_ip = float(ipd.sum())
+        if total_ip > 0:
+            current_hr_per_9 = float(hra.sum() / total_ip * 9.0)
 
     return {
         "xwoba": _blend("xwoba_against", "prior_xwoba"),
@@ -259,6 +278,14 @@ def pitcher_snapshot(
             mode=prior_blend_mode,
             prior_weight_multiplier=prior_weight_multiplier,
         ),
+        "hr_per_9": blend_with_prior(
+            current_hr_per_9,
+            prior.get("prior_hr_per_9") if isinstance(prior, pd.Series) else None,
+            sample_size,
+            full_weight_starts,
+            mode=prior_blend_mode,
+            prior_weight_multiplier=prior_weight_multiplier,
+        ),
         "days_rest": None if last_game_date is None else (game_date - last_game_date).days,
     }
 
@@ -271,13 +298,23 @@ def build_hitter_priors(player_batting: pd.DataFrame, prior_season: int) -> pd.D
     if prior.empty:
         return pd.DataFrame()
     prior["had_hit"] = (prior["hits"] > 0).astype(float)
-    return prior.groupby("player_id", as_index=True).agg(
+    if "home_runs" not in prior.columns:
+        prior["home_runs"] = 0
+    else:
+        prior["home_runs"] = pd.to_numeric(prior["home_runs"], errors="coerce").fillna(0)
+    prior["plate_appearances"] = pd.to_numeric(prior.get("plate_appearances"), errors="coerce").fillna(0)
+    grouped = prior.groupby("player_id", as_index=True)
+    result = grouped.agg(
         prior_hit_rate=("had_hit", "mean"),
         prior_xba=("xba", "mean"),
         prior_xwoba=("xwoba", "mean"),
         prior_hard_hit_pct=("hard_hit_pct", "mean"),
         prior_k_pct=("strikeouts", lambda value: float(value.sum()) / max(float(prior.loc[value.index, "plate_appearances"].sum()), 1.0)),
     )
+    hr_sum = grouped["home_runs"].apply(lambda s: float(pd.to_numeric(s, errors="coerce").fillna(0).sum()))
+    pa_sum = grouped["plate_appearances"].apply(lambda s: float(pd.to_numeric(s, errors="coerce").fillna(0).sum()))
+    result["prior_hr_per_pa"] = hr_sum / pa_sum.replace(0, np.nan)
+    return result
 
 
 def hit_streak_length(history: pd.DataFrame) -> int:
@@ -396,16 +433,31 @@ def hitter_snapshot(
     history = history.sort_values("game_date")
     prior = hitter_priors.loc[player_id] if player_id in hitter_priors.index else {}
     history["had_hit"] = (history["hits"] > 0).astype(float)
+    if "home_runs" not in history.columns:
+        history["home_runs"] = 0.0
+    else:
+        history["home_runs"] = pd.to_numeric(history["home_runs"], errors="coerce").fillna(0.0)
 
     def _window(days: int) -> pd.DataFrame:
         window_start = pd.Timestamp(game_date - timedelta(days=days))
         return history[history["game_date"] >= window_start]
+
+    def _hr_per_pa_window(window: pd.DataFrame) -> float | None:
+        if window.empty:
+            return None
+        pa = float(window["plate_appearances"].fillna(0).sum())
+        if pa <= 0:
+            return None
+        hr = float(window["home_runs"].sum())
+        return hr / pa
 
     window_7 = _window(7)
     window_14 = _window(14)
     window_30 = _window(30)
     pa_30 = float(window_30["plate_appearances"].fillna(0).sum())
     hit_rate_30 = _safe_mean(window_30["had_hit"])
+    hr_per_pa_30 = _hr_per_pa_window(window_30)
+    hr_per_pa_14 = _hr_per_pa_window(window_14)
     return {
         "hit_rate_7": _safe_mean(window_7["had_hit"]),
         "hit_rate_14": _safe_mean(window_14["had_hit"]),
@@ -422,9 +474,21 @@ def hitter_snapshot(
         "xwoba_14": _safe_mean(window_14["xwoba"]),
         "hard_hit_pct_14": _safe_mean(window_14["hard_hit_pct"]),
         "k_pct_14": safe_rate(window_14["strikeouts"].fillna(0).sum(), window_14["plate_appearances"].fillna(0).sum()),
+        "hr_per_pa_14": hr_per_pa_14,
+        "hr_per_pa_30": hr_per_pa_30,
+        "hr_per_pa_blended": blend_with_prior(
+            hr_per_pa_30,
+            prior.get("prior_hr_per_pa") if isinstance(prior, pd.Series) else None,
+            pa_30,
+            full_weight_pa,
+            mode=prior_blend_mode,
+            prior_weight_multiplier=prior_weight_multiplier,
+        ),
+        "hr_game_rate_30": _safe_mean((window_30["home_runs"] > 0).astype(float)),
         "season_prior_hit_rate": prior.get("prior_hit_rate") if isinstance(prior, pd.Series) else None,
         "season_prior_xba": prior.get("prior_xba") if isinstance(prior, pd.Series) else None,
         "season_prior_xwoba": prior.get("prior_xwoba") if isinstance(prior, pd.Series) else None,
+        "season_prior_hr_per_pa": prior.get("prior_hr_per_pa") if isinstance(prior, pd.Series) else None,
         "streak_len_capped": capped_hit_streak(history),
         "streak_len": hit_streak_length(history),
     }
@@ -785,6 +849,17 @@ def persist_hits_features(frame: pd.DataFrame, start_date: date, end_date: date)
         "player_features_hits",
         HITS_META_COLUMNS,
         HITS_TARGET_COLUMN,
+        start_date,
+        end_date,
+    )
+
+
+def persist_hr_features(frame: pd.DataFrame, start_date: date, end_date: date) -> int:
+    return _replace_feature_rows_for_date_range(
+        frame,
+        "player_features_hr",
+        HR_META_COLUMNS,
+        HR_TARGET_COLUMN,
         start_date,
         end_date,
     )

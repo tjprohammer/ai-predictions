@@ -40,7 +40,6 @@ def sample_live_row():
 def test_fetch_daily_results_sets_live_fallback_when_archived_empty(sample_live_row):
     target = date(2026, 4, 12)
     with (
-        patch.object(app_logic, "_fetch_ai_pick_results", return_value=[]),
         patch.object(
             app_logic,
             "_live_green_board_rows_for_daily_results",
@@ -53,6 +52,7 @@ def test_fetch_daily_results_sets_live_fallback_when_archived_empty(sample_live_
             return_value=[],
         ),
         patch.object(app_logic, "_fetch_experimental_pick_results", return_value=[]),
+        patch.object(app_logic, "_live_top_ev_rows_for_daily_results", return_value=[]),
         patch.object(app_logic, "_table_exists", return_value=False),
     ):
         out = app_logic._fetch_daily_results(target, hit_min_probability=0.5)
@@ -63,7 +63,8 @@ def test_fetch_daily_results_sets_live_fallback_when_archived_empty(sample_live_
     assert out["ai_picks"][0]["game_id"] == 1
 
 
-def test_fetch_daily_results_no_fallback_when_archived_present(sample_live_row):
+def test_fetch_daily_results_uses_live_green_board_not_archived(sample_live_row):
+    """Green picks always mirror the main board; archived ``_fetch_ai_pick_results`` is not used."""
     target = date(2026, 4, 12)
     archived = [dict(sample_live_row, game_id=99)]
     with (
@@ -80,13 +81,14 @@ def test_fetch_daily_results_no_fallback_when_archived_present(sample_live_row):
             return_value=[],
         ),
         patch.object(app_logic, "_fetch_experimental_pick_results", return_value=[]),
+        patch.object(app_logic, "_live_top_ev_rows_for_daily_results", return_value=[]),
         patch.object(app_logic, "_table_exists", return_value=False),
     ):
         out = app_logic._fetch_daily_results(target, hit_min_probability=0.5)
 
-    assert out["summary"]["live_green_board_fallback"] is False
+    assert out["summary"]["live_green_board_fallback"] is True
     assert len(out["ai_picks"]) == 1
-    assert out["ai_picks"][0]["game_id"] == 99
+    assert out["ai_picks"][0]["game_id"] == 1
 
 
 def _minimal_watchlist_row(game_id: int, pick_label: str) -> dict:
@@ -116,6 +118,7 @@ def test_fetch_daily_results_merges_live_watchlist_picks():
             return_value=live_extra,
         ),
         patch.object(app_logic, "_fetch_experimental_pick_results", return_value=[]),
+        patch.object(app_logic, "_live_top_ev_rows_for_daily_results", return_value=[]),
         patch.object(app_logic, "_table_exists", return_value=False),
     ):
         out = app_logic._fetch_daily_results(target, hit_min_probability=0.5)

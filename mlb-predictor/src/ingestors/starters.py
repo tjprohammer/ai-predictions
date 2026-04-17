@@ -7,6 +7,8 @@ from src.ingestors.common import iter_schedule_games, player_dimension_row, reco
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import query_df, run_sql, upsert_rows
 from src.utils.logging import get_logger
+from src.utils.pregame_lock import locked_game_ids_from_db
+from src.utils.settings import get_settings
 
 
 log = get_logger(__name__)
@@ -47,6 +49,8 @@ def main() -> int:
     add_date_range_args(parser)
     args = parser.parse_args()
     start_date, end_date = resolve_date_range(args)
+    settings = get_settings()
+    locked_ids = locked_game_ids_from_db(start_date, end_date, settings.pregame_ingest_lock_minutes)
 
     games = iter_schedule_games(start_date.isoformat(), end_date.isoformat())
     starter_rows: list[dict[str, object]] = []
@@ -65,18 +69,45 @@ def main() -> int:
         for row in prior_starts.itertuples(index=False)
     }
 
-    # Clear stale probable rows in the requested window before writing the
-    # latest schedule view so starter changes do not accumulate duplicate sides.
-    run_sql(
-        """
-        DELETE FROM pitcher_starts
-        WHERE game_date BETWEEN :start_date AND :end_date
-          AND is_probable = :is_probable
-        """,
-        {"start_date": start_date, "end_date": end_date, "is_probable": True},
-    )
+    # Clear stale probable rows for games we are about to refresh (never delete
+    # probable rows inside the pregame lock window — those stay frozen).
+    if locked_ids:
+        placeholders = ", ".join(f":lid{i}" for i in range(len(locked_ids)))
+        params: dict[str, object] = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "is_probable": True,
+        }
+        for i, gid in enumerate(sorted(locked_ids)):
+            params[f"lid{i}"] = gid
+        run_sql(
+            f"""
+            DELETE FROM pitcher_starts
+            WHERE game_date BETWEEN :start_date AND :end_date
+              AND is_probable = :is_probable
+              AND game_id NOT IN ({placeholders})
+            """,
+            params,
+        )
+        log.info(
+            "Pregame ingest lock (%s min): preserving probable starters for %s locked game(s)",
+            settings.pregame_ingest_lock_minutes,
+            len(locked_ids),
+        )
+    else:
+        run_sql(
+            """
+            DELETE FROM pitcher_starts
+            WHERE game_date BETWEEN :start_date AND :end_date
+              AND is_probable = :is_probable
+            """,
+            {"start_date": start_date, "end_date": end_date, "is_probable": True},
+        )
 
     for game in games:
+        game_id = int(game["gamePk"])
+        if game_id in locked_ids:
+            continue
         game_start_ts = datetime.fromisoformat(str(game["gameDate"]).replace("Z", "+00:00"))
         game_date = _official_game_date(game, game_start_ts)
         home_team_id = int(game["teams"]["home"]["team"]["id"])
@@ -93,7 +124,7 @@ def main() -> int:
             days_rest = None if last_start is None else (game_date - last_start).days
             starter_rows.append(
                 {
-                    "game_id": int(game["gamePk"]),
+                    "game_id": game_id,
                     "game_date": game_date,
                     "pitcher_id": pitcher_id,
                     "team": team_abbr,

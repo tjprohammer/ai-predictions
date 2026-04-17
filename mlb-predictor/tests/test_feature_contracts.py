@@ -62,6 +62,17 @@ def test_feature_columns_for_roles_excludes_non_core_hits_fields_from_training()
     assert "projected_plate_appearances" in selected
 
 
+def test_hr_lane_includes_hr_per_pa_and_barrel_context():
+    selected = feature_columns_for_roles(
+        "hr",
+        [FIELD_ROLE_CORE_PREDICTOR],
+    )
+
+    assert "player_name" not in selected
+    assert "hr_per_pa_blended" in selected
+    assert "opposing_starter_barrel_pct" in selected
+
+
 def test_feature_columns_for_roles_excludes_certainty_and_diagnostic_strikeout_fields_from_training():
     selected = feature_columns_for_roles(
         "strikeouts",

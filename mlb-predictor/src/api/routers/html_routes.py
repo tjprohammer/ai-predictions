@@ -10,6 +10,7 @@ from src.api.constants import STATIC_DIR
 router = APIRouter()
 
 _VENUE_FIELD_GEOMETRY = STATIC_DIR / "data" / "venue_field_geometry.json"
+_UPDATE_JOB_FOLLOWER_JS = STATIC_DIR / "js" / "update_job_follower.js"
 
 
 @router.get("/")
@@ -71,3 +72,9 @@ def game_page() -> app_logic.FileResponse:
 def venue_field_geometry_json() -> FileResponse:
     """Per-park outfield orientation + fence labels for wind visualization (see file ``_readme``)."""
     return FileResponse(_VENUE_FIELD_GEOMETRY, media_type="application/json")
+
+
+@router.get("/assets/update_job_follower.js", include_in_schema=False)
+def update_job_follower_js() -> FileResponse:
+    """Shared client script: poll update jobs on non-board pages (see ``index.html`` session key)."""
+    return FileResponse(_UPDATE_JOB_FOLLOWER_JS, media_type="application/javascript")

@@ -38,6 +38,7 @@ log = get_logger(__name__)
 
 
 def _load_frames(start_date, end_date, settings):
+    """Shared by ``hits_builder`` and ``hr_builder`` (same raw tables)."""
     history_start = f"{settings.prior_season}-01-01"
     return {
         "games": query_df(

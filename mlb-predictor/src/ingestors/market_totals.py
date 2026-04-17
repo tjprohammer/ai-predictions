@@ -16,6 +16,7 @@ from src.ingestors.common import record_ingest_event, record_source_health
 from src.utils.cli import add_date_range_args, resolve_date_range
 from src.utils.db import get_dialect_name, query_df, run_sql, table_exists, upsert_rows
 from src.utils.logging import get_logger
+from src.utils.pregame_lock import filter_row_dicts_by_game_id, locked_game_ids_from_db
 from src.utils.settings import get_settings
 
 
@@ -39,10 +40,12 @@ REQUIRED_COLUMNS = {
 }
 MARKET_DATA_COLUMNS = ["line_value", "over_price", "under_price"]
 
-PLAYER_PROP_MARKET_TYPES = {"pitcher_strikeouts", "player_hits"}
+PLAYER_PROP_MARKET_TYPES = {"pitcher_strikeouts", "player_hits", "player_home_run"}
 ODDS_API_PLAYER_PROP_MARKETS = {
     "batter_hits": "player_hits",
     "pitcher_strikeouts": "pitcher_strikeouts",
+    # Over/under 0.5 home runs (The Odds API key); stored as ``player_home_run`` for predict_hr.
+    "batter_home_runs": "player_home_run",
     # New batter props
     "batter_total_bases": "batter_total_bases",
     "batter_runs_scored": "batter_runs_scored",
@@ -192,6 +195,94 @@ def _load_games(start_date, end_date) -> pd.DataFrame:
         return games
     games["game_date"] = pd.to_datetime(games["game_date"], errors="coerce").dt.date
     return games
+
+
+_ODDS_API_MARKET_SOURCE = "the_odds_api"
+_ODDS_FRESHNESS_TABLES = frozenset({"game_markets", "player_prop_markets"})
+
+
+def _expected_game_ids_for_range(start_date: date, end_date: date) -> list[int]:
+    games = _load_games(start_date, end_date)
+    if games.empty:
+        return []
+    return [int(x) for x in games["game_id"].tolist()]
+
+
+def _coerce_utc_datetime(value: object) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+    ts = pd.Timestamp(value)
+    if ts is pd.NaT:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    else:
+        ts = ts.tz_convert("UTC")
+    return ts.to_pydatetime()
+
+
+def _per_game_max_the_odds_api_snapshot_ts(
+    table: str,
+    start_date: date,
+    end_date: date,
+) -> dict[int, datetime]:
+    if table not in _ODDS_FRESHNESS_TABLES:
+        raise ValueError(f"unsupported table for Odds API freshness: {table!r}")
+    if not table_exists(table):
+        return {}
+    frame = query_df(
+        f"""
+        SELECT game_id, MAX(snapshot_ts) AS max_ts
+        FROM {table}
+        WHERE game_date BETWEEN :start_date AND :end_date
+          AND source_name = :source_name
+        GROUP BY game_id
+        """,
+        {
+            "start_date": start_date,
+            "end_date": end_date,
+            "source_name": _ODDS_API_MARKET_SOURCE,
+        },
+    )
+    if frame.empty:
+        return {}
+    out: dict[int, datetime] = {}
+    for _, row in frame.iterrows():
+        gid = int(row["game_id"])
+        ts = _coerce_utc_datetime(row["max_ts"])
+        if ts is not None:
+            out[gid] = ts
+    return out
+
+
+def _every_expected_game_has_fresh_the_odds_api_snapshot(
+    expected_game_ids: list[int],
+    per_game_max_ts: dict[int, datetime],
+    *,
+    fresh_within_minutes: int,
+    now: datetime | None = None,
+) -> bool:
+    if fresh_within_minutes <= 0 or not expected_game_ids:
+        return False
+    now_utc = now if now is not None else datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now_utc.astimezone(timezone.utc)
+    cutoff = now_utc - timedelta(minutes=fresh_within_minutes)
+    for gid in expected_game_ids:
+        ts = per_game_max_ts.get(gid)
+        if ts is None:
+            return False
+        ts_utc = ts.astimezone(timezone.utc) if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        if ts_utc < cutoff:
+            return False
+    return True
 
 
 def _parse_covers_date(label: str, default_year: int) -> datetime.date | None:
@@ -1350,6 +1441,18 @@ def _write_market_snapshot_versions(rows: list[dict[str, object]]) -> int:
         return 0
 
 
+def _without_pregame_locked_game_rows(
+    rows: list[dict[str, object]],
+    locked_ids: set[int],
+    *,
+    label: str,
+) -> list[dict[str, object]]:
+    """Drop market rows for games inside the pregame ingest lock window (same as lineup ingest)."""
+    if not locked_ids or not rows:
+        return rows
+    return filter_row_dicts_by_game_id(rows, locked_ids, label=label)
+
+
 def _timed_fetch(source_name: str, fetcher, *args):
     """Run a source fetcher and record source health."""
     started = timer.perf_counter()
@@ -1381,19 +1484,68 @@ def main() -> int:
         default=[],
         help="Fail if blank template rows in these markets do not already have matching live or manual coverage",
     )
+    parser.add_argument(
+        "--force-odds-api",
+        action="store_true",
+        help="Always call The Odds API (ignore MARKET_INGEST_ODDS_API_FRESH_MINUTES skip)",
+    )
     add_date_range_args(parser)
     args = parser.parse_args()
     settings = get_settings()
     csv_path = Path(args.csv) if args.csv else settings.manual_markets_csv
     start_date, end_date = resolve_date_range(args)
     required_player_prop_markets = {market.strip().lower() for market in args.require_player_prop_coverage}
+    lock_minutes = int(settings.pregame_ingest_lock_minutes or 0)
+    locked_game_ids = locked_game_ids_from_db(start_date, end_date, lock_minutes) if lock_minutes > 0 else set()
 
     inserted = 0
     odds_api_game_ok = False
     odds_api_props_ok = False
 
+    fresh_min = int(settings.market_ingest_odds_api_fresh_minutes or 0)
+    expected_game_ids = _expected_game_ids_for_range(start_date, end_date)
+    force_odds_api = bool(args.force_odds_api)
+    skip_game_odds = (
+        not force_odds_api
+        and fresh_min > 0
+        and bool(expected_game_ids)
+        and settings.odds_api_key
+        and _every_expected_game_has_fresh_the_odds_api_snapshot(
+            expected_game_ids,
+            _per_game_max_the_odds_api_snapshot_ts("game_markets", start_date, end_date),
+            fresh_within_minutes=fresh_min,
+        )
+    )
+    skip_prop_odds = (
+        not force_odds_api
+        and fresh_min > 0
+        and bool(expected_game_ids)
+        and settings.odds_api_key
+        and _every_expected_game_has_fresh_the_odds_api_snapshot(
+            expected_game_ids,
+            _per_game_max_the_odds_api_snapshot_ts("player_prop_markets", start_date, end_date),
+            fresh_within_minutes=fresh_min,
+        )
+    )
+    if skip_game_odds:
+        log.info(
+            "Skipping Odds API game markets pull; all %s slate games have %s snapshots newer than %s minutes",
+            len(expected_game_ids),
+            _ODDS_API_MARKET_SOURCE,
+            fresh_min,
+        )
+        odds_api_game_ok = True
+    if skip_prop_odds:
+        log.info(
+            "Skipping Odds API player props / first-5 pull; all %s slate games have %s player_prop rows newer than %s minutes",
+            len(expected_game_ids),
+            _ODDS_API_MARKET_SOURCE,
+            fresh_min,
+        )
+        odds_api_props_ok = True
+
     # --- Game totals: try Odds API (primary key, fall back to secondary on 429), then Covers ---
-    if settings.odds_api_key:
+    if settings.odds_api_key and not skip_game_odds:
         try:
             odds_rows = _timed_fetch(
                 "odds_api",
@@ -1408,6 +1560,11 @@ def main() -> int:
             log.warning("Odds API market pull failed: %s — falling back to Covers", exc)
         else:
             odds_api_game_ok = True
+            odds_rows = _without_pregame_locked_game_rows(
+                odds_rows,
+                locked_game_ids,
+                label="Odds API game_markets",
+            )
             inserted += upsert_rows("game_markets", odds_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
             _write_market_snapshot_versions(odds_rows)
             if odds_rows:
@@ -1419,13 +1576,18 @@ def main() -> int:
         except requests.RequestException as exc:
             log.warning("Covers market pull failed: %s", exc)
         else:
+            covers_rows = _without_pregame_locked_game_rows(
+                covers_rows,
+                locked_game_ids,
+                label="Covers game_markets",
+            )
             inserted += upsert_rows("game_markets", covers_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
             _write_market_snapshot_versions(covers_rows)
             if covers_rows:
                 log.info("Imported %s market rows from Covers totals HTML (fallback)", len(covers_rows))
 
     # --- Player props + first-5: try Odds API (primary key, fall back to secondary on 429), then Covers + Rotowire ---
-    if settings.odds_api_key:
+    if settings.odds_api_key and not skip_prop_odds:
         try:
             odds_prop_rows, odds_first5_rows = _timed_fetch(
                 "odds_api_player_props",
@@ -1441,6 +1603,11 @@ def main() -> int:
         else:
             odds_api_props_ok = True
             if odds_prop_rows:
+                odds_prop_rows = _without_pregame_locked_game_rows(
+                    odds_prop_rows,
+                    locked_game_ids,
+                    label="Odds API player_prop_markets",
+                )
                 _ensure_player_prop_markets_table()
                 inserted += upsert_rows(
                     "player_prop_markets",
@@ -1449,6 +1616,11 @@ def main() -> int:
                 )
                 log.info("Imported %s player prop rows from the Odds API", len(odds_prop_rows))
             if odds_first5_rows:
+                odds_first5_rows = _without_pregame_locked_game_rows(
+                    odds_first5_rows,
+                    locked_game_ids,
+                    label="Odds API game_markets (first_five)",
+                )
                 inserted += upsert_rows(
                     "game_markets",
                     odds_first5_rows,
@@ -1469,6 +1641,11 @@ def main() -> int:
             log.warning("Covers player prop pull failed: %s", exc)
         else:
             if covers_prop_rows:
+                covers_prop_rows = _without_pregame_locked_game_rows(
+                    covers_prop_rows,
+                    locked_game_ids,
+                    label="Covers player_prop_markets",
+                )
                 _ensure_player_prop_markets_table()
                 inserted += upsert_rows(
                     "player_prop_markets",
@@ -1487,6 +1664,11 @@ def main() -> int:
             log.warning("Rotowire player prop pull failed: %s", exc)
         else:
             if rotowire_prop_rows:
+                rotowire_prop_rows = _without_pregame_locked_game_rows(
+                    rotowire_prop_rows,
+                    locked_game_ids,
+                    label="Rotowire player_prop_markets",
+                )
                 _ensure_player_prop_markets_table()
                 inserted += upsert_rows(
                     "player_prop_markets",
@@ -1622,6 +1804,18 @@ def main() -> int:
         else:
             game_rows.append(payload)
 
+    if game_rows:
+        game_rows = _without_pregame_locked_game_rows(
+            game_rows,
+            locked_game_ids,
+            label="manual game_markets",
+        )
+    if prop_rows:
+        prop_rows = _without_pregame_locked_game_rows(
+            prop_rows,
+            locked_game_ids,
+            label="manual player_prop_markets",
+        )
     if game_rows:
         inserted += upsert_rows("game_markets", game_rows, ["game_id", "sportsbook", "market_type", "snapshot_ts"])
         _write_market_snapshot_versions(game_rows)

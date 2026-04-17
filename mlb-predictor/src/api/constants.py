@@ -4,6 +4,7 @@ from pathlib import Path
 
 from src.features.first5_totals_builder import main as build_first5_totals_features_main
 from src.features.hits_builder import main as build_hits_features_main
+from src.features.hr_builder import main as build_hr_features_main
 from src.features.strikeouts_builder import main as build_strikeouts_features_main
 from src.features.total_bases_builder import main as build_total_bases_features_main
 from src.features.totals_builder import main as build_totals_features_main
@@ -20,6 +21,7 @@ from src.ingestors.starters import main as ingest_starters_main
 from src.ingestors.umpire import main as ingest_umpire_main
 from src.models.predict_first5_totals import main as predict_first5_totals_main
 from src.models.predict_hits import main as predict_hits_main
+from src.models.predict_hr import main as predict_hr_main
 from src.models.predict_strikeouts import main as predict_strikeouts_main
 from src.models.predict_total_bases import main as predict_total_bases_main
 from src.models.predict_totals import main as predict_totals_main
@@ -58,6 +60,12 @@ MATCHUP_PVT_STRONG_MIN_IP = 45.0
 MATCHUP_PLATOON_ADEQUATE_MIN_PA = 30
 MATCHUP_PLATOON_STRONG_MIN_PA = 100
 
+# Main game board default filters — keep aligned with index.html (hitLimit / hitMinProbability / checkboxes).
+GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM = 3
+GAME_BOARD_UI_DEFAULT_MIN_HIT_PROBABILITY = 0.5
+GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY = False
+GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED = True
+
 UPDATE_MODULE_MAINS = {
     "src.ingestors.games": ingest_games_main,
     "src.ingestors.starters": ingest_starters_main,
@@ -77,11 +85,13 @@ UPDATE_MODULE_MAINS = {
     "src.features.totals_builder": build_totals_features_main,
     "src.features.first5_totals_builder": build_first5_totals_features_main,
     "src.features.hits_builder": build_hits_features_main,
+    "src.features.hr_builder": build_hr_features_main,
     "src.features.total_bases_builder": build_total_bases_features_main,
     "src.features.strikeouts_builder": build_strikeouts_features_main,
     "src.models.predict_totals": predict_totals_main,
     "src.models.predict_first5_totals": predict_first5_totals_main,
     "src.models.predict_hits": predict_hits_main,
+    "src.models.predict_hr": predict_hr_main,
     "src.models.predict_strikeouts": predict_strikeouts_main,
     "src.models.train_total_bases": train_total_bases_main,
     "src.models.predict_total_bases": predict_total_bases_main,

@@ -16,6 +16,25 @@ from src.utils.settings import get_settings
 
 log = get_logger(__name__)
 
+_CLIP_EPS = 1e-5
+
+
+def _clip_probabilities(probabilities: np.ndarray) -> np.ndarray:
+    return np.clip(np.asarray(probabilities, dtype=float), _CLIP_EPS, 1.0 - _CLIP_EPS)
+
+
+def _apply_nrfi_calibration(probabilities: np.ndarray, artifact: dict) -> np.ndarray:
+    calibration_method = artifact.get("calibration_method") or "identity"
+    calibrator = artifact.get("calibrator")
+    if calibrator is None or calibration_method == "identity":
+        return _clip_probabilities(probabilities)
+    raw = np.asarray(probabilities, dtype=float)
+    if calibration_method == "sigmoid":
+        return _clip_probabilities(calibrator.predict_proba(raw.reshape(-1, 1))[:, 1])
+    if calibration_method == "isotonic":
+        return _clip_probabilities(calibrator.predict(raw))
+    return _clip_probabilities(probabilities)
+
 
 def _confidence_level(row: object) -> tuple[str, str | None]:
     bs = getattr(row, "board_state", None)
@@ -58,7 +77,8 @@ def main() -> int:
     feature_columns = artifact["feature_columns"]
     X = encode_frame(scoring[feature_columns], artifact["category_columns"], artifact["training_columns"])
     model = artifact["model"]
-    proba = model.predict_proba(X)[:, 1]
+    raw_proba = model.predict_proba(X)[:, 1]
+    proba = _apply_nrfi_calibration(raw_proba, artifact)
 
     prediction_ts = datetime.now(timezone.utc)
     rows = []
