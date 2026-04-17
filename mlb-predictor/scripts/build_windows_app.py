@@ -129,6 +129,9 @@ def main() -> int:
         if validation_error is not None:
             print(validation_error)
             return 1
+    # PyInstaller --add-data requires this path to exist (fresh CI clones may omit empty dirs).
+    (ROOT / "data").mkdir(parents=True, exist_ok=True)
+
     launcher_path = ROOT / "src" / "desktop" / "launcher.py"
     command = [
         sys.executable,
