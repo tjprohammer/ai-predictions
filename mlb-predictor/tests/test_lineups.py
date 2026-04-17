@@ -40,7 +40,9 @@ def test_build_lineup_import_frame_uses_projected_lineups_when_csv_missing(monke
     monkeypatch.setattr(lineups_module, "_fetch_statsapi_lineup_frame", lambda *_args, **_kwargs: pd.DataFrame(columns=lineups_module.LINEUP_COLUMNS))
     monkeypatch.setattr(lineups_module, "build_lineup_input_frame", fake_build_lineup_input_frame)
 
-    frame = lineups_module._build_lineup_import_frame(tmp_path / "missing.csv", "2026-04-02", "2026-04-02")
+    frame = lineups_module._build_lineup_import_frame(
+        tmp_path / "missing.csv", "2026-04-02", "2026-04-02", pregame_lock_minutes=0
+    )
 
     assert len(frame) == 1
     assert captured["range"] == ("2026-04-02", "2026-04-02")
@@ -97,7 +99,9 @@ def test_build_lineup_import_frame_keeps_csv_rows_and_fills_missing_teams(monkey
     monkeypatch.setattr(lineups_module, "_fetch_statsapi_lineup_frame", lambda *_args, **_kwargs: pd.DataFrame(columns=lineups_module.LINEUP_COLUMNS))
     monkeypatch.setattr(lineups_module, "build_lineup_input_frame", fake_build_lineup_input_frame)
 
-    frame = lineups_module._build_lineup_import_frame(csv_path, "2026-04-02", "2026-04-02")
+    frame = lineups_module._build_lineup_import_frame(
+        csv_path, "2026-04-02", "2026-04-02", pregame_lock_minutes=0
+    )
 
     assert len(frame) == 1
     assert frame.iloc[0]["player_name"] == "Manual Hitter"
@@ -218,7 +222,9 @@ def test_build_lineup_import_frame_prefers_statsapi_rows_over_manual_same_team(m
 
     monkeypatch.setattr(lineups_module, "build_lineup_input_frame", fake_build_lineup_input_frame)
 
-    frame = lineups_module._build_lineup_import_frame(csv_path, "2026-04-02", "2026-04-02")
+    frame = lineups_module._build_lineup_import_frame(
+        csv_path, "2026-04-02", "2026-04-02", pregame_lock_minutes=0
+    )
 
     assert len(frame) == 2
     assert set(frame["team"]) == {"NYY", "BOS"}

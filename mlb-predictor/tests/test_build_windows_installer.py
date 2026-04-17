@@ -1,6 +1,9 @@
 import subprocess
+import sys
 from pathlib import Path
 from zipfile import ZipFile
+
+import pytest
 
 import scripts.build_windows_installer as build_windows_installer
 from scripts.windows_signing import SigningConfig
@@ -151,6 +154,10 @@ def test_portable_installer_bundle_signs_nested_app_files(monkeypatch, tmp_path)
     assert signed["paths"] == [tmp_path / "release" / "MLBPredictor-Windows-v0.2.0-beta1-Portable" / "MLBPredictor" / "MLBPredictor.exe"]
 
 
+@pytest.mark.skipif(
+    not sys.platform.startswith("win"),
+    reason="install_mlb_predictor.ps1 smoke test requires powershell.exe",
+)
 def test_install_script_succeeds_when_launch_is_canceled(tmp_path):
     source_dir = tmp_path / "source"
     source_dir.mkdir()

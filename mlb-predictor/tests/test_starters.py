@@ -6,6 +6,8 @@ from src.ingestors import starters as starters_module
 def test_starters_parses_sqlite_string_last_start(monkeypatch):
     captured = {}
 
+    monkeypatch.setattr(starters_module, "locked_game_ids_from_db", lambda *_a, **_k: set())
+
     monkeypatch.setattr(
         starters_module,
         "resolve_date_range",
@@ -65,6 +67,8 @@ def test_starters_parses_sqlite_string_last_start(monkeypatch):
 
 def test_starters_rest_lookup_ignores_probable_rows(monkeypatch):
     captured = {}
+
+    monkeypatch.setattr(starters_module, "locked_game_ids_from_db", lambda *_a, **_k: set())
 
     monkeypatch.setattr(
         starters_module,
