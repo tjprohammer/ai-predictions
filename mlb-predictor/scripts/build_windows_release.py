@@ -33,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--app-version", default="1.1.0", help="Installer app version label")
     parser.add_argument("--release-dir", default=str(ROOT / "release"), help="Directory where release artifacts are written")
     parser.add_argument("--require-inno", action="store_true", help="Fail the release build if Inno Setup is unavailable instead of falling back to the portable installer bundle")
+    parser.add_argument(
+        "--allow-incomplete-sqlite-seed",
+        action="store_true",
+        help="Forward to build_windows_app.py (bundled DB may lack history rows; use with ci_prepare_desktop_sqlite on CI).",
+    )
     return parser
 
 
@@ -178,6 +183,8 @@ def main() -> int:
     desktop_command = [sys.executable, "scripts/build_windows_app.py", "--name", args.name]
     if args.onefile:
         desktop_command.append("--onefile")
+    if getattr(args, "allow_incomplete_sqlite_seed", False):
+        desktop_command.append("--allow-incomplete-sqlite-seed")
     if sign_requested:
         desktop_command.append("--sign")
     desktop_result = _run_step(desktop_command)
