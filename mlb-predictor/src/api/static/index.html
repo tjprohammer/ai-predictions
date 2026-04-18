@@ -1403,6 +1403,13 @@
         opacity: 0.9;
       }
 
+      .game-top-ev-chip .top-ev-snapshot-badge {
+        background: rgba(70, 110, 180, 0.18);
+        border: 1px solid rgba(70, 110, 180, 0.35);
+        color: var(--ink);
+        opacity: 1;
+      }
+
       .legend-row {
         color: var(--muted);
         font-size: 0.88rem;
@@ -7678,10 +7685,31 @@
           n != null && n > 0
             ? ` · ${n} priced candidate${n === 1 ? "" : "s"}`
             : "";
+        const frozen = pick.top_ev_frozen === true;
+        const snapKind = String(pick.top_ev_snapshot_kind || "");
+        const snapInfo = game?.top_ev_snapshot_info;
+        const snapLabel =
+          snapKind === "lock"
+            ? "Lock"
+            : snapKind === "run"
+              ? "Snapshot"
+              : "Snapshot";
+        const snapTitle =
+          (snapInfo && snapInfo.summary) ||
+          (frozen
+            ? "This Top EV headline is frozen — it will not change on refresh (lock or run snapshot)."
+            : "Highest weighted EV among priced team markets, 1+ hit, HR yes, and pitcher K for this game — same logic as matchup page and Daily Results.");
+        const stripTitle = frozen
+          ? `${snapTitle} Before the lock window, lines can still move; after snapshot, this pick stays fixed.`
+          : "Highest weighted EV among priced team markets, 1+ hit, HR yes, and pitcher K for this game — same logic as matchup page and Daily Results. Lines move freely until the pregame lock window.";
+        const snapshotBadge = frozen
+          ? `<span class="section-tag top-ev-snapshot-badge" title="${escapeHtml(snapTitle)}">${escapeHtml(snapLabel)}</span>`
+          : "";
         return `
-          <div class="game-top-ev-strip" title="Highest weighted EV among priced team markets, 1+ hit, HR yes, and pitcher K for this game — same logic as matchup page and Daily Results.">
+          <div class="game-top-ev-strip" title="${escapeHtml(stripTitle)}">
             <span class="game-top-ev-chip">
               <span class="section-tag">Top EV</span>
+              ${snapshotBadge}
               ${escapeHtml(label)}${pick.price != null ? ` ${formatPrice(pick.price)}` : ""}
               · EV ${formatSigned(numberOr(pick.weighted_ev, 0) * 100, 1)}%${pool}
             </span>
