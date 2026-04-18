@@ -3119,6 +3119,7 @@ def _fetch_game_board(
             lock_top_ev,
             run_top_ev,
         )
+        game["top_ev_snapshot_info"] = _build_top_ev_snapshot_info_for_board(game)
 
     return [games_by_id[game_id] for game_id in games_by_id]
 
@@ -5426,18 +5427,81 @@ def _is_game_board_green_locked(game_row: dict[str, Any]) -> bool:
     return bool(is_pregame_ingest_locked(ts, lock_minutes=lock_m))
 
 
-def _is_game_top_ev_snapshot_lock_active(game_row: dict[str, Any]) -> bool:
-    """True inside the Top EV snapshot window — may use a different cutoff than ingest (see settings)."""
-    ts = game_row.get("game_start_ts")
-    if ts is None:
-        return False
+def _effective_top_ev_snapshot_lock_minutes() -> int:
+    """Minutes-before-first-pitch window for Top EV run/lock snapshot eligibility (see env)."""
     settings = get_settings()
     inherited = int(settings.pregame_ingest_lock_minutes or 0)
     explicit = settings.board_top_ev_snapshot_lock_minutes
     lock_m = inherited if explicit is None else int(explicit)
-    if lock_m <= 0:
+    return lock_m if lock_m > 0 else 0
+
+
+def _is_game_top_ev_snapshot_lock_active(game_row: dict[str, Any]) -> bool:
+    """True inside the Top EV snapshot window — may use a different cutoff than ingest (see settings)."""
+    ts = game_row.get("game_start_ts")
+    lock_m = _effective_top_ev_snapshot_lock_minutes()
+    if ts is None or lock_m <= 0:
         return False
     return bool(is_pregame_ingest_locked(ts, lock_minutes=lock_m))
+
+
+def _top_ev_snapshot_freeze_eligible_after_iso(game_row: dict[str, Any]) -> str | None:
+    """UTC instant when the Top EV lock window *opens* (first pitch minus effective lock minutes)."""
+    ts = game_row.get("game_start_ts")
+    lock_m = _effective_top_ev_snapshot_lock_minutes()
+    if ts is None or lock_m <= 0:
+        return None
+    try:
+        t = pd.Timestamp(ts)
+        if pd.isna(t):
+            return None
+        if t.tzinfo is None:
+            t = t.tz_localize("UTC")
+        else:
+            t = t.tz_convert("UTC")
+        eligible = t.to_pydatetime() - timedelta(minutes=lock_m)
+        return eligible.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    except Exception:
+        return None
+
+
+def _build_top_ev_snapshot_info_for_board(game: dict[str, Any]) -> dict[str, Any]:
+    """Explain automatic Top EV snapshot timing for the API (no runtime env toggle required)."""
+    pick = game.get("top_ev_pick")
+    lock_m = _effective_top_ev_snapshot_lock_minutes()
+    run_on = bool(get_settings().board_top_ev_run_snapshot_enabled)
+    freeze_after = _top_ev_snapshot_freeze_eligible_after_iso(game)
+    ts = game.get("game_start_ts")
+    before_pitch = bool(is_before_scheduled_first_pitch(ts)) if ts is not None else False
+    lock_active = _is_game_top_ev_snapshot_lock_active(game) if ts is not None else False
+    frozen = bool(isinstance(pick, dict) and pick.get("top_ev_frozen"))
+    kind = str((pick or {}).get("top_ev_snapshot_kind") or "") if isinstance(pick, dict) else ""
+
+    if frozen:
+        state = "frozen_lock" if kind == "lock" else "frozen_run"
+    elif not run_on:
+        state = "snapshots_disabled"
+    elif lock_m <= 0:
+        state = "no_lock_clock_configured"
+    elif before_pitch and lock_active:
+        state = "eligible_now"
+    elif before_pitch:
+        state = "live_until_lock_window"
+    else:
+        state = "catch_up_pending"
+
+    summary = (
+        "Top EV run snapshot freezes automatically at the first board load after the lock window opens "
+        f"(see first_freeze_eligible_after_utc, typically T-{lock_m}m to first pitch when configured). "
+        "Until then the headline can move with markets/models. After first pitch without a row, the next load catch-up-freezes."
+    )
+    return {
+        "run_snapshots_enabled": run_on,
+        "effective_lock_minutes": lock_m if lock_m > 0 else None,
+        "first_freeze_eligible_after_utc": freeze_after,
+        "state": state,
+        "summary": summary,
+    }
 
 
 def _fetch_board_green_snapshots_map(target_date: date) -> dict[int, dict[str, Any]]:
@@ -5846,7 +5910,13 @@ def _insert_board_top_ev_run_snapshot_row(target_date: date, game_id: int, paylo
 
 
 def _maybe_insert_board_top_ev_run_snapshots(target_date: date, board_rows: list[dict[str, Any]]) -> None:
-    """Persist the first Top EV pick per game on the earliest pregame board build (no lock window)."""
+    """Persist Top EV run snapshots automatically (no manual toggle at runtime).
+
+    - **Pregame (predictable):** First successful pick once the game is inside the Top EV lock window and
+      still before first pitch — same clock as ``BOARD_TOP_EV_SNAPSHOT_LOCK_MINUTES`` / ``MLB_PREGAME_INGEST_LOCK_MINUTES``.
+      Markets/lineups can move freely until that window; then the first board load freezes.
+    - **Catch-up:** If the window was missed, write once after first pitch so Daily Results still stabilizes.
+    """
     if not get_settings().board_top_ev_run_snapshot_enabled:
         return
     if not _table_exists("board_top_ev_run_snapshots"):
@@ -5870,8 +5940,12 @@ def _maybe_insert_board_top_ev_run_snapshots(target_date: date, board_rows: list
         gr = row_by.get(gid)
         if gr is None:
             continue
-        # Persist the first successful Top EV we ever compute for this game/date (INSERT OR IGNORE).
-        # Do not require pre-first-pitch: otherwise Daily Results opened only after games never freeze and EV drifts forever.
+        ts = gr.get("game_start_ts")
+        before_pitch = is_before_scheduled_first_pitch(ts)
+        lock_active = _is_game_top_ev_snapshot_lock_active(gr)
+        # Live until lock window: still pregame but outside T−lock_minutes → do not freeze yet.
+        if before_pitch and not lock_active:
+            continue
         pick = _top_ev_pick_for_board_row(gr, market_rows_by_game.get(gid, {}))
         if not pick:
             continue

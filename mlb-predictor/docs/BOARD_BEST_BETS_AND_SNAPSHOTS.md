@@ -28,7 +28,10 @@ Snapshots exist so a **later** refresh (after line move, lineup change, or boxsc
 ### 2.1 Run snapshots (earliest stable anchor)
 
 - **Tables:** `board_green_run_snapshots`, `board_top_ev_run_snapshots` (`db/migrations/030_board_run_snapshots.sql`).
-- **Top EV run (`board_top_ev_run_snapshots`):** On the **first** successful Top EV computation for that game/date (`INSERT OR IGNORE`). **Not** limited to pregame—if you only open Daily Results after games, the first load still freezes so EV does not drift on refresh. **Default:** `BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED=true`.
+- **Top EV run (`board_top_ev_run_snapshots`) — automatic (no runtime toggle):**
+  - **Pregame:** The first board load **after** the Top EV lock window opens freezes the headline (same clock as `MLB_PREGAME_INGEST_LOCK_MINUTES` / optional `BOARD_TOP_EV_SNAPSHOT_LOCK_MINUTES`). **Before** that instant, Top EV is **live** and can move as markets/lineups update.
+  - **Catch-up:** If you never loaded the board inside that window, the first load **after** first pitch still writes once (`INSERT OR IGNORE`) so Daily Results stops drifting.
+  - **API:** Each game on `GET /api/games/board` includes `top_ev_snapshot_info` (`state`, `first_freeze_eligible_after_utc`, `effective_lock_minutes`, `summary`) so you can see *when* freeze becomes eligible without editing `.env` while the server runs.
 - **Green run (`board_green_run_snapshots`):** Still first qualifying board build while **before** first pitch (pregame-only), unless changed elsewhere.
 
 ### 2.2 Lock snapshots (pregame freeze)
