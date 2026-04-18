@@ -9208,11 +9208,13 @@ def _live_watchlist_board_rows_for_daily_results(
     return out
 
 
-def _merge_watchlist_daily_results(
+def _merge_archived_and_live_daily_pick_rows(
     archived_rows: list[dict[str, Any]],
     live_rows: list[dict[str, Any]],
+    *,
+    rank_field: str | None,
 ) -> tuple[list[dict[str, Any]], bool]:
-    """Prefer archived (graded) rows; add live board rows not already present."""
+    """Prefer archived rows from ``prediction_outcomes_daily``; add live board rows not already present."""
     seen = {_daily_results_row_identity(r) for r in archived_rows}
     merged = list(archived_rows)
     supplemental = False
@@ -9223,8 +9225,26 @@ def _merge_watchlist_daily_results(
         merged.append(row)
         seen.add(ident)
         supplemental = True
-    merged.sort(key=lambda r: _recommendation_result_sort_key(r, "watchlist_rank"))
+    merged.sort(key=lambda r: _recommendation_result_sort_key(r, rank_field))
     return merged, supplemental
+
+
+def _merge_watchlist_daily_results(
+    archived_rows: list[dict[str, Any]],
+    live_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Prefer archived (graded) rows; add live board rows not already present."""
+    return _merge_archived_and_live_daily_pick_rows(
+        archived_rows, live_rows, rank_field="watchlist_rank"
+    )
+
+
+def _merge_green_daily_results(
+    archived_rows: list[dict[str, Any]],
+    live_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Prefer archived green picks; add live board rows not already present (pre–product_surfaces slates)."""
+    return _merge_archived_and_live_daily_pick_rows(archived_rows, live_rows, rank_field="green_rank")
 
 
 def _experimental_market_display_name(market: str | None) -> str:
@@ -10343,8 +10363,9 @@ def _fetch_daily_results(
     hit_min_probability: float = 0.35,
     hitter_top_n: int = 24,
 ) -> dict[str, Any]:
-    # Always mirror the main board ``best_bets`` (same defaults as index.html) so Daily Results matches the game board.
     # Single board fetch for green + watchlist + Top EV (was 3× identical work per request).
+    # Green best-bets: prefer ``prediction_outcomes_daily`` (written by product_surfaces) so picks do not
+    # drift when models/markets are re-run; supplement with live board only for games not yet archived.
     daily_results_board_rows = _fetch_game_board(
         target_date,
         hit_limit_per_team=GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM,
@@ -10352,11 +10373,12 @@ def _fetch_daily_results(
         confirmed_only=GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY,
         include_inferred=GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED,
     )
-    ai_pick_rows = _live_green_board_rows_for_daily_results(
+    archived_green = _fetch_ai_pick_results(target_date)
+    live_green = _live_green_board_rows_for_daily_results(
         target_date,
         board_rows=daily_results_board_rows,
     )
-    live_green_fallback = True
+    ai_pick_rows, live_green_fallback = _merge_green_daily_results(archived_green, live_green)
     watchlist_archived = _fetch_watchlist_pick_results(target_date)
     live_watchlist = _live_watchlist_board_rows_for_daily_results(
         target_date,

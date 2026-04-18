@@ -19,7 +19,7 @@ For **tracked picks → outcomes → learning / edge vs markets** (what runs aut
 ## Daily Results page (`results.html`)
 
 - **API:** `GET /api/results/daily?target_date=…` → `app_logic._fetch_daily_results`.
-- **Green / watchlist rows** come from `prediction_outcomes_daily` via `_fetch_game_recommendation_results`, **plus** live mirrors from the board when archives are empty (`_live_green_board_rows_for_daily_results`, `_live_watchlist_board_rows_for_daily_results`).
+- **Green / watchlist rows** prefer `prediction_outcomes_daily` via `_fetch_ai_pick_results` / `_fetch_watchlist_pick_results` (frozen after `product_surfaces`), **then** supplement with live board rows only for picks not already archived (`_merge_green_daily_results`, `_merge_watchlist_daily_results`). This keeps Daily Results from changing when you refresh after re-running models or markets.
 - **Watchlist (Daily Results)** uses `flatten_watchlist_markets(..., secondary_lines_only=True)` so **secondary** team markets (not the same card as the green strip) still appear for grading when every game already has a green pick.
 
 ## `prediction_outcomes_daily`: two market-string families

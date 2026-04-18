@@ -63,16 +63,18 @@ def test_fetch_daily_results_sets_live_fallback_when_archived_empty(sample_live_
     assert out["ai_picks"][0]["game_id"] == 1
 
 
-def test_fetch_daily_results_uses_live_green_board_not_archived(sample_live_row):
-    """Green picks always mirror the main board; archived ``_fetch_ai_pick_results`` is not used."""
+def test_fetch_daily_results_prefers_archived_green_picks_over_live(sample_live_row):
+    """After product_surfaces, green picks come from ``prediction_outcomes_daily`` so they do not drift on refresh."""
     target = date(2026, 4, 12)
-    archived = [dict(sample_live_row, game_id=99)]
+    # Same row identity (game_id, market, pick_label) as live; archived row wins and live duplicate is dropped.
+    archived = [dict(sample_live_row, edge=0.01, notes_display="from prediction_outcomes_daily")]
+    live_row = dict(sample_live_row, edge=0.99)
     with (
         patch.object(app_logic, "_fetch_ai_pick_results", return_value=archived),
         patch.object(
             app_logic,
             "_live_green_board_rows_for_daily_results",
-            return_value=[sample_live_row],
+            return_value=[live_row],
         ),
         patch.object(app_logic, "_fetch_watchlist_pick_results", return_value=[]),
         patch.object(
@@ -86,9 +88,10 @@ def test_fetch_daily_results_uses_live_green_board_not_archived(sample_live_row)
     ):
         out = app_logic._fetch_daily_results(target, hit_min_probability=0.5)
 
-    assert out["summary"]["live_green_board_fallback"] is True
+    assert out["summary"]["live_green_board_fallback"] is False
     assert len(out["ai_picks"]) == 1
-    assert out["ai_picks"][0]["game_id"] == 1
+    assert out["ai_picks"][0]["edge"] == 0.01
+    assert out["ai_picks"][0]["notes_display"] == "from prediction_outcomes_daily"
 
 
 def _minimal_watchlist_row(game_id: int, pick_label: str) -> dict:
