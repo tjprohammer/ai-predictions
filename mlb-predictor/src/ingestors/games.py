@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 from src.ingestors.common import compute_payload_hash, iter_schedule_games, record_ingest_event, team_dimension_row, venue_dimension_row
 from src.utils.cli import add_date_range_args, resolve_date_range
-from src.utils.db import upsert_rows
+from src.utils.db import query_df, table_exists, upsert_rows
 from src.utils.logging import get_logger
 
 
@@ -71,6 +71,45 @@ def normalize_game(game: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _preserve_existing_team_matchups(game_rows: list[dict[str, object]]) -> None:
+    """Keep home/away team codes stable across re-ingests if Stats API drifts for the same game_id."""
+    if not game_rows or not table_exists("games"):
+        return
+    ids = sorted({int(r["game_id"]) for r in game_rows})
+    existing: dict[int, tuple[str, str]] = {}
+    chunk_size = 400
+    for start in range(0, len(ids), chunk_size):
+        chunk = ids[start : start + chunk_size]
+        placeholders = ", ".join(str(int(x)) for x in chunk)
+        frame = query_df(
+            f"SELECT game_id, home_team, away_team FROM games WHERE game_id IN ({placeholders})",
+            {},
+        )
+        for rec in frame.to_dict("records"):
+            gid = int(rec["game_id"])
+            existing[gid] = (str(rec["home_team"]), str(rec["away_team"]))
+    for row in game_rows:
+        gid = int(row["game_id"])
+        prev = existing.get(gid)
+        if not prev:
+            continue
+        home_db, away_db = prev
+        home_new = str(row["home_team"])
+        away_new = str(row["away_team"])
+        if home_db == home_new and away_db == away_new:
+            continue
+        log.warning(
+            "Stats API returned a different matchup for game_id=%s than the database (keeping DB teams): DB %s @ %s, API %s @ %s",
+            gid,
+            away_db,
+            home_db,
+            away_new,
+            home_new,
+        )
+        row["home_team"] = home_db
+        row["away_team"] = away_db
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ingest MLB schedule and game rows")
     add_date_range_args(parser)
@@ -81,6 +120,9 @@ def main() -> int:
     if not games:
         log.info("No schedule rows returned for %s to %s", start_date, end_date)
         return 0
+
+    # Deterministic order: schedule payload order can vary; upsert dedupes by game_id (last wins).
+    games.sort(key=lambda g: int(g.get("gamePk", 0)))
 
     team_ids = sorted(
         {
@@ -99,6 +141,7 @@ def main() -> int:
     team_rows = [team_dimension_row(team_id) for team_id in team_ids]
     venue_rows = [venue_dimension_row(venue_id) for venue_id in venue_ids]
     game_rows = [normalize_game(game) for game in games]
+    _preserve_existing_team_matchups(game_rows)
     date_rows = [build_date_row(row["game_date"], row["game_type"]) for row in game_rows]
 
     upsert_rows("dim_teams", team_rows, ["team_abbr"])

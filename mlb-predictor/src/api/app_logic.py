@@ -2312,7 +2312,7 @@ def _fetch_totals_predictions(target_date: date) -> list[dict[str, Any]]:
         FROM ranked r
         LEFT JOIN games g ON g.game_id = r.game_id
         WHERE r.row_rank = 1
-        ORDER BY {game_start_order}, away_team, home_team
+        ORDER BY {game_start_order}, away_team, home_team, r.game_id
         """,
         {"target_date": target_date},
     )
@@ -2547,7 +2547,7 @@ def _fetch_game_board(
         LEFT JOIN ranked_predictions p ON p.game_id = g.game_id AND p.row_rank = 1
         LEFT JOIN ranked_features f ON f.game_id = g.game_id AND f.row_rank = 1
         WHERE g.game_date = :target_date
-        ORDER BY {game_start_order}, g.away_team, g.home_team
+        ORDER BY {game_start_order}, g.away_team, g.home_team, g.game_id
         """,
         {"target_date": target_date},
     )
@@ -7542,7 +7542,7 @@ def _fetch_hot_hitters(
            )
            AND rs.row_rank = 1
         WHERE f.row_rank = 1
-            ORDER BY {game_start_order}, team, {lineup_slot_order}, player_name
+            ORDER BY {game_start_order}, team, {lineup_slot_order}, player_name, f.game_id
         """,
         {"target_date": target_date},
     )
@@ -9446,7 +9446,7 @@ def _fetch_nrfi_experimental_context_by_game(target_date: date) -> dict[int, dic
         LEFT JOIN dim_venues v ON v.venue_id = g.venue_id
         LEFT JOIN ranked_features rf ON rf.game_id = g.game_id AND rf.row_rank = 1
         WHERE g.game_date = :target_date
-        ORDER BY {game_start_order}, g.away_team, g.home_team
+        ORDER BY {game_start_order}, g.away_team, g.home_team, g.game_id
         """,
         {"target_date": target_date},
     )
@@ -10510,7 +10510,7 @@ def _fetch_daily_results(
                AND actual.player_id = p.player_id
             WHERE p.row_rank = 1
               AND p.predicted_hit_probability >= :hit_min_probability
-                        ORDER BY g.game_start_ts, p.predicted_hit_probability DESC, {lineup_slot_order}, player_name
+                        ORDER BY g.game_start_ts, p.predicted_hit_probability DESC, {lineup_slot_order}, player_name, p.game_id, p.player_id
             """,
             {"target_date": target_date, "hit_min_probability": hit_min_probability},
         )
@@ -10591,7 +10591,7 @@ def _fetch_daily_results(
                AND ps.pitcher_id = p.pitcher_id
                AND ps.game_date = p.game_date
             WHERE p.row_rank = 1
-            ORDER BY g.game_start_ts, CASE WHEN p.market_line IS NULL THEN 1 ELSE 0 END, p.team, pitcher_name
+            ORDER BY g.game_start_ts, CASE WHEN p.market_line IS NULL THEN 1 ELSE 0 END, p.team, pitcher_name, p.game_id, p.pitcher_id
             """,
             {"target_date": target_date},
         )
