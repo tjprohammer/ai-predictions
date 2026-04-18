@@ -28,8 +28,8 @@ Snapshots exist so a **later** refresh (after line move, lineup change, or boxsc
 ### 2.1 Run snapshots (earliest stable anchor)
 
 - **Tables:** `board_green_run_snapshots`, `board_top_ev_run_snapshots` (`db/migrations/030_board_run_snapshots.sql`).
-- **When written:** On the **first** successful pregame board build for that game/date: `now` must be **strictly before** scheduled first pitch (`is_before_scheduled_first_pitch`). No ingest-lock window required.
-- **Meaning:** “What the board showed on the **first** time we computed it that day while still pregame.”
+- **Top EV run (`board_top_ev_run_snapshots`):** On the **first** successful Top EV computation for that game/date (`INSERT OR IGNORE`). **Not** limited to pregame—if you only open Daily Results after games, the first load still freezes so EV does not drift on refresh. **Default:** `BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED=true`.
+- **Green run (`board_green_run_snapshots`):** Still first qualifying board build while **before** first pitch (pregame-only), unless changed elsewhere.
 
 ### 2.2 Lock snapshots (pregame freeze)
 

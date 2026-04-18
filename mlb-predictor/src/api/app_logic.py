@@ -5868,8 +5868,10 @@ def _maybe_insert_board_top_ev_run_snapshots(target_date: date, board_rows: list
         if not gid or gid in existing:
             continue
         gr = row_by.get(gid)
-        if gr is None or not is_before_scheduled_first_pitch(gr.get("game_start_ts")):
+        if gr is None:
             continue
+        # Persist the first successful Top EV we ever compute for this game/date (INSERT OR IGNORE).
+        # Do not require pre-first-pitch: otherwise Daily Results opened only after games never freeze and EV drifts forever.
         pick = _top_ev_pick_for_board_row(gr, market_rows_by_game.get(gid, {}))
         if not pick:
             continue
@@ -8891,7 +8893,7 @@ def _live_top_ev_rows_for_daily_results(
         if frozen and snap_kind == "lock":
             reason = "Top EV pick (frozen at pregame lock — same weighted-EV winner as the board at lock)"
         elif frozen and snap_kind == "run":
-            reason = "Top EV pick (frozen at first pregame board run — before lock window)"
+            reason = "Top EV pick (frozen — first stored weighted-EV winner for this game; refresh does not reselect)"
         else:
             reason = "Top EV pick (largest weighted EV among priced candidates for this game)"
 

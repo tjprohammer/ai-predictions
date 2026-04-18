@@ -167,7 +167,7 @@ def get_settings() -> Settings:
             os.getenv("BOARD_GREEN_RUN_SNAPSHOT_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
         ),
         board_top_ev_run_snapshot_enabled=(
-            os.getenv("BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+            os.getenv("BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
         ),
         board_green_selection_mode=_parse_board_green_selection_mode(),
         board_green_composite_min=_parse_optional_float_env("BOARD_GREEN_COMPOSITE_MIN"),
