@@ -25,6 +25,8 @@ from src.models.predict_hr import main as predict_hr_main
 from src.models.predict_strikeouts import main as predict_strikeouts_main
 from src.models.predict_total_bases import main as predict_total_bases_main
 from src.models.predict_totals import main as predict_totals_main
+from src.models.retrain_models import main as retrain_models_pipeline_main
+from src.models.train_board_action_score import main as train_board_action_score_main
 from src.models.train_total_bases import main as train_total_bases_main
 from src.transforms.bullpens_daily import main as refresh_bullpens_daily_main
 from src.transforms.freeze_markets import main as freeze_markets_main
@@ -94,5 +96,7 @@ UPDATE_MODULE_MAINS = {
     "src.models.predict_hr": predict_hr_main,
     "src.models.predict_strikeouts": predict_strikeouts_main,
     "src.models.train_total_bases": train_total_bases_main,
+    "src.models.retrain_models": retrain_models_pipeline_main,
+    "src.models.train_board_action_score": train_board_action_score_main,
     "src.models.predict_total_bases": predict_total_bases_main,
 }

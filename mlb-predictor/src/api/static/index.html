@@ -2635,9 +2635,13 @@
                 </dd>
                 <dt>Retrain Models</dt>
                 <dd>
-                  Re-trains all four prediction models (totals, first-5, hits,
-                  strikeouts) on current data, then re-scores predictions for
-                  the selected date.
+                  Re-trains every scored model (totals, first-5, inning-1
+                  NRFI/YRFI, hits, home run probability, total bases, pitcher
+                  strikeouts), then re-scores predictions for the selected
+                  date. On a dev server, run
+                  <code>make start-app-stable</code> (no hot-reload) so a long
+                  retrain is not interrupted when a <code>.py</code> file is
+                  saved.
                 </dd>
                 <dt>Refresh Daily Results</dt>
                 <dd>
@@ -3462,7 +3466,7 @@
         retrain_models: {
           label: "Retrain Models",
           pending:
-            "Re-training all four prediction models, then re-scoring predictions",
+            "Re-training all prediction models, then re-scoring predictions",
         },
       };
 
@@ -3485,10 +3489,16 @@
         "src.ingestors.validator": "Validator — check game readiness",
         "src.ingestors.player_status":
           "Player status — check injuries & roster moves",
+        "src.ingestors.matchup_splits": "Matchups — load BvP / platoon samples",
+        "src.ingestors.lineups_backfill": "Lineups — backfill historical orders",
+        "src.ingestors.umpire": "Umpires — load plate assignments",
         "src.features.totals_builder": "Features — build full-game totals",
         "src.features.first5_totals_builder":
           "Features — build first-5-innings totals",
+        "src.features.inning1_nrfi_builder":
+          "Features — build inning-1 NRFI/YRFI inputs",
         "src.features.hits_builder": "Features — build hitter profiles",
+        "src.features.hr_builder": "Features — build home-run prop inputs",
         "src.features.strikeouts_builder":
           "Features — build pitcher strikeout profiles",
         "src.features.total_bases_builder":
@@ -3496,17 +3506,28 @@
         "src.models.predict_totals": "Predict — score full-game over/under",
         "src.models.predict_first5_totals":
           "Predict — score first-5-innings over/under",
+        "src.models.predict_inning1_nrfi":
+          "Predict — score inning-1 NRFI/YRFI",
         "src.models.predict_hits": "Predict — score hitter hit probabilities",
+        "src.models.predict_hr": "Predict — score home-run probability",
+        "src.models.predict_total_bases":
+          "Predict — score total-bases expectation",
         "src.models.predict_strikeouts":
           "Predict — score pitcher strikeout props",
         "src.transforms.product_surfaces":
           "Publish — refresh board, results & scorecards",
         "src.transforms.grade_predictions":
           "Grading — evaluate prediction accuracy",
+        "src.models.retrain_models":
+          "Train — all models (totals → strikeouts, one long step)",
         "src.models.train_totals": "Train — full-game totals model",
         "src.models.train_first5_totals":
           "Train — first-5-innings totals model",
+        "src.models.train_inning1_nrfi":
+          "Train — inning-1 NRFI/YRFI classifier",
         "src.models.train_hits": "Train — hitter props model",
+        "src.models.train_hr": "Train — home-run probability model",
+        "src.models.train_total_bases": "Train — total-bases model",
         "src.models.train_strikeouts": "Train — pitcher strikeout model",
       };
 
@@ -7634,7 +7655,11 @@
                   const trustG = bet.input_trust && bet.input_trust.grade
                     ? String(bet.input_trust.grade)
                     : "";
-                  return `<span class="game-best-bet-chip">${tierTag ? `<span class="section-tag">${escapeHtml(tierTag)}</span> ` : ""}${trustG ? `Trust ${escapeHtml(trustG)} · ` : ""}${escapeHtml(bet.selection_label || bet.market_label || "Best Bet")}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""} · EV ${formatSigned(numberOr(bet.weighted_ev, 0) * 100, 1)}%</span>`;
+                  const act =
+                    bet.action_score != null && bet.action_score !== ""
+                      ? ` · Act ${formatPercent(numberOr(bet.action_score, 0), 0)}`
+                      : "";
+                  return `<span class="game-best-bet-chip">${tierTag ? `<span class="section-tag">${escapeHtml(tierTag)}</span> ` : ""}${trustG ? `Trust ${escapeHtml(trustG)} · ` : ""}${escapeHtml(bet.selection_label || bet.market_label || "Best Bet")}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""} · EV ${formatSigned(numberOr(bet.weighted_ev, 0) * 100, 1)}%${act}</span>`;
                 },
               )
               .join("")}
@@ -7722,6 +7747,15 @@
         let greenSub = `${filteredBets.length} green pick${filteredBets.length === 1 ? "" : "s"}${filterSuffix}`;
         if (softGreenCount > 0) {
           greenSub += ` · ${strictGreenCount} strict · ${softGreenCount} soft`;
+        }
+        const slateN = Array.isArray(state.games) ? state.games.length : 0;
+        const wlN = Array.isArray(state.bestBets) ? state.bestBets.length : 0;
+        if (
+          filteredBets.length > 0 &&
+          filteredBets.length <= 3 &&
+          slateN > filteredBets.length
+        ) {
+          greenSub += ` · Full slate (${slateN} games): also use Watchlist (${wlN} next-best team markets) and Top EV on each game card`;
         }
         bestBetsSubtitle.textContent = greenSub;
         bestBetsGrid.classList.toggle("empty", !filteredBets.length);
@@ -7836,7 +7870,11 @@
                 <div class="best-bet-meta">${escapeHtml(subtitle)} · ${escapeHtml(bet.sportsbook || "sportsbook")}</div>
                 <div class="best-bet-copy">${escapeHtml(notesLine)}</div>
                 <div class="best-bet-copy">${escapeHtml(modelLine)}</div>
-                <div class="best-bet-meta">EV ${formatSigned(numberOr(bet.weighted_ev, 0) * 100, 1)}% · No-vig edge ${formatSigned(numberOr(bet.probability_edge, 0) * 100, 1)} pts · Cert ${formatPercent(bet.certainty_weight, 0)}</div>
+                <div class="best-bet-meta">EV ${formatSigned(numberOr(bet.weighted_ev, 0) * 100, 1)}% · No-vig edge ${formatSigned(numberOr(bet.probability_edge, 0) * 100, 1)} pts · Cert ${formatPercent(bet.certainty_weight, 0)}${
+                  bet.action_score != null && bet.action_score !== ""
+                    ? ` · Action ${formatPercent(numberOr(bet.action_score, 0), 0)}`
+                    : ""
+                }</div>
               </a>
             `;
               })

@@ -2,6 +2,23 @@ from src.utils import best_bets
 from src.utils.settings import get_settings
 
 
+def test_board_pick_composite_score_v1_respects_stronger_context(monkeypatch):
+    base = {
+        "market_key": "moneyline",
+        "weighted_ev": 0.05,
+        "probability_edge": 0.08,
+        "certainty_weight": 0.8,
+        "model_probability": 0.56,
+        "game_certainty_pct": 80.0,
+        "input_trust": {"grade": "B", "score": 0.75},
+    }
+    weak = dict(base)
+    strong = dict(base)
+    strong["game_certainty_pct"] = 95.0
+    strong["input_trust"] = {"grade": "A", "score": 0.92}
+    assert best_bets.board_pick_composite_score_v1(strong) > best_bets.board_pick_composite_score_v1(weak)
+
+
 def _card(game_id: int, weighted_ev: float, *, positive: bool) -> dict[str, object]:
     return {
         "game_id": game_id,
@@ -73,7 +90,7 @@ def test_annotate_market_card_sets_tier_and_gate_hints_for_raw_ev():
 
 
 def test_flatten_best_bets_prefers_one_pick_per_game_before_reusing_same_matchup():
-    """High-EV game with many markets should not occupy all green-strip slots."""
+    """One green per game until slate slots fill; high-EV game should not take all strip slots."""
     markets = (
         "moneyline",
         "run_line",
@@ -110,7 +127,7 @@ def test_flatten_best_bets_prefers_one_pick_per_game_before_reusing_same_matchup
 
 
 def test_flatten_best_bets_never_adds_second_pass_duplicates_same_game():
-    """Green strip is capped at one pick per game; do not backfill slots with more markets from the same matchup."""
+    """Green strip is capped per game; second pass still respects BOARD_GREEN_STRIP_MAX_PER_GAME_FIRST_PASS."""
     markets = ("moneyline", "run_line", "away_team_total")
     cards_g1 = []
     for i, mk in enumerate(markets):
@@ -198,7 +215,8 @@ def test_watchlist_keeps_near_miss_games_when_no_positive_overflow_exists():
             }
         )
 
-    near_miss = _card(6, 0.02, positive=False)
+    # Below BOARD_GREEN_SOFT_MIN_WEIGHTED_EV so this stays off the green strip (watchlist only).
+    near_miss = _card(6, 0.010, positive=False)
     near_miss["probability_edge"] = 0.05
     near_miss["model_probability"] = 0.56
     near_miss["certainty_weight"] = 0.90

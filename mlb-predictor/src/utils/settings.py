@@ -86,6 +86,18 @@ class Settings:
     # When true and ``board_green_snapshots`` exists, freeze each game's first qualifying green
     # pick once the game enters the pregame ingest lock window.
     board_green_snapshot_enabled: bool
+    # When true and ``board_top_ev_snapshots`` exists, freeze each game's Top EV pick once inside the lock window.
+    board_top_ev_snapshot_enabled: bool
+    # Minutes before first pitch to *record* Top EV snapshot (unset = use ``pregame_ingest_lock_minutes``).
+    board_top_ev_snapshot_lock_minutes: int | None
+    # First board load (pregame) — see ``board_*_run_snapshots`` migrations.
+    board_green_run_snapshot_enabled: bool
+    board_top_ev_run_snapshot_enabled: bool
+    # Green strip: ``ev_gates`` = rank by weighted EV only (legacy). ``composite_v1`` = rank by blended
+    # EV, edge, certainty, game data quality, trust, optional action_score (see ``board_pick_composite_score_v1``).
+    board_green_selection_mode: str
+    # Optional floor 0–1 for composite_v1; unset = no extra floor beyond qualifies_board_green_strip.
+    board_green_composite_min: float | None
 
 
 def _parse_optional_float_env(name: str) -> float | None:
@@ -93,6 +105,21 @@ def _parse_optional_float_env(name: str) -> float | None:
     if raw is None or not str(raw).strip():
         return None
     return float(str(raw).strip())
+
+
+def _parse_optional_int_env(name: str) -> int | None:
+    """Unset / blank → None. Used for ints where None means “inherit another setting.”"""
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return None
+    return int(str(raw).strip())
+
+
+def _parse_board_green_selection_mode() -> str:
+    raw = (os.getenv("BOARD_GREEN_SELECTION_MODE") or "composite_v1").strip().lower()
+    if raw in ("ev_gates", "composite_v1"):
+        return raw
+    return "composite_v1"
 
 
 @lru_cache(maxsize=1)
@@ -126,10 +153,22 @@ def get_settings() -> Settings:
         odds_api_key=os.getenv("THE_ODDS_API_KEY") or None,
         odds_api_key_fallback=os.getenv("THE_ODDS_API_KEY_FALLBACK") or None,
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        pregame_ingest_lock_minutes=int(os.getenv("MLB_PREGAME_INGEST_LOCK_MINUTES", "30")),
+        pregame_ingest_lock_minutes=int(os.getenv("MLB_PREGAME_INGEST_LOCK_MINUTES", "10")),
         market_ingest_odds_api_fresh_minutes=int(os.getenv("MARKET_INGEST_ODDS_API_FRESH_MINUTES", "0")),
         board_green_min_game_certainty_pct=_parse_optional_float_env("BOARD_GREEN_MIN_GAME_CERTAINTY_PCT"),
         board_green_snapshot_enabled=(
-            os.getenv("BOARD_GREEN_SNAPSHOT_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+            os.getenv("BOARD_GREEN_SNAPSHOT_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
         ),
+        board_top_ev_snapshot_enabled=(
+            os.getenv("BOARD_TOP_EV_SNAPSHOT_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+        ),
+        board_top_ev_snapshot_lock_minutes=_parse_optional_int_env("BOARD_TOP_EV_SNAPSHOT_LOCK_MINUTES"),
+        board_green_run_snapshot_enabled=(
+            os.getenv("BOARD_GREEN_RUN_SNAPSHOT_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+        ),
+        board_top_ev_run_snapshot_enabled=(
+            os.getenv("BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+        ),
+        board_green_selection_mode=_parse_board_green_selection_mode(),
+        board_green_composite_min=_parse_optional_float_env("BOARD_GREEN_COMPOSITE_MIN"),
     )

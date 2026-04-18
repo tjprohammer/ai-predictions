@@ -14,7 +14,7 @@ TARGET_DATE ?= $(END_DATE)
 
 .PHONY: help venv install db-up db-down db-migrate db-reset \
 	load-reference-data prepare-slate-inputs ingest-today refresh-aggregates features-today predict-today pipeline \
-	train-totals train-first5-totals train-hits train-strikeouts backtest compare-prior-modes start-app start-app-stable run-desktop install-desktop build-desktop build-installer build-release test lint clean pipeline-range product-surfaces \
+	train-totals train-first5-totals train-inning1-nrfi train-hits train-hr train-total-bases retrain-models train-strikeouts backtest compare-prior-modes start-app start-app-stable run-desktop install-desktop build-desktop build-installer build-release test lint clean pipeline-range product-surfaces \
 	rollout-strikeouts
 
 help: ## Show this help
@@ -78,6 +78,7 @@ features-today: ## Build features for today's slate
 	"$(PYTHON_BIN)" -m src.features.inning1_nrfi_builder
 	"$(PYTHON_BIN)" -m src.features.hits_builder
 	"$(PYTHON_BIN)" -m src.features.hr_builder
+	"$(PYTHON_BIN)" -m src.features.total_bases_builder
 	"$(PYTHON_BIN)" -m src.features.strikeouts_builder
 
 predict-today: ## Generate predictions for today
@@ -86,6 +87,7 @@ predict-today: ## Generate predictions for today
 	"$(PYTHON_BIN)" -m src.models.predict_inning1_nrfi
 	"$(PYTHON_BIN)" -m src.models.predict_hits
 	"$(PYTHON_BIN)" -m src.models.predict_hr
+	"$(PYTHON_BIN)" -m src.models.predict_total_bases
 	"$(PYTHON_BIN)" -m src.models.predict_strikeouts
 
 train-hr: ## Train home-run probability model from HR feature snapshots
@@ -122,6 +124,12 @@ train-totals: ## Train totals baseline from feature snapshots
 train-hits: ## Train hits baseline from feature snapshots
 	"$(PYTHON_BIN)" -m src.models.train_hits
 
+train-total-bases: ## Train total-bases expectation model from feature snapshots
+	"$(PYTHON_BIN)" -m src.models.train_total_bases
+
+retrain-models: ## Train all lanes in one process (same as dashboard Retrain Models training phase)
+	"$(PYTHON_BIN)" -m src.models.retrain_models
+
 train-strikeouts: ## Train pitcher strikeout baseline from feature snapshots
 	"$(PYTHON_BIN)" -m src.models.train_strikeouts
 
@@ -135,7 +143,7 @@ MLB_PREDICTOR_HOST ?= 127.0.0.1
 MLB_PREDICTOR_PORT ?= 8000
 
 start-app: ## Run FastAPI + dashboard locally with uvicorn --reload (loopback; MLB_PREDICTOR_HOST=0.0.0.0 for LAN)
-	"$(UVICORN_BIN)" src.api.app:app --reload --reload-exclude "data/**" --reload-exclude "db/**" --host $(MLB_PREDICTOR_HOST) --port $(MLB_PREDICTOR_PORT)
+	"$(UVICORN_BIN)" src.api.app:app --reload --reload-exclude "data/**" --reload-exclude "db/**" --reload-exclude "**/*.pkl" --reload-exclude "**/data/**" --reload-exclude "**/db/**" --host $(MLB_PREDICTOR_HOST) --port $(MLB_PREDICTOR_PORT)
 
 start-app-stable: ## Same API as start-app but WITHOUT --reload — use for long “Update Lineups & Markets” / pipeline jobs
 	"$(UVICORN_BIN)" src.api.app:app --host $(MLB_PREDICTOR_HOST) --port $(MLB_PREDICTOR_PORT)

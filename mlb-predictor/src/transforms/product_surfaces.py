@@ -1263,6 +1263,9 @@ def _build_top_ev_outcomes(start_date, end_date, weather_map: dict[int, dict[str
     prediction_ts = datetime.now(timezone.utc)
     out: list[dict[str, Any]] = []
 
+    top_ev_lock_by_game = app_logic._fetch_board_top_ev_snapshots_for_range(start_date, end_date)
+    top_ev_run_by_game = app_logic._fetch_board_top_ev_run_snapshots_for_range(start_date, end_date)
+
     for _, g in games_df.iterrows():
         game_id = int(g["game_id"])
         game_date = pd.to_datetime(g["game_date"]).date()
@@ -1273,7 +1276,11 @@ def _build_top_ev_outcomes(start_date, end_date, weather_map: dict[int, dict[str
         )
         if not detail:
             continue
-        pick = detail.get("top_ev_pick")
+        snap_lock = top_ev_lock_by_game.get((game_date, game_id))
+        snap_run = top_ev_run_by_game.get((game_date, game_id))
+        snap_pick = snap_lock or snap_run
+        pick = snap_pick or detail.get("top_ev_pick")
+        pick_frozen = snap_pick is not None
         if not pick:
             continue
 
@@ -1392,6 +1399,7 @@ def _build_top_ev_outcomes(start_date, end_date, weather_map: dict[int, dict[str
                     "model_summary": pick.get("model_summary"),
                     "market_summary": pick.get("market_summary"),
                     "actual_measure": grading.get("actual_measure"),
+                    "top_ev_frozen": pick_frozen,
                 },
                 **_weather_outcome_fields(game_id, weather_map),
             }

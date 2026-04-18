@@ -76,6 +76,13 @@ def test_update_job_refresh_everything_runs_full_sequence(monkeypatch):
     assert calls == build_update_job_sequence("refresh_everything", "2026-04-02")
 
 
+def test_retrain_models_runs_all_train_modules_before_rescore():
+    modules = [m for m, _ in build_update_job_sequence("retrain_models", "2026-04-02")]
+    assert modules[0] == "src.models.retrain_models"
+    assert "src.models.train_totals" not in modules
+    assert "src.models.predict_total_bases" in modules
+
+
 def test_update_lineups_only_skips_market_totals_odds_ingest():
     modules = [m for m, _ in build_update_job_sequence("update_lineups_only", "2026-04-02")]
     assert "src.ingestors.lineups" in modules
@@ -97,6 +104,7 @@ def test_update_markets_only_runs_market_totals_not_lineups():
         ("update_lineups_only", date(2026, 4, 2), "Update Lineups"),
         ("update_markets_only", date(2026, 4, 2), "Update Markets"),
         ("refresh_results", date(2026, 4, 2), "Refresh Daily Results"),
+        ("rebuild_learning_tables", date(2026, 4, 10), "Rebuild learning tables"),
         ("rebuild_predictions", date(2026, 4, 2), "Rebuild Predictions"),
         ("grade_predictions", date(2026, 4, 3), "Grade Predictions"),
     ],
@@ -120,6 +128,20 @@ def test_update_job_sequences_cover_every_dashboard_action(
     assert response.status_code == 200
     assert payload["label"] == expected_label
     assert [module for module, _ in calls] == expected_modules
+
+
+def test_refresh_results_runs_product_surfaces_over_backfill_range():
+    seq = build_update_job_sequence("refresh_results", "2026-04-10")
+    ps = [s for s in seq if s[0] == "src.transforms.product_surfaces"]
+    assert len(ps) == 1
+    assert ps[0][1] == ["--start-date", "2026-04-05", "--end-date", "2026-04-10"]
+
+
+def test_rebuild_learning_tables_only_product_surfaces_backfill():
+    seq = build_update_job_sequence("rebuild_learning_tables", "2026-04-10")
+    assert len(seq) == 1
+    assert seq[0][0] == "src.transforms.product_surfaces"
+    assert seq[0][1] == ["--start-date", "2026-04-05", "--end-date", "2026-04-10"]
 
 
 def test_update_job_grade_predictions_targets_yesterday(monkeypatch):

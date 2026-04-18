@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Sign the built desktop app and installer using signtool.exe and WINDOWS_SIGN_* environment variables",
     )
-    parser.add_argument("--app-version", default="1.1.0", help="Installer app version label")
+    parser.add_argument("--app-version", default="0.8.0-beta", help="Installer app version label")
     parser.add_argument("--release-dir", default=str(ROOT / "release"), help="Directory where release artifacts are written")
     parser.add_argument("--require-inno", action="store_true", help="Fail the release build if Inno Setup is unavailable instead of falling back to the portable installer bundle")
     parser.add_argument(

@@ -39,7 +39,7 @@ BEST_BET_SELECTION_LIMIT_PER_GAME = 1
 # Legacy tests may pass limit=5 explicitly. Board/API default is no fixed cap (use one green per game
 # up to slate size — see ``flatten_best_bets``).
 BOARD_BEST_BET_LIMIT = 5
-# Slate-wide green strip: at most this many picks per game total (first and second pass).
+# Slate-wide green strip: at most this many distinct picks per game (same pass logic for both passes).
 BOARD_GREEN_STRIP_MAX_PER_GAME_FIRST_PASS = 1
 # Main-board watchlist: include all per-game candidates up to this slate-wide cap.
 BOARD_WATCHLIST_LIMIT = 500
@@ -48,10 +48,12 @@ BOARD_WATCHLIST_LIMIT = 500
 # These sit between "watchlist noise" and full `passes_best_bet_thresholds` gates.
 # Soft backfill also requires actionable (A/B) input trust — strict positives use EV gates only so the
 # strip can show one pick per game when the model clears the bar, even if lineups/markets are still B/C.
-BOARD_GREEN_SOFT_MIN_WEIGHTED_EV = 0.028
-BOARD_GREEN_SOFT_MIN_PROB_EDGE = 0.045
+# Slightly relaxed vs original (2026) so pre-lock / full slates surface more than a single soft green.
+# Tuned so thin slates are not reduced to a single green when models sit just below the strict gates.
+BOARD_GREEN_SOFT_MIN_WEIGHTED_EV = 0.013
+BOARD_GREEN_SOFT_MIN_PROB_EDGE = 0.024
 BOARD_GREEN_SOFT_MIN_CERTAINTY = 0.70
-BOARD_GREEN_SOFT_MIN_MODEL_PROB = 0.53
+BOARD_GREEN_SOFT_MIN_MODEL_PROB = 0.505
 
 # First-inning experimental lines: nrfi and yrfi sort order when deduping / displaying.
 EXPERIMENTAL_FIRST_INNING_MARKETS_ORDER = ("nrfi", "yrfi")
@@ -76,82 +78,82 @@ def excluded_from_team_best_pick_board(market_key: str | None) -> bool:
 
 BEST_BET_THRESHOLD_MAP: dict[str, dict[str, float]] = {
     "moneyline": {
-        "weighted_ev": 0.05,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.038,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.57,
+        "model_probability": 0.535,
     },
     "run_line": {
-        "weighted_ev": 0.06,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.047,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.57,
+        "model_probability": 0.535,
     },
     "game_total": {
-        "weighted_ev": 0.06,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.047,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.57,
+        "model_probability": 0.535,
     },
     PLAYER_HITS_MARKET_KEY: {
-        "weighted_ev": 0.05,
-        "probability_edge": 0.06,
+        "weighted_ev": 0.042,
+        "probability_edge": 0.052,
         "certainty_weight": 0.70,
-        "model_probability": 0.52,
+        "model_probability": 0.505,
     },
     PLAYER_HOME_RUN_MARKET_KEY: {
-        "weighted_ev": 0.035,
-        "probability_edge": 0.04,
+        "weighted_ev": 0.030,
+        "probability_edge": 0.034,
         "certainty_weight": 0.66,
         "model_probability": 0.12,
     },
     "away_team_total": {
-        "weighted_ev": 0.05,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.038,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.60,
+        "model_probability": 0.565,
     },
     "home_team_total": {
-        "weighted_ev": 0.05,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.038,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.60,
+        "model_probability": 0.565,
     },
     "first_five_moneyline": {
-        "weighted_ev": 0.06,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.047,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.57,
+        "model_probability": 0.535,
     },
     "first_five_total": {
-        "weighted_ev": 0.06,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.047,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.57,
+        "model_probability": 0.535,
     },
     "first_five_spread": {
-        "weighted_ev": 0.06,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.047,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.57,
+        "model_probability": 0.535,
     },
     "first_five_team_total_away": {
-        "weighted_ev": 0.05,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.038,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.60,
+        "model_probability": 0.565,
     },
     "first_five_team_total_home": {
-        "weighted_ev": 0.05,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.038,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.60,
+        "model_probability": 0.565,
     },
     "pitcher_strikeouts": {
-        "weighted_ev": 0.05,
-        "probability_edge": 0.08,
+        "weighted_ev": 0.038,
+        "probability_edge": 0.065,
         "certainty_weight": 0.80,
-        "model_probability": 0.55,
+        "model_probability": 0.525,
     },
 }
 
@@ -528,10 +530,10 @@ def market_thresholds(market_key: str) -> dict[str, float]:
     return BEST_BET_THRESHOLD_MAP.get(
         market_key,
         {
-            "weighted_ev": 0.015,
-            "probability_edge": 0.025,
+            "weighted_ev": 0.012,
+            "probability_edge": 0.020,
             "certainty_weight": 0.80,
-            "model_probability": 0.57,
+            "model_probability": 0.530,
         },
     )
 
@@ -634,6 +636,13 @@ def annotate_market_card_for_display(card: dict[str, Any]) -> dict[str, Any]:
         hints = _strict_ev_gate_hints(card)
         if hints:
             out["ev_gate_hints"] = hints
+    if mk in BEST_BET_MARKET_KEYS:
+        try:
+            from src.models.board_action_score import maybe_attach_action_score
+
+            out = maybe_attach_action_score(out)
+        except Exception:
+            pass
     return out
 
 
@@ -1511,18 +1520,77 @@ def _select_green_strip_with_slate_spread(
     return selected[:limit]
 
 
+def board_pick_composite_score_v1(card: dict[str, Any]) -> float:
+    """Blend EV, edge, model/certainty, game data quality, trust, optional learning overlay (action_score).
+
+    Used when ``BOARD_GREEN_SELECTION_MODE=composite_v1``. Weights are explicit and tunable;
+    typical scores fall in ~0.35–1.15 for board-eligible cards.
+    """
+    wev = to_float(card.get("weighted_ev")) or 0.0
+    pe = to_float(card.get("probability_edge")) or 0.0
+    cw = to_float(card.get("certainty_weight"))
+    if cw is None:
+        cw = 0.0
+    gcp = to_float(card.get("game_certainty_pct"))
+    mp = to_float(card.get("model_probability")) or 0.0
+    it = card.get("input_trust") if isinstance(card.get("input_trust"), dict) else {}
+    it_score = to_float(it.get("score"))
+    grade = str(it.get("grade") or "").strip().upper()
+    action = to_float(card.get("action_score"))
+
+    wev_n = min(max(wev, 0.0) / 0.10, 1.0)
+    pe_n = min(max(pe, 0.0) / 0.10, 1.0)
+    gcp_n = min(max((gcp / 100.0) if gcp is not None else 0.55, 0.0), 1.0)
+    if it_score is not None:
+        trust_n = min(max(it_score, 0.0), 1.0)
+    elif grade == "A":
+        trust_n = 0.88
+    elif grade == "B":
+        trust_n = 0.74
+    else:
+        trust_n = 0.58
+    grade_adj = 0.08 if grade == "A" else (0.04 if grade == "B" else 0.0)
+    act_part = 0.08 * min(max(action, 0.0), 1.0) if action is not None else 0.0
+
+    score = (
+        0.26 * wev_n
+        + 0.22 * pe_n
+        + 0.18 * min(max(cw, 0.0), 1.0)
+        + 0.16 * gcp_n
+        + 0.10 * min(max(mp, 0.0), 1.0)
+        + 0.06 * trust_n
+        + grade_adj
+        + act_part
+    )
+    return round(float(score), 4)
+
+
+def _green_strip_sort_key(card: dict[str, Any], *, mode: str) -> tuple[float, ...]:
+    wev = float(card.get("weighted_ev") or -999.0)
+    pe = float(card.get("probability_edge") or -999.0)
+    if mode == "composite_v1":
+        comp = board_pick_composite_score_v1(card)
+        return (comp, wev, pe)
+    return (wev, pe)
+
+
 def flatten_best_bets(rows: list[dict[str, Any]], limit: int | None = None) -> list[dict[str, Any]]:
     """Board green strip: full-gate (`positive`) picks first, then soft-qualified backfill.
 
     Strict picks are used first; only the remainder can come from softer edge bands
-    (see ``BOARD_GREEN_SOFT_*``). Within each band, candidates are ranked by EV, then we spread
-    across games: **at most one green per game**. By default ``limit`` is the slate size
-    (``len(rows)``), so every matchup can contribute its best qualifying green — not a fixed N.
+    (see ``BOARD_GREEN_SOFT_*``). Within each band, candidates are ranked by EV (``ev_gates``) or
+    by ``board_pick_composite_score_v1`` (``composite_v1``), then we spread across games.
 
     Pass an explicit ``limit`` to cap the strip (tests use small limits).
     """
     if limit is None:
         limit = len(rows)
+    settings = get_settings()
+    mode = getattr(settings, "board_green_selection_mode", "ev_gates")
+    if mode not in ("ev_gates", "composite_v1"):
+        mode = "composite_v1"
+    composite_min = getattr(settings, "board_green_composite_min", None)
+
     seen: set[tuple[int, str, str]] = set()
     flattened: list[dict[str, Any]] = []
     for row in rows:
@@ -1538,21 +1606,24 @@ def flatten_best_bets(rows: list[dict[str, Any]], limit: int | None = None) -> l
                 return
             seen.add(key)
             tier = "strict" if card.get("positive") else "soft"
-            flattened.append({**card, "green_strip_tier": tier})
+            out = {**card, "green_strip_tier": tier}
+            if mode == "composite_v1":
+                sc = board_pick_composite_score_v1(out)
+                out["green_composite_score"] = sc
+                if composite_min is not None and sc < float(composite_min):
+                    return
+            flattened.append(out)
 
         for bet in row.get("best_bets") or []:
             _add(bet)
         for card in row.get("market_cards") or []:
             _add(card)
 
-    ev_key = lambda bet: (
-        float(bet.get("weighted_ev") or -999.0),
-        float(bet.get("probability_edge") or -999.0),
-    )
+    sort_key = lambda bet: _green_strip_sort_key(bet, mode=mode)
     strict_flat = [b for b in flattened if b.get("positive")]
     soft_flat = [b for b in flattened if not b.get("positive")]
-    strict_flat.sort(key=ev_key, reverse=True)
-    soft_flat.sort(key=ev_key, reverse=True)
+    strict_flat.sort(key=sort_key, reverse=True)
+    soft_flat.sort(key=sort_key, reverse=True)
 
     # Prefer full-gate picks for every strip slot; only backfill with soft-qualified cards if needed.
     from_strict = _select_green_strip_with_slate_spread(
@@ -1584,7 +1655,7 @@ def _is_watchlist_candidate(card: dict[str, Any]) -> bool:
     probability_edge = to_float(card.get("probability_edge"))
     if model_probability is None or certainty_weight is None:
         return False
-    if certainty_weight < 0.58:
+    if certainty_weight < 0.52:
         return False
     if weighted_ev is not None and weighted_ev > 0:
         return True

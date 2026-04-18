@@ -2,6 +2,10 @@
 
 This document is the source of truth for **what is a separate model / surface** vs what is “team best bets,” and **where each payload comes from**. It exists so UI and API changes do not mix unrelated lanes.
 
+For **best bets vs Top EV**, **run vs lock snapshots**, **lineups/markets + pregame lock**, and **how to get stable picks earlier in the day**, see **`BOARD_BEST_BETS_AND_SNAPSHOTS.md`**.
+
+For **tracked picks → outcomes → learning / edge vs markets** (what runs automatically vs retrain/calibration jobs), see **`LEARNING_CHANNEL_AND_EDGE.md`**.
+
 ## Separate products (do not conflate)
 
 | Surface | Model / inputs | API / UI | Notes |
@@ -77,3 +81,5 @@ The main dashboard detects a **future** `target_date` (local calendar) and adjus
 | Best bet history | `app_logic._fetch_best_bet_history_payload` |
 | Dashboard board UI | `src/api/static/index.html` |
 | Daily Results UI | `src/api/static/results.html` |
+| Best bets / Top EV / snapshots pipeline | `docs/BOARD_BEST_BETS_AND_SNAPSHOTS.md` |
+| Learning channel, outcomes, edge | `docs/LEARNING_CHANNEL_AND_EDGE.md` |

@@ -35,7 +35,10 @@ def _load_or_train_artifact() -> dict | None:
         from src.models.train_hr import main as train_hr_main
 
         # Do not use parent's sys.argv (--target-date from predict_hr breaks train_hr's argparse).
-        train_hr_main([])
+        try:
+            train_hr_main([])
+        except Exception as exc:
+            log.warning("HR training pass failed; skipping HR scoring: %s", exc)
         try:
             return load_latest_artifact("hr")
         except FileNotFoundError:

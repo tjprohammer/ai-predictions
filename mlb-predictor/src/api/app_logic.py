@@ -74,7 +74,7 @@ from src.utils.slugger_hr_selection import (
 from src.utils.hitter_form import HOT_HITTER_PAGE_FORM_KEYS, classify_hitter_form
 from src.utils.top_ev_pick import collect_top_ev_candidates, select_top_weighted_ev_pick
 from src.utils.input_trust import input_trust_from_certainty as _input_trust_from_certainty
-from src.utils.pregame_lock import is_pregame_ingest_locked
+from src.utils.pregame_lock import is_before_scheduled_first_pitch, is_pregame_ingest_locked
 from src.utils.matchup_keys import team_abbr_to_opponent_id
 from src.utils.db import get_dialect_name, query_df, run_sql, table_exists, upsert_rows
 from src.utils.logging import get_logger
@@ -1867,6 +1867,35 @@ def _doctor_experimental_markets_snapshot(target_date: date) -> dict[str, Any]:
     return snapshot
 
 
+def _doctor_board_action_score_payload() -> dict[str, Any]:
+    """Learning overlay (``train_board_action_score``): Act % on cards; does not gate green-strip inclusion."""
+    try:
+        from src.models.board_action_score import artifact_paths
+    except Exception as exc:
+        return {"artifact_exists": False, "error": str(exc)}
+    path, meta_path = artifact_paths()
+    out: dict[str, Any] = {
+        "artifact_path": str(path),
+        "meta_path": str(meta_path),
+        "artifact_exists": bool(path.exists()),
+        "model_label": "board_action_logistic_v1",
+        "role": (
+            "Adds action_score to team best-bet cards in JSON/UI when the joblib loads. "
+            "Strip membership still uses EV + soft gates (best_bets.qualifies_board_green_strip)."
+        ),
+    }
+    if path.exists():
+        try:
+            st = path.stat()
+            out["artifact_mtime_utc"] = (
+                datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).replace(microsecond=0).isoformat()
+            )
+            out["artifact_bytes"] = int(st.st_size)
+        except OSError as exc:
+            out["stat_error"] = str(exc)
+    return out
+
+
 def _doctor_payload(
     target_date: date,
     source_health_hours: int = 24,
@@ -1892,6 +1921,7 @@ def _doctor_payload(
     source_failures = int(source_summary.get("sources_with_failures") or 0)
     blocker = status.get("rebuild_blocker")
     experimental_snapshot = _doctor_experimental_markets_snapshot(target_date)
+    board_action_score = _doctor_board_action_score_payload()
     games_on_slate = int(experimental_snapshot.get("games_on_slate") or 0)
     experimental_rows = int(experimental_snapshot.get("total_market_rows") or 0)
     experimental_ok = games_on_slate == 0 or experimental_rows > 0
@@ -1958,6 +1988,21 @@ def _doctor_payload(
             "warning",
             experimental_detail,
         ),
+        _doctor_check(
+            "board_action_score",
+            "Board action score (learning overlay)",
+            bool(board_action_score.get("artifact_exists")),
+            "warning",
+            (
+                f"Artifact present ({board_action_score.get('artifact_bytes')} bytes, mtime "
+                f"{board_action_score.get('artifact_mtime_utc')}). Cards may show Act % / Action %."
+                if board_action_score.get("artifact_exists")
+                else (
+                    "No action_classifier.joblib — train with Retrain Models or "
+                    "`python -m src.models.train_board_action_score`. Strip picks still use EV gates only."
+                )
+            ),
+        ),
     ]
     critical_failures = sum(1 for item in checks if not item["ok"] and item["severity"] == "critical")
     warning_failures = sum(1 for item in checks if not item["ok"] and item["severity"] != "critical")
@@ -1986,6 +2031,7 @@ def _doctor_payload(
         "pipeline_runs": {"runs": pipeline_runs},
         "update_jobs": {"active_job": active_job, "recent_jobs": recent_jobs},
         "experimental_markets": experimental_snapshot,
+        "board_action_score": board_action_score,
     }
 
 
@@ -3055,10 +3101,23 @@ def _fetch_game_board(
         )
         game["market_cards"] = _drop_first_five_team_total_cards(market_cards)
         game["best_bets"] = _drop_first_five_team_total_best_bets(best_bets)
+
+    board_rows_ordered = [games_by_id[gid] for gid in games_by_id]
+    _maybe_insert_board_top_ev_run_snapshots(target_date, board_rows_ordered)
+    _maybe_insert_board_top_ev_snapshots(target_date, board_rows_ordered)
+    lock_top_ev: dict[int, dict[str, Any]] = {}
+    run_top_ev: dict[int, dict[str, Any]] = {}
+    if get_settings().board_top_ev_snapshot_enabled and _table_exists("board_top_ev_snapshots"):
+        lock_top_ev = _fetch_board_top_ev_snapshots_map(target_date)
+    if get_settings().board_top_ev_run_snapshot_enabled and _table_exists("board_top_ev_run_snapshots"):
+        run_top_ev = _fetch_board_top_ev_run_snapshots_map(target_date)
+    for game in games_by_id.values():
         gid = int(game["game_id"])
-        game["top_ev_pick"] = _top_ev_pick_for_board_row(
+        game["top_ev_pick"] = _resolve_top_ev_pick_with_snapshots(
             game,
             market_rows_by_game.get(gid, {}),
+            lock_top_ev,
+            run_top_ev,
         )
 
     return [games_by_id[game_id] for game_id in games_by_id]
@@ -5367,6 +5426,20 @@ def _is_game_board_green_locked(game_row: dict[str, Any]) -> bool:
     return bool(is_pregame_ingest_locked(ts, lock_minutes=lock_m))
 
 
+def _is_game_top_ev_snapshot_lock_active(game_row: dict[str, Any]) -> bool:
+    """True inside the Top EV snapshot window — may use a different cutoff than ingest (see settings)."""
+    ts = game_row.get("game_start_ts")
+    if ts is None:
+        return False
+    settings = get_settings()
+    inherited = int(settings.pregame_ingest_lock_minutes or 0)
+    explicit = settings.board_top_ev_snapshot_lock_minutes
+    lock_m = inherited if explicit is None else int(explicit)
+    if lock_m <= 0:
+        return False
+    return bool(is_pregame_ingest_locked(ts, lock_minutes=lock_m))
+
+
 def _fetch_board_green_snapshots_map(target_date: date) -> dict[int, dict[str, Any]]:
     if not table_exists("board_green_snapshots"):
         return {}
@@ -5424,6 +5497,84 @@ def _insert_board_green_snapshot_row(target_date: date, game_id: int, payload: d
         )
 
 
+def _fetch_board_green_run_snapshots_map(target_date: date) -> dict[int, dict[str, Any]]:
+    if not table_exists("board_green_run_snapshots"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT game_id, snapshot_payload
+        FROM board_green_run_snapshots
+        WHERE game_date = :gd
+        """,
+        {"gd": target_date},
+    )
+    if frame.empty:
+        return {}
+    out: dict[int, dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        gid = int(row.get("game_id") or 0)
+        raw = row.get("snapshot_payload")
+        if not gid or raw is None:
+            continue
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            out[gid] = payload
+    return out
+
+
+def _insert_board_green_run_snapshot_row(target_date: date, game_id: int, payload: dict[str, Any]) -> None:
+    raw = json.dumps(jsonable_encoder(payload), default=str)
+    frozen_at = datetime.now(timezone.utc)
+    dia = get_dialect_name()
+    params = {
+        "game_id": game_id,
+        "game_date": target_date.isoformat() if dia == "sqlite" else target_date,
+        "snapshot_payload": raw,
+        "frozen_at": frozen_at,
+    }
+    if dia == "sqlite":
+        run_sql(
+            """
+            INSERT OR IGNORE INTO board_green_run_snapshots (game_id, game_date, snapshot_payload, frozen_at)
+            VALUES (:game_id, :game_date, :snapshot_payload, :frozen_at)
+            """,
+            params,
+        )
+    else:
+        run_sql(
+            """
+            INSERT INTO board_green_run_snapshots (game_id, game_date, snapshot_payload, frozen_at)
+            VALUES (:game_id, :game_date, :snapshot_payload, :frozen_at)
+            ON CONFLICT (game_id, game_date) DO NOTHING
+            """,
+            params,
+        )
+
+
+def _maybe_insert_board_green_run_snapshots(
+    target_date: date,
+    rows: list[dict[str, Any]],
+    live_green: list[dict[str, Any]],
+) -> None:
+    if not get_settings().board_green_run_snapshot_enabled:
+        return
+    if not table_exists("board_green_run_snapshots"):
+        return
+    row_by = {int(r["game_id"]): r for r in rows if r.get("game_id") is not None}
+    existing = _fetch_board_green_run_snapshots_map(target_date)
+    for card in live_green:
+        gid = int(card.get("game_id") or 0)
+        if not gid or gid in existing:
+            continue
+        gr = row_by.get(gid)
+        if gr is None or not is_before_scheduled_first_pitch(gr.get("game_start_ts")):
+            continue
+        _insert_board_green_run_snapshot_row(target_date, gid, card)
+
+
 def _maybe_insert_board_green_snapshots(
     target_date: date,
     rows: list[dict[str, Any]],
@@ -5442,6 +5593,8 @@ def _maybe_insert_board_green_snapshots(
         gr = row_by.get(gid)
         if gr is None or not _is_game_board_green_locked(gr):
             continue
+        if not is_before_scheduled_first_pitch(gr.get("game_start_ts")):
+            continue
         _insert_board_green_snapshot_row(target_date, gid, card)
 
 
@@ -5450,41 +5603,52 @@ def _merge_board_green_snapshots_into_live(
     rows: list[dict[str, Any]],
     live_green: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    if not get_settings().board_green_snapshot_enabled or not table_exists("board_green_snapshots"):
-        return live_green
+    settings = get_settings()
     row_by = {int(r["game_id"]): r for r in rows if r.get("game_id") is not None}
-    snaps = _fetch_board_green_snapshots_map(target_date)
-    if not snaps:
+    lock_snaps: dict[int, dict[str, Any]] = {}
+    if settings.board_green_snapshot_enabled and table_exists("board_green_snapshots"):
+        lock_snaps = _fetch_board_green_snapshots_map(target_date)
+    run_snaps: dict[int, dict[str, Any]] = {}
+    if settings.board_green_run_snapshot_enabled and table_exists("board_green_run_snapshots"):
+        run_snaps = _fetch_board_green_run_snapshots_map(target_date)
+    if not lock_snaps and not run_snaps:
         return live_green
 
-    locked_with_snap = {
-        gid
-        for gid in snaps
-        if gid in row_by and _is_game_board_green_locked(row_by[gid])
-    }
-    if not locked_with_snap:
-        return live_green
+    def _frozen_green_payload(gid: int) -> tuple[dict[str, Any], str] | None:
+        gr = row_by.get(gid)
+        if gr is None:
+            return None
+        if lock_snaps and gid in lock_snaps and _is_game_board_green_locked(gr):
+            return dict(lock_snaps[gid]), "lock"
+        if run_snaps and gid in run_snaps and is_before_scheduled_first_pitch(gr.get("game_start_ts")):
+            return dict(run_snaps[gid]), "run"
+        return None
 
     out: list[dict[str, Any]] = []
     seen: set[int] = set()
     for c in live_green:
         gid = int(c.get("game_id") or 0)
-        if gid in locked_with_snap and gid in snaps:
-            fc = dict(snaps[gid])
+        resolved = _frozen_green_payload(gid) if gid else None
+        if resolved:
+            fc, kind = resolved
             fc["board_green_frozen"] = True
+            fc["board_green_snapshot_kind"] = kind
             out.append(fc)
         else:
             out.append(c)
         if gid:
             seen.add(gid)
 
-    for gid in locked_with_snap:
+    for gid in set(lock_snaps) | set(run_snaps):
         if gid in seen:
             continue
-        if gid in snaps:
-            fc = dict(snaps[gid])
-            fc["board_green_frozen"] = True
-            out.append(fc)
+        resolved = _frozen_green_payload(gid)
+        if not resolved:
+            continue
+        fc, kind = resolved
+        fc["board_green_frozen"] = True
+        fc["board_green_snapshot_kind"] = kind
+        out.append(fc)
 
     out.sort(
         key=lambda x: (
@@ -5496,6 +5660,255 @@ def _merge_board_green_snapshots_into_live(
     return out
 
 
+def _fetch_board_top_ev_snapshots_map(target_date: date) -> dict[int, dict[str, Any]]:
+    if not _table_exists("board_top_ev_snapshots"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT game_id, snapshot_payload
+        FROM board_top_ev_snapshots
+        WHERE game_date = :gd
+        """,
+        {"gd": target_date},
+    )
+    if frame.empty:
+        return {}
+    out: dict[int, dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        gid = int(row.get("game_id") or 0)
+        raw = row.get("snapshot_payload")
+        if not gid or raw is None:
+            continue
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            out[gid] = payload
+    return out
+
+
+def _fetch_board_top_ev_snapshots_for_range(start_date: date, end_date: date) -> dict[tuple[date, int], dict[str, Any]]:
+    """All frozen Top EV payloads between ``start_date`` and ``end_date`` (inclusive)."""
+    if not _table_exists("board_top_ev_snapshots"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT game_date, game_id, snapshot_payload
+        FROM board_top_ev_snapshots
+        WHERE game_date BETWEEN :start_date AND :end_date
+        """,
+        {"start_date": start_date, "end_date": end_date},
+    )
+    if frame.empty:
+        return {}
+    out: dict[tuple[date, int], dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        gd = row.get("game_date")
+        if gd is None:
+            continue
+        try:
+            gday = date.fromisoformat(str(gd)[:10])
+        except ValueError:
+            continue
+        gid = int(row.get("game_id") or 0)
+        raw = row.get("snapshot_payload")
+        if not gid or raw is None:
+            continue
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            out[(gday, gid)] = payload
+    return out
+
+
+def _insert_board_top_ev_snapshot_row(target_date: date, game_id: int, payload: dict[str, Any]) -> None:
+    raw = json.dumps(jsonable_encoder(payload), default=str)
+    frozen_at = datetime.now(timezone.utc)
+    dia = get_dialect_name()
+    params = {
+        "game_id": game_id,
+        "game_date": target_date.isoformat() if dia == "sqlite" else target_date,
+        "snapshot_payload": raw,
+        "frozen_at": frozen_at,
+    }
+    if dia == "sqlite":
+        run_sql(
+            """
+            INSERT OR IGNORE INTO board_top_ev_snapshots (game_id, game_date, snapshot_payload, frozen_at)
+            VALUES (:game_id, :game_date, :snapshot_payload, :frozen_at)
+            """,
+            params,
+        )
+    else:
+        run_sql(
+            """
+            INSERT INTO board_top_ev_snapshots (game_id, game_date, snapshot_payload, frozen_at)
+            VALUES (:game_id, :game_date, :snapshot_payload, :frozen_at)
+            ON CONFLICT (game_id, game_date) DO NOTHING
+            """,
+            params,
+        )
+
+
+def _fetch_board_top_ev_run_snapshots_map(target_date: date) -> dict[int, dict[str, Any]]:
+    if not _table_exists("board_top_ev_run_snapshots"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT game_id, snapshot_payload
+        FROM board_top_ev_run_snapshots
+        WHERE game_date = :gd
+        """,
+        {"gd": target_date},
+    )
+    if frame.empty:
+        return {}
+    out: dict[int, dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        gid = int(row.get("game_id") or 0)
+        raw = row.get("snapshot_payload")
+        if not gid or raw is None:
+            continue
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            out[gid] = payload
+    return out
+
+
+def _fetch_board_top_ev_run_snapshots_for_range(start_date: date, end_date: date) -> dict[tuple[date, int], dict[str, Any]]:
+    if not _table_exists("board_top_ev_run_snapshots"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT game_date, game_id, snapshot_payload
+        FROM board_top_ev_run_snapshots
+        WHERE game_date BETWEEN :start_date AND :end_date
+        """,
+        {"start_date": start_date, "end_date": end_date},
+    )
+    if frame.empty:
+        return {}
+    out: dict[tuple[date, int], dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        gd = row.get("game_date")
+        if gd is None:
+            continue
+        try:
+            gday = date.fromisoformat(str(gd)[:10])
+        except ValueError:
+            continue
+        gid = int(row.get("game_id") or 0)
+        raw = row.get("snapshot_payload")
+        if not gid or raw is None:
+            continue
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            out[(gday, gid)] = payload
+    return out
+
+
+def _insert_board_top_ev_run_snapshot_row(target_date: date, game_id: int, payload: dict[str, Any]) -> None:
+    raw = json.dumps(jsonable_encoder(payload), default=str)
+    frozen_at = datetime.now(timezone.utc)
+    dia = get_dialect_name()
+    params = {
+        "game_id": game_id,
+        "game_date": target_date.isoformat() if dia == "sqlite" else target_date,
+        "snapshot_payload": raw,
+        "frozen_at": frozen_at,
+    }
+    if dia == "sqlite":
+        run_sql(
+            """
+            INSERT OR IGNORE INTO board_top_ev_run_snapshots (game_id, game_date, snapshot_payload, frozen_at)
+            VALUES (:game_id, :game_date, :snapshot_payload, :frozen_at)
+            """,
+            params,
+        )
+    else:
+        run_sql(
+            """
+            INSERT INTO board_top_ev_run_snapshots (game_id, game_date, snapshot_payload, frozen_at)
+            VALUES (:game_id, :game_date, :snapshot_payload, :frozen_at)
+            ON CONFLICT (game_id, game_date) DO NOTHING
+            """,
+            params,
+        )
+
+
+def _maybe_insert_board_top_ev_run_snapshots(target_date: date, board_rows: list[dict[str, Any]]) -> None:
+    """Persist the first Top EV pick per game on the earliest pregame board build (no lock window)."""
+    if not get_settings().board_top_ev_run_snapshot_enabled:
+        return
+    if not _table_exists("board_top_ev_run_snapshots"):
+        return
+    row_by = {int(r["game_id"]): r for r in board_rows if r.get("game_id") is not None}
+    existing = _fetch_board_top_ev_run_snapshots_map(target_date)
+    market_rows = _fetch_latest_game_market_rows(target_date)
+    market_rows_by_game: dict[int, dict[str, list[dict[str, Any]]]] = {}
+    for market_row in market_rows:
+        gid_raw = market_row.get("game_id")
+        mt = str(market_row.get("market_type") or "")
+        if gid_raw is None or not mt:
+            continue
+        gid = int(gid_raw)
+        market_rows_by_game.setdefault(gid, {}).setdefault(mt, []).append(market_row)
+
+    for game in board_rows:
+        gid = int(game.get("game_id") or 0)
+        if not gid or gid in existing:
+            continue
+        gr = row_by.get(gid)
+        if gr is None or not is_before_scheduled_first_pitch(gr.get("game_start_ts")):
+            continue
+        pick = _top_ev_pick_for_board_row(gr, market_rows_by_game.get(gid, {}))
+        if not pick:
+            continue
+        _insert_board_top_ev_run_snapshot_row(target_date, gid, pick)
+
+
+def _maybe_insert_board_top_ev_snapshots(target_date: date, board_rows: list[dict[str, Any]]) -> None:
+    """Persist the first Top EV pick per game when the slate crosses the pregame ingest lock window."""
+    if not get_settings().board_top_ev_snapshot_enabled:
+        return
+    if not _table_exists("board_top_ev_snapshots"):
+        return
+    row_by = {int(r["game_id"]): r for r in board_rows if r.get("game_id") is not None}
+    existing = _fetch_board_top_ev_snapshots_map(target_date)
+    market_rows = _fetch_latest_game_market_rows(target_date)
+    market_rows_by_game: dict[int, dict[str, list[dict[str, Any]]]] = {}
+    for market_row in market_rows:
+        gid_raw = market_row.get("game_id")
+        mt = str(market_row.get("market_type") or "")
+        if gid_raw is None or not mt:
+            continue
+        gid = int(gid_raw)
+        market_rows_by_game.setdefault(gid, {}).setdefault(mt, []).append(market_row)
+
+    for game in board_rows:
+        gid = int(game.get("game_id") or 0)
+        if not gid or gid in existing:
+            continue
+        gr = row_by.get(gid)
+        if gr is None or not _is_game_top_ev_snapshot_lock_active(gr):
+            continue
+        if not is_before_scheduled_first_pitch(gr.get("game_start_ts")):
+            continue
+        pick = _top_ev_pick_for_board_row(gr, market_rows_by_game.get(gid, {}))
+        if not pick:
+            continue
+        _insert_board_top_ev_snapshot_row(target_date, gid, pick)
+
+
 def _flatten_best_bets(
     rows: list[dict[str, Any]],
     limit: int | None = None,
@@ -5505,7 +5918,10 @@ def _flatten_best_bets(
     live = best_bets_utils.flatten_best_bets(rows, limit)
     if target_date is None:
         return live
+    _maybe_insert_board_top_ev_run_snapshots(target_date, rows)
+    _maybe_insert_board_green_run_snapshots(target_date, rows, live)
     _maybe_insert_board_green_snapshots(target_date, rows, live)
+    _maybe_insert_board_top_ev_snapshots(target_date, rows)
     return _merge_board_green_snapshots_into_live(target_date, rows, live)
 
 
@@ -8374,6 +8790,35 @@ def _top_ev_pick_for_board_row(
     )
 
 
+def _resolve_top_ev_pick_with_snapshots(
+    game: dict[str, Any],
+    market_rows_by_type: dict[str, list[dict[str, Any]]],
+    lock_by_gid: dict[int, dict[str, Any]],
+    run_by_gid: dict[int, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Prefer lock-time Top EV snapshot, then first-run snapshot, else live weighted-EV winner (main board)."""
+    gid = int(game.get("game_id") or 0)
+    live = _top_ev_pick_for_board_row(game, market_rows_by_type)
+    snap_lock = lock_by_gid.get(gid) if gid else None
+    if isinstance(snap_lock, dict) and snap_lock:
+        out = dict(snap_lock)
+        out["top_ev_snapshot_kind"] = "lock"
+        out["top_ev_frozen"] = True
+        return out
+    snap_run = run_by_gid.get(gid) if gid else None
+    if isinstance(snap_run, dict) and snap_run:
+        out = dict(snap_run)
+        out["top_ev_snapshot_kind"] = "run"
+        out["top_ev_frozen"] = True
+        return out
+    if live:
+        out = dict(live)
+        out["top_ev_snapshot_kind"] = None
+        out["top_ev_frozen"] = False
+        return out
+    return None
+
+
 def _live_top_ev_rows_for_daily_results(
     target_date: date,
     *,
@@ -8405,6 +8850,8 @@ def _live_top_ev_rows_for_daily_results(
         gid = int(gid_raw)
         market_rows_by_game.setdefault(gid, {}).setdefault(mt, []).append(market_row)
 
+    frozen_lock = _fetch_board_top_ev_snapshots_map(target_date)
+    frozen_run = _fetch_board_top_ev_run_snapshots_map(target_date)
     out: list[dict[str, Any]] = []
     for game in board_rows:
         gid_raw = game.get("game_id")
@@ -8412,11 +8859,25 @@ def _live_top_ev_rows_for_daily_results(
             continue
         game_id = int(gid_raw)
         detail = _detail_for_top_ev_from_board_row(game)
-        candidates = collect_top_ev_candidates(
-            detail,
-            market_rows_by_game.get(game_id, {}),
-        )
-        pick = select_top_weighted_ev_pick(candidates)
+        pick: dict[str, Any] | None = None
+        frozen = False
+        snap_kind: str | None = None
+        snap_lock = frozen_lock.get(game_id)
+        snap_run = frozen_run.get(game_id)
+        if isinstance(snap_lock, dict) and snap_lock:
+            pick = dict(snap_lock)
+            frozen = True
+            snap_kind = "lock"
+        elif isinstance(snap_run, dict) and snap_run:
+            pick = dict(snap_run)
+            frozen = True
+            snap_kind = "run"
+        if pick is None:
+            candidates = collect_top_ev_candidates(
+                detail,
+                market_rows_by_game.get(game_id, {}),
+            )
+            pick = select_top_weighted_ev_pick(candidates)
         if not pick:
             continue
         away_team = game.get("away_team")
@@ -8427,6 +8888,12 @@ def _live_top_ev_rows_for_daily_results(
         market_label = "Top EV"
         confidence = _daily_results_confidence(record, "top_ev")
         edge_value = _daily_results_edge_value(record, "top_ev", meta)
+        if frozen and snap_kind == "lock":
+            reason = "Top EV pick (frozen at pregame lock — same weighted-EV winner as the board at lock)"
+        elif frozen and snap_kind == "run":
+            reason = "Top EV pick (frozen at first pregame board run — before lock window)"
+        else:
+            reason = "Top EV pick (largest weighted EV among priced candidates for this game)"
 
         out.append(
             {
@@ -8462,7 +8929,9 @@ def _live_top_ev_rows_for_daily_results(
                 "is_top_ev_pick": True,
                 "green_rank": None,
                 "watchlist_rank": None,
-                "green_reason": "Top EV pick (largest weighted EV among priced candidates for this game)",
+                "green_reason": reason,
+                "top_ev_frozen": frozen,
+                "top_ev_snapshot_kind": snap_kind,
                 "input_trust_grade": (pick.get("input_trust") or {}).get("grade"),
                 "promotion_tier": pick.get("promotion_tier"),
                 "green_strip_tier": None,
@@ -9898,6 +10367,8 @@ def _fetch_daily_results(
         live_watchlist,
     )
     experimental_rows = _fetch_experimental_pick_results(target_date)
+    _maybe_insert_board_top_ev_run_snapshots(target_date, daily_results_board_rows)
+    _maybe_insert_board_top_ev_snapshots(target_date, daily_results_board_rows)
     top_ev_rows = _live_top_ev_rows_for_daily_results(
         target_date,
         board_rows=daily_results_board_rows,
@@ -10454,20 +10925,28 @@ def _hydrate_persisted_job(payload: dict[str, Any]) -> dict[str, Any] | None:
     if status in {"queued", "running"}:
         status = "failed"
         interrupted = str(payload.get("current_step") or "").strip()
-        hint = ""
-        if interrupted:
-            hint = f" Last active step: {interrupted}."
-        error = error or (
-            "Application restarted before the update job finished (0 steps recorded). "
-            "Common causes: (1) uvicorn --reload watched a file written by the pipeline itself "
-            "(update job history under data/reports/update_jobs/ or SQLite under db/) and restarted mid-job — "
-            "use `make start-app-stable` or add --reload-exclude for data/** and db/**; "
-            "(2) dev auto-reload after saving a .py file during a long step; "
-            "(3) the desktop app or API process was closed; "
-            "(4) multiple API workers (in-memory jobs require a single worker). "
-            "Run the pipeline again with reload disabled and a single worker."
-            + hint
-        )
+        completed_recorded = int(payload.get("completed_steps") or len(steps))
+        if not error:
+            if interrupted:
+                error = (
+                    "The API process restarted or exited before this update job finished "
+                    f"({completed_recorded} step(s) completed; was running {interrupted} when the process ended). "
+                    "Common causes: "
+                    "(1) `uvicorn --reload` — saving or touching a `.py` file restarts the server and aborts in-flight jobs; "
+                    "for Retrain Models and other long tasks use `make start-app-stable` (no reload); "
+                    "(2) if you start uvicorn manually with `--reload`, add `--reload-exclude \"data/**\" --reload-exclude \"db/**\"` "
+                    "so pipeline writes under data/ and db/ cannot trigger a reload on some setups; "
+                    "(3) the desktop app or API process was closed or crashed; "
+                    "(4) multiple uvicorn workers (in-memory jobs require a single worker). "
+                    "Run the pipeline again with reload disabled and one worker."
+                )
+            else:
+                error = (
+                    "The API process restarted or exited before this update job finished (no active step was recorded). "
+                    "Common causes: (1) `uvicorn --reload` and a `.py` file changed; "
+                    "(2) the process was closed; (3) multiple workers. "
+                    "Use `make start-app-stable` for long jobs."
+                )
         if interrupted and "lineups" in interrupted and "start-app-stable" not in str(error):
             error = (
                 str(error)
@@ -10477,6 +10956,25 @@ def _hydrate_persisted_job(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "`python -m src.ingestors.lineups --target-date "
                 + target_date
                 + "` then retry Update Lineups & Markets."
+            )
+        elif interrupted and (
+            interrupted.startswith("src.models.train_")
+            or interrupted == "src.models.retrain_models"
+            or action == "retrain_models"
+        ) and "start-app-stable" not in str(error):
+            error = (
+                str(error)
+                + "\n\nTip: Retrain Models spends a long time on early steps (e.g. `train_totals`). "
+                "Run the API with `make start-app-stable` so IDE or formatter auto-save on `.py` files cannot restart mid-job."
+            )
+        elif interrupted and action == "refresh_everything" and "start-app-stable" not in str(error):
+            error = (
+                str(error)
+                + "\n\nTip: Refresh Everything runs 33 steps; it starts with `src.ingestors.games` (schedule ingest), "
+                "which can take 1–2+ minutes — the counter stays at 0/N until that subprocess returns. "
+                "Use `make start-app-stable` (no `--reload`) so the server is not restarted mid-run. "
+                "To verify the first step: from the project root, "
+                f"`python -m src.ingestors.games --target-date {target_date}`."
             )
     rebuilt_sequence: list[tuple[str, list[str]]] = []
     try:
@@ -10655,6 +11153,14 @@ def _run_update_job_background(job_id: str) -> None:
                     return
                 job["current_step"] = module_name
             _persist_update_jobs()
+            log.info(
+                "Update job %s pipeline step %s/%s: %s %s",
+                job_id[:12],
+                index,
+                len(sequence),
+                module_name,
+                " ".join(args),
+            )
             step = _run_module(module_name, *args)
             _persist_pipeline_step(job_id, index, step)
             with UPDATE_JOB_LOCK:

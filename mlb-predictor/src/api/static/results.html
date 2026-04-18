@@ -234,6 +234,83 @@
         color: #fff;
       }
 
+      .results-update-progress {
+        display: grid;
+        gap: 8px;
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: var(--radius-md);
+        background: var(--neutral-soft);
+        border: 1px solid var(--line);
+      }
+
+      .results-update-progress[hidden] {
+        display: none;
+      }
+
+      .results-update-progress-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+
+      .results-update-progress-label {
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .results-update-progress-pct {
+        color: var(--ink);
+        font-weight: 800;
+      }
+
+      .results-update-progress-rail {
+        position: relative;
+        height: 12px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(20, 33, 25, 0.12);
+        box-shadow: inset 0 1px 2px rgba(20, 33, 25, 0.06);
+      }
+
+      .results-update-progress-fill {
+        display: block;
+        width: 0%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--accent), #0b4d5b);
+        transition: width 200ms ease;
+      }
+
+      .results-update-progress-fill.results-update-progress-fill--indeterminate {
+        width: 36%;
+        animation: results-update-progress-pulse 1.4s ease-in-out infinite;
+      }
+
+      .results-update-progress--done .results-update-progress-fill {
+        background: linear-gradient(90deg, var(--good), #0d5c30);
+      }
+
+      @keyframes results-update-progress-pulse {
+        0%,
+        100% {
+          opacity: 0.45;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      .results-update-progress-step {
+        color: var(--muted);
+        font-size: 0.85rem;
+        line-height: 1.45;
+      }
+
       .control-card {
         display: grid;
         gap: 16px;
@@ -791,6 +868,44 @@
             <button class="secondary" id="updateScoresButton" type="button">
               &#x21bb; Update Scores
             </button>
+            <button class="secondary" id="rebuildLearningButton" type="button" title="Rebuild prediction_outcomes_daily, scorecards, and calibration for recent days (fast; run after scores are current)">
+              Rebuild learning tables
+            </button>
+            <button class="secondary" id="retrainModelsButton" type="button" title="Full model retrain then refresh predictions for this date — can take a long time">
+              Retrain models
+            </button>
+          </div>
+          <div
+            class="results-update-progress"
+            id="updateJobProgress"
+            hidden
+            aria-live="polite"
+          >
+            <div class="results-update-progress-head">
+              <span class="results-update-progress-label" id="updateJobProgressLabel"
+                >Progress</span
+              >
+              <span class="results-update-progress-pct" id="updateJobProgressPct"
+                >0%</span
+              >
+            </div>
+            <div
+              class="results-update-progress-rail"
+              id="updateJobProgressBar"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+              aria-valuetext="0% complete"
+            >
+              <span
+                class="results-update-progress-fill"
+                id="updateJobProgressFill"
+              ></span>
+            </div>
+            <div class="results-update-progress-step" id="updateJobProgressStep">
+              Waiting for the next task.
+            </div>
           </div>
           <div
             class="control-row"
@@ -2175,8 +2290,167 @@
       const strikeoutsCount = document.getElementById("strikeoutsCount");
       const first5Count = document.getElementById("first5Count");
       const updateScoresButton = document.getElementById("updateScoresButton");
+      const rebuildLearningButton = document.getElementById("rebuildLearningButton");
+      const retrainModelsButton = document.getElementById("retrainModelsButton");
       const updateJobStatus = document.getElementById("updateJobStatus");
+      const updateJobProgress = document.getElementById("updateJobProgress");
+      const updateJobProgressFill = document.getElementById("updateJobProgressFill");
+      const updateJobProgressBar = document.getElementById("updateJobProgressBar");
+      const updateJobProgressLabel = document.getElementById("updateJobProgressLabel");
+      const updateJobProgressPct = document.getElementById("updateJobProgressPct");
+      const updateJobProgressStep = document.getElementById("updateJobProgressStep");
       let updateJobPollTimer = null;
+
+      function clampResultsProgressPercent(value) {
+        return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+      }
+
+      function humanizeResultsStep(stepName) {
+        if (!stepName) {
+          return "";
+        }
+        return String(stepName).replace(/^src\./, "").replaceAll("_", " ");
+      }
+
+      function summarizeResultsJobProgress(job) {
+        if (!job) {
+          return {
+            visible: false,
+            label: "Progress",
+            percent: 0,
+            step: "Waiting for the next task.",
+            indeterminate: false,
+          };
+        }
+        const totalSteps = Math.max(Number(job.total_steps) || 0, 0);
+        const completedSteps = Math.min(
+          Math.max(Number(job.completed_steps) || 0, 0),
+          totalSteps || Number(job.completed_steps) || 0,
+        );
+        const pctBase =
+          totalSteps > 0
+            ? job.status === "succeeded"
+              ? 100
+              : (completedSteps / totalSteps) * 100
+            : 0;
+        if (job.status === "queued") {
+          return {
+            visible: true,
+            label: `Queued · 0/${totalSteps || 0} steps finished`,
+            percent: 0,
+            step: "Waiting for the worker to start this job.",
+            indeterminate: true,
+          };
+        }
+        if (job.status === "running") {
+          const indeterminate = totalSteps > 0 && completedSteps === 0;
+          const stepLabel = job.current_step
+            ? humanizeResultsStep(job.current_step)
+            : "Waiting for the first pipeline step.";
+          return {
+            visible: true,
+            label: indeterminate
+              ? `Running · preparing step 1 of ${totalSteps}`
+              : `Running · ${completedSteps}/${totalSteps || 0} steps finished`,
+            percent: indeterminate ? 0 : pctBase,
+            indeterminate,
+            step: indeterminate
+              ? `${stepLabel} (progress advances after each step completes.)`
+              : stepLabel,
+          };
+        }
+        if (job.status === "failed") {
+          return {
+            visible: true,
+            label: `Stopped · ${completedSteps}/${totalSteps || 0} steps processed`,
+            percent: clampResultsProgressPercent(pctBase),
+            indeterminate: false,
+            step: job.error || "The job stopped before finishing.",
+          };
+        }
+        return {
+          visible: true,
+          label: `Finished · ${completedSteps}/${totalSteps || 0} steps complete`,
+          percent: totalSteps > 0 ? 100 : clampResultsProgressPercent(pctBase),
+          indeterminate: false,
+          step: `Completed ${completedSteps}/${totalSteps || 0} steps.`,
+        };
+      }
+
+      function setResultsUpdateProgressState({
+        visible = false,
+        label = "Progress",
+        value = 0,
+        step = "",
+        indeterminate = false,
+        doneTone = false,
+      } = {}) {
+        if (!updateJobProgress || !updateJobProgressFill) {
+          return;
+        }
+        updateJobProgress.hidden = !visible;
+        updateJobProgress.classList.toggle("results-update-progress--done", Boolean(doneTone));
+        updateJobProgressFill.classList.toggle(
+          "results-update-progress-fill--indeterminate",
+          Boolean(indeterminate),
+        );
+        if (!visible) {
+          updateJobProgressFill.style.width = "0%";
+          updateJobProgressBar.setAttribute("aria-valuenow", "0");
+          updateJobProgressBar.setAttribute("aria-valuetext", "0% complete");
+          updateJobProgressLabel.textContent = "Progress";
+          updateJobProgressPct.textContent = "0%";
+          updateJobProgressStep.textContent = "Waiting for the next task.";
+          return;
+        }
+        if (indeterminate) {
+          updateJobProgressLabel.textContent = label || "Progress";
+          updateJobProgressPct.textContent = "\u2026";
+          updateJobProgressFill.style.width = "";
+          updateJobProgressBar.setAttribute("aria-valuenow", "-1");
+          updateJobProgressBar.setAttribute(
+            "aria-valuetext",
+            `In progress${step ? ` · ${step}` : ""}`,
+          );
+          updateJobProgressStep.textContent =
+            step || "First step can take several minutes — not stuck at 0%.";
+          return;
+        }
+        const percent = clampResultsProgressPercent(value);
+        updateJobProgressLabel.textContent = label || "Progress";
+        updateJobProgressPct.textContent = `${percent}%`;
+        updateJobProgressFill.style.width = `${percent}%`;
+        updateJobProgressBar.setAttribute("aria-valuenow", String(percent));
+        updateJobProgressBar.setAttribute(
+          "aria-valuetext",
+          `${percent}% complete${step ? ` · ${step}` : ""}`,
+        );
+        updateJobProgressStep.textContent = step || "Waiting for the next task.";
+      }
+
+      function applyResultsJobProgressFromPayload(job) {
+        const summary = summarizeResultsJobProgress(job);
+        if (!summary.visible) {
+          setResultsUpdateProgressState({ visible: false });
+          return;
+        }
+        setResultsUpdateProgressState({
+          visible: true,
+          label: summary.label,
+          value: summary.percent,
+          step: summary.step,
+          indeterminate: Boolean(summary.indeterminate),
+          doneTone:
+            job &&
+            (job.status === "succeeded" ||
+              (Number(job.completed_steps) >= Number(job.total_steps) &&
+                Number(job.total_steps) > 0)),
+        });
+      }
+
+      function hideResultsUpdateProgress() {
+        setResultsUpdateProgressState({ visible: false });
+      }
 
       applyAppLinks();
       const storedSortMode = readStoredSortMode();
@@ -2191,18 +2465,50 @@
       targetDateInput.value = localDateValue(-1);
       updateSectionVisibility();
 
-      async function startUpdateScores() {
+      function resetJobButtons() {
+        updateScoresButton.disabled = false;
+        updateScoresButton.innerHTML = "&#x21bb; Update Scores";
+        rebuildLearningButton.disabled = false;
+        rebuildLearningButton.textContent = "Rebuild learning tables";
+        retrainModelsButton.disabled = false;
+        retrainModelsButton.textContent = "Retrain models";
+        hideResultsUpdateProgress();
+      }
+
+      async function startUpdateJobAction(action, options) {
+        const {
+          busyLabel,
+          startStatus,
+          successStatus,
+          disableAll = true,
+        } = options;
         const dateValue = targetDateInput.value || localDateValue(-1);
-        updateScoresButton.disabled = true;
-        updateScoresButton.textContent = "Updating…";
-        updateJobStatus.textContent = "Starting score update…";
+        if (disableAll) {
+          updateScoresButton.disabled = true;
+          rebuildLearningButton.disabled = true;
+          retrainModelsButton.disabled = true;
+        }
+        const primaryForAction =
+          action === "refresh_results"
+            ? updateScoresButton
+            : action === "rebuild_learning_tables"
+              ? rebuildLearningButton
+              : retrainModelsButton;
+        primaryForAction.textContent = busyLabel || "Running…";
+        updateJobStatus.textContent = startStatus || "Starting…";
         updateJobStatus.style.color = "var(--accent)";
+        setResultsUpdateProgressState({
+          visible: true,
+          indeterminate: true,
+          label: "Starting",
+          step: "Connecting to the update job\u2026",
+        });
         try {
           const startResponse = await fetch(appUrl("api/update-jobs/start"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              action: "refresh_results",
+              action,
               target_date: dateValue,
             }),
           });
@@ -2217,16 +2523,24 @@
           if (!jobId) {
             throw new Error("No job ID returned.");
           }
-          await pollUpdateJob(jobId);
+          await pollUpdateJob(jobId, successStatus);
         } catch (error) {
           updateJobStatus.textContent = `Update failed: ${error.message}`;
           updateJobStatus.style.color = "var(--danger, #c62828)";
-          updateScoresButton.disabled = false;
-          updateScoresButton.innerHTML = "&#x21bb; Update Scores";
+          resetJobButtons();
         }
       }
 
-      async function pollUpdateJob(jobId) {
+      async function startUpdateScores() {
+        await startUpdateJobAction("refresh_results", {
+          busyLabel: "Updating…",
+          startStatus: "Starting score update…",
+          successStatus: (total) =>
+            `Score update completed (${total} steps). Reloading results…`,
+        });
+      }
+
+      async function pollUpdateJob(jobId, successStatus) {
         const poll = async () => {
           try {
             const response = await fetchAppReliable(
@@ -2244,27 +2558,33 @@
             const stepLabel = currentStep
               ? currentStep.replace(/^src\./, "").replaceAll("_", " ")
               : "";
+            applyResultsJobProgressFromPayload(job);
             if (status === "running" || status === "queued") {
               updateJobStatus.textContent = `Step ${completed}/${total}${stepLabel ? ": " + stepLabel : ""}…`;
               updateJobStatus.style.color = "var(--accent)";
               updateJobPollTimer = setTimeout(poll, 1500);
             } else if (status === "succeeded") {
-              updateJobStatus.textContent = `Score update completed (${total} steps).`;
+              const doneText =
+                typeof successStatus === "function"
+                  ? successStatus(total)
+                  : successStatus ||
+                    `Job completed (${total} steps). Reloading results…`;
+              updateJobStatus.textContent = doneText;
               updateJobStatus.style.color = "var(--success, #2e7d32)";
-              updateScoresButton.disabled = false;
-              updateScoresButton.innerHTML = "&#x21bb; Update Scores";
-              refreshButton.click();
+              window.setTimeout(() => {
+                resetJobButtons();
+                refreshButton.click();
+              }, 450);
             } else {
               throw new Error(job.error || `Job ended with status: ${status}`);
             }
           } catch (error) {
             const msg = isTransientFetchFailure(error)
-              ? "Lost connection while polling (server may have restarted). Try Update Scores again."
+              ? "Lost connection while polling (server may have restarted). Try again."
               : error.message;
             updateJobStatus.textContent = `Update failed: ${msg}`;
             updateJobStatus.style.color = "var(--danger, #c62828)";
-            updateScoresButton.disabled = false;
-            updateScoresButton.innerHTML = "&#x21bb; Update Scores";
+            resetJobButtons();
           }
         };
         await poll();
@@ -2276,6 +2596,41 @@
           updateJobPollTimer = null;
         }
         startUpdateScores();
+      });
+
+      rebuildLearningButton.addEventListener("click", () => {
+        if (updateJobPollTimer) {
+          clearTimeout(updateJobPollTimer);
+          updateJobPollTimer = null;
+        }
+        startUpdateJobAction("rebuild_learning_tables", {
+          busyLabel: "Rebuilding…",
+          startStatus: "Rebuilding outcomes & scorecards…",
+          successStatus: (total) =>
+            `Learning tables rebuilt (${total} step${total === 1 ? "" : "s"}). Reloading…`,
+        });
+      });
+
+      retrainModelsButton.addEventListener("click", () => {
+        if (updateJobPollTimer) {
+          clearTimeout(updateJobPollTimer);
+          updateJobPollTimer = null;
+        }
+        const ok = window.confirm(
+          "Retrain models runs a full training pass and then refreshes predictions for the selected date. It can take a long time.\n\n" +
+            "To avoid the job being aborted: run the API with make start-app-stable (no hot-reload), not start-app with --reload. " +
+            "Alternatively run make retrain-models in a terminal, then use Refresh results here.\n\n" +
+            "Continue?",
+        );
+        if (!ok) {
+          return;
+        }
+        startUpdateJobAction("retrain_models", {
+          busyLabel: "Training…",
+          startStatus: "Model retrain started (long-running)…",
+          successStatus: (total) =>
+            `Retrain completed (${total} steps). Reloading…`,
+        });
       });
 
       refreshButton.addEventListener("click", () => {

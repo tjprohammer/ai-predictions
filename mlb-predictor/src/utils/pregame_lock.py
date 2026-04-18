@@ -32,6 +32,21 @@ def is_pregame_ingest_locked(
     return now_utc >= cutoff
 
 
+def is_before_scheduled_first_pitch(game_start_ts: object, *, now: datetime | None = None) -> bool:
+    """Return True only when ``now`` is strictly before scheduled first pitch.
+
+    Ingest lock :func:`is_pregame_ingest_locked` stays true *after* first pitch so mutating jobs
+    keep skipping late games; board snapshots (green / Top EV) must not be *first written* post-game.
+    """
+    parsed = _parse_utc_datetime(game_start_ts)
+    if parsed is None:
+        return False
+    now_utc = now or datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return now_utc < parsed
+
+
 def _parse_utc_datetime(value: object) -> datetime | None:
     if value is None:
         return None

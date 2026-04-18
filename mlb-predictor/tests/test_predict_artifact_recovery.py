@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from src.models import predict_first5_totals, predict_hits, predict_strikeouts, predict_totals
+from src.models import predict_first5_totals, predict_hits, predict_hr, predict_strikeouts, predict_totals
 
 
 def _capture_delete(monkeypatch, module):
@@ -202,6 +202,25 @@ def test_predict_first5_totals_replaces_selected_date_across_versions(monkeypatc
     assert saved_rows[0]["model_version"] == "first5_test"
     assert "model_version" not in str(delete_capture["query"])
     assert delete_capture["params"] == {"target_date": pd.Timestamp(target_date).date()}
+
+
+def test_predict_hr_exits_zero_when_training_raises_after_missing_artifact(monkeypatch):
+    monkeypatch.setattr(predict_hr.argparse.ArgumentParser, "parse_args", lambda self: SimpleNamespace(target_date=None))
+    load_calls: list[str] = []
+
+    def load_side_effect(lane: str):
+        load_calls.append(lane)
+        raise FileNotFoundError(f"No model artifacts found for {lane}")
+
+    monkeypatch.setattr(predict_hr, "load_latest_artifact", load_side_effect)
+
+    def train_raises(argv: list[str]) -> int:
+        raise RuntimeError("training unavailable")
+
+    monkeypatch.setattr("src.models.train_hr.main", train_raises)
+
+    assert predict_hr.main() == 0
+    assert load_calls == ["hr", "hr"]
 
 
 def test_predict_strikeouts_market_expectation_skips_opener_like_rows():

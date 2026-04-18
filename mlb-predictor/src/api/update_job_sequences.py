@@ -21,6 +21,7 @@ UPDATE_ACTION_LABELS: dict[str, str] = {
     "update_lineups_only": "Update Lineups",
     "update_markets_only": "Update Markets",
     "refresh_results": "Refresh Daily Results",
+    "rebuild_learning_tables": "Rebuild learning tables",
     "rebuild_predictions": "Rebuild Predictions",
     "grade_predictions": "Grade Predictions",
     "retrain_models": "Retrain Models",
@@ -90,6 +91,17 @@ def build_pipeline_run_sequence(
     )
 
 
+def build_learning_surfaces_sequence(target_date: str) -> list[ModuleStep]:
+    """Rebuild outcomes, scorecards, calibration bins, and recommendation history for the results backfill window."""
+    backfill_start, backfill_end = _results_backfill_range(target_date)
+    return [
+        (
+            "src.transforms.product_surfaces",
+            ["--start-date", backfill_start, "--end-date", backfill_end],
+        ),
+    ]
+
+
 def build_results_refresh_sequence(target_date: str) -> list[ModuleStep]:
     backfill_start, backfill_end = _results_backfill_range(target_date)
     return [
@@ -104,7 +116,10 @@ def build_results_refresh_sequence(target_date: str) -> list[ModuleStep]:
         ("src.ingestors.weather", ["--start-date", backfill_start, "--end-date", backfill_end, "--mode", "observed"]),
         ("src.transforms.offense_daily", ["--start-date", backfill_start, "--end-date", backfill_end]),
         ("src.transforms.bullpens_daily", ["--start-date", backfill_start, "--end-date", backfill_end]),
-        ("src.transforms.product_surfaces", ["--target-date", target_date]),
+        (
+            "src.transforms.product_surfaces",
+            ["--start-date", backfill_start, "--end-date", backfill_end],
+        ),
     ]
 
 
@@ -210,14 +225,11 @@ def build_update_job_sequence(action: str, target_date: str) -> list[ModuleStep]
         return build_results_refresh_sequence(target_date)
     if action == "grade_predictions":
         return build_results_refresh_sequence(target_date)
+    if action == "rebuild_learning_tables":
+        return build_learning_surfaces_sequence(target_date)
     if action == "retrain_models":
         return [
-            ("src.models.train_totals", []),
-            ("src.models.train_first5_totals", []),
-            ("src.models.train_inning1_nrfi", []),
-            ("src.models.train_hits", []),
-            ("src.models.train_hr", []),
-            ("src.models.train_strikeouts", []),
+            ("src.models.retrain_models", []),
             *build_publish_target_date_sequence(
                 target_date,
                 refresh_aggregates=False,

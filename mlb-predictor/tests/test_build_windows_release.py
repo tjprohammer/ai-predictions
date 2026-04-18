@@ -23,7 +23,7 @@ def test_build_windows_release_builds_seed_before_packaging(monkeypatch):
     monkeypatch.setattr(
         build_windows_release,
         "_detect_built_release_artifacts",
-        lambda *_args, **_kwargs: [build_windows_release.ROOT / "release" / "MLBPredictor-Windows-v1.1.0-Setup.exe"],
+        lambda *_args, **_kwargs: [build_windows_release.ROOT / "release" / "MLBPredictor-Windows-v0.8.0-beta-Setup.exe"],
     )
     monkeypatch.setattr(
         build_windows_release,
@@ -47,7 +47,7 @@ def test_build_windows_release_builds_seed_before_packaging(monkeypatch):
     assert commands[0][1] == "scripts/build_desktop_sqlite_seed.py"
     assert commands[1][1] == "scripts/build_windows_app.py"
     assert commands[2][1] == "scripts/build_windows_installer.py"
-    assert sidecar_calls == [("MLBPredictor", "1.1.0")]
+    assert sidecar_calls == [("MLBPredictor", "0.8.0-beta")]
 
 
 def test_build_windows_release_stops_when_seed_build_fails(monkeypatch):
@@ -98,7 +98,7 @@ def test_build_windows_release_passes_require_inno_to_installer(monkeypatch):
     monkeypatch.setattr(
         build_windows_release,
         "_detect_built_release_artifacts",
-        lambda *_args, **_kwargs: [build_windows_release.ROOT / "release" / "MLBPredictor-Windows-v1.1.0-Setup.exe"],
+        lambda *_args, **_kwargs: [build_windows_release.ROOT / "release" / "MLBPredictor-Windows-v0.8.0-beta-Setup.exe"],
     )
     monkeypatch.setattr(
         build_windows_release,
@@ -177,7 +177,7 @@ def test_build_windows_release_passes_release_dir_to_installer(monkeypatch, tmp_
     monkeypatch.setattr(
         build_windows_release,
         "_detect_built_release_artifacts",
-        lambda *_args, **_kwargs: [tmp_path / "release-output" / "MLBPredictor-Windows-v1.1.0-Setup.exe"],
+        lambda *_args, **_kwargs: [tmp_path / "release-output" / "MLBPredictor-Windows-v0.8.0-beta-Setup.exe"],
     )
     monkeypatch.setattr(
         build_windows_release,
@@ -232,7 +232,7 @@ def test_build_windows_release_passes_allow_incomplete_sqlite_seed_to_app(monkey
     monkeypatch.setattr(
         build_windows_release,
         "_detect_built_release_artifacts",
-        lambda *_args, **_kwargs: [build_windows_release.ROOT / "release" / "MLBPredictor-Windows-v1.1.0-Setup.exe"],
+        lambda *_args, **_kwargs: [build_windows_release.ROOT / "release" / "MLBPredictor-Windows-v0.8.0-beta-Setup.exe"],
     )
     monkeypatch.setattr(
         build_windows_release,
@@ -279,7 +279,7 @@ def test_build_windows_release_passes_sign_to_app_and_installer(monkeypatch):
     monkeypatch.setattr(
         build_windows_release,
         "_detect_built_release_artifacts",
-        lambda *_args, **_kwargs: [build_windows_release.ROOT / "release" / "MLBPredictor-Windows-v1.1.0-Setup.exe"],
+        lambda *_args, **_kwargs: [build_windows_release.ROOT / "release" / "MLBPredictor-Windows-v0.8.0-beta-Setup.exe"],
     )
     monkeypatch.setattr(
         build_windows_release,
