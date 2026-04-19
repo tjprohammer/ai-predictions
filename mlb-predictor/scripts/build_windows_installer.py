@@ -194,6 +194,14 @@ def main() -> int:
             signing_config=signing_config,
         )
         print(f"Built Inno Setup installer: {artifact}")
+        portable = build_portable_installer_bundle(
+            args.app_name,
+            dist_dir,
+            release_dir,
+            args.app_version,
+            signing_config=signing_config,
+        )
+        print(f"Built portable installer bundle: {portable}")
         return 0
 
     if args.require_inno:
