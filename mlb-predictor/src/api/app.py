@@ -21,7 +21,7 @@ for _key, _value in app_logic.__dict__.items():
         continue
     setattr(_mod, _key, _value)
 
-app = FastAPI(title="MLB Predictor", version="0.8.0-beta")
+app = FastAPI(title="MLB Predictor", version="0.9.0-beta")
 _mod.__dict__["app"] = app
 add_local_app_middleware(app)
 

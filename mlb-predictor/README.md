@@ -163,6 +163,8 @@ If you start uvicorn yourself instead of Make, add **`--reload`** for the same b
 
 Open `http://localhost:8000` for the dashboard.
 
+**macOS and Linux:** There is no separate “Mac web build.” The dashboard is a normal browser UI served by FastAPI; on a Mac, use the same Python venv + `make start-app` (or `uvicorn src.api.app:app --host 127.0.0.1 --port 8000`) and open Safari or Chrome to `http://localhost:8000`. The Windows installer/PyInstaller path is optional; cross-platform use is “run the API locally, use the web UI.” For a shared team URL, deploy the same app behind HTTPS on a server (Docker, systemd, etc.)—still one web app for all clients.
+
 Useful endpoints:
 
 - `GET /health` for service and database status

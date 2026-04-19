@@ -2,7 +2,7 @@
   #define AppName "MLB Predictor"
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.8.0-beta"
+  #define AppVersion "0.9.0-beta"
 #endif
 #ifndef AppPublisher
   #define AppPublisher "TJ Prohammer"
@@ -29,7 +29,7 @@
   #define OutputBaseFilename AppInstallDirName + "-Windows-v" + AppVersion + "-Setup"
 #endif
 #ifndef VersionInfoProductVersion
-  #define VersionInfoProductVersion "0.8.0.0"
+  #define VersionInfoProductVersion "0.9.0.0"
 #endif
 #ifndef SourceDir
   #define SourceDir AddBackslash(SourcePath) + "dist\\MLBPredictor"

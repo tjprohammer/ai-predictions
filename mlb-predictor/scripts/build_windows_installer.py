@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--display-name", default=DEFAULT_DISPLAY_NAME, help="Installer display name")
     parser.add_argument("--dist-dir", default=str(DEFAULT_DIST_DIR), help="Built desktop app directory")
     parser.add_argument("--release-dir", default=str(DEFAULT_RELEASE_DIR), help="Installer output directory")
-    parser.add_argument("--app-version", default="0.8.0-beta", help="Installer app version label")
+    parser.add_argument("--app-version", default="0.9.0-beta", help="Installer app version label")
     parser.add_argument("--exe-name", help="Executable name inside the built app directory (defaults to <app-name>.exe)")
     parser.add_argument(
         "--sign",
@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _normalized_version_label(app_version: str) -> str:
     sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", app_version.strip())
-    sanitized = re.sub(r"-{2,}", "-", sanitized).strip("-.") or "0.8.0-beta"
+    sanitized = re.sub(r"-{2,}", "-", sanitized).strip("-.") or "0.9.0-beta"
     return sanitized if sanitized.lower().startswith("v") else f"v{sanitized}"
 
 
