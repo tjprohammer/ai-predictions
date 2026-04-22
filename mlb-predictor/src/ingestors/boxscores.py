@@ -204,11 +204,20 @@ def _late_bullpen_stats_by_pitcher(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ingest final or in-progress boxscore rows")
     add_date_range_args(parser)
+    parser.add_argument(
+        "--final-missing-inning1-only",
+        action="store_true",
+        help="Only games with status=final and total_runs_inning1 IS NULL (NRFI label backfill)",
+    )
     args = parser.parse_args()
     start_date, end_date = resolve_date_range(args)
 
+    extra = ""
+    if args.final_missing_inning1_only:
+        extra = " AND status = 'final' AND total_runs_inning1 IS NULL"
+
     games = query_df(
-        """
+        f"""
         SELECT
             game_id,
             game_date,
@@ -224,6 +233,7 @@ def main() -> int:
             innings
         FROM games
         WHERE game_date BETWEEN :start_date AND :end_date
+        {extra}
         """,
         {"start_date": start_date, "end_date": end_date},
     )
@@ -266,7 +276,10 @@ def main() -> int:
     player_rows = []
     starter_rows = []
 
-    for game in games.itertuples(index=False):
+    total_games = len(games)
+    for idx, game in enumerate(games.itertuples(index=False), start=1):
+        if idx == 1 or idx % 100 == 0 or idx == total_games:
+            log.info("Boxscore fetch progress %s / %s (game_id=%s)", idx, total_games, int(game.game_id))
         feed = statsapi_get(f"/api/v1.1/game/{int(game.game_id)}/feed/live")
         game_data = feed.get("gameData") or {}
         live_data = feed.get("liveData") or {}

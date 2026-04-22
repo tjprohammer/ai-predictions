@@ -93,6 +93,88 @@ def test_live_top_ev_daily_results_uses_frozen_snapshot_pick(monkeypatch):
     assert seen and seen[0]["selection_label"] == "F5 HOME -0.5"
 
 
+def test_top_ev_run_snapshot_force_bypasses_pregame_lock_window(monkeypatch):
+    """Manual ``force=True`` must freeze Top EV even when the clock is outside T−N."""
+    from src.utils.settings import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED", "true")
+    monkeypatch.setenv("BOARD_TOP_EV_RUN_SNAPSHOT_EAGER", "false")
+    get_settings.cache_clear()
+    target = date(2026, 4, 17)
+    inserted: list[int] = []
+
+    def capture_insert(td: date, gid: int, payload: dict) -> None:
+        inserted.append(int(gid))
+
+    far_start = datetime.now(timezone.utc) + timedelta(hours=3)
+    board_row = {
+        "game_id": 99,
+        "game_start_ts": far_start,
+    }
+    monkeypatch.setattr(app_logic, "_table_exists", lambda name: name == "board_top_ev_run_snapshots")
+    monkeypatch.setattr(app_logic, "_fetch_board_top_ev_run_snapshots_map", lambda d: {})
+    monkeypatch.setattr(app_logic, "_fetch_latest_game_market_rows", lambda d: [])
+    monkeypatch.setattr(app_logic, "_is_game_top_ev_snapshot_lock_active", lambda row: False)
+    monkeypatch.setattr(app_logic, "is_before_scheduled_first_pitch", lambda ts: True)
+    monkeypatch.setattr(
+        app_logic,
+        "_top_ev_pick_for_board_row",
+        lambda gr, markets: {"selection_label": "forced", "game_id": gr.get("game_id")},
+    )
+    monkeypatch.setattr(app_logic, "_insert_board_top_ev_run_snapshot_row", capture_insert)
+
+    app_logic._maybe_insert_board_top_ev_run_snapshots(target, [board_row], force=False)
+    assert inserted == []
+
+    app_logic._maybe_insert_board_top_ev_run_snapshots(target, [board_row], force=True)
+    assert inserted == [99]
+
+    get_settings.cache_clear()
+    monkeypatch.delenv("BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED", raising=False)
+    monkeypatch.delenv("BOARD_TOP_EV_RUN_SNAPSHOT_EAGER", raising=False)
+    get_settings.cache_clear()
+
+
+def test_top_ev_run_snapshot_eager_inserts_before_lock_window(monkeypatch):
+    """Default eager mode freezes Top EV on first pregame load even when outside T−N."""
+    from src.utils.settings import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED", "true")
+    monkeypatch.delenv("BOARD_TOP_EV_RUN_SNAPSHOT_EAGER", raising=False)
+    get_settings.cache_clear()
+    target = date(2026, 4, 17)
+    inserted: list[int] = []
+
+    def capture_insert(td: date, gid: int, payload: dict) -> None:
+        inserted.append(int(gid))
+
+    far_start = datetime.now(timezone.utc) + timedelta(hours=3)
+    board_row = {
+        "game_id": 101,
+        "game_start_ts": far_start,
+    }
+    monkeypatch.setattr(app_logic, "_table_exists", lambda name: name == "board_top_ev_run_snapshots")
+    monkeypatch.setattr(app_logic, "_fetch_board_top_ev_run_snapshots_map", lambda d: {})
+    monkeypatch.setattr(app_logic, "_fetch_latest_game_market_rows", lambda d: [])
+    monkeypatch.setattr(app_logic, "_is_game_top_ev_snapshot_lock_active", lambda row: False)
+    monkeypatch.setattr(app_logic, "is_before_scheduled_first_pitch", lambda ts: True)
+    monkeypatch.setattr(
+        app_logic,
+        "_top_ev_pick_for_board_row",
+        lambda gr, markets: {"selection_label": "early", "game_id": gr.get("game_id")},
+    )
+    monkeypatch.setattr(app_logic, "_insert_board_top_ev_run_snapshot_row", capture_insert)
+
+    app_logic._maybe_insert_board_top_ev_run_snapshots(target, [board_row], force=False)
+    assert inserted == [101]
+
+    get_settings.cache_clear()
+    monkeypatch.delenv("BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED", raising=False)
+    get_settings.cache_clear()
+
+
 def test_live_top_ev_daily_results_prefers_lock_over_run_snapshot(monkeypatch):
     """Lock snapshot wins when both exist; run is fallback when lock row missing."""
     target = date(2026, 4, 17)
@@ -128,3 +210,71 @@ def test_live_top_ev_daily_results_prefers_lock_over_run_snapshot(monkeypatch):
     rows2 = app_logic._live_top_ev_rows_for_daily_results(target, board_rows=[board_row])
     assert rows2[0].get("pick_label") == "RUN"
     assert rows2[0].get("top_ev_snapshot_kind") == "run"
+
+
+def test_resolve_top_ev_falls_back_when_frozen_snapshot_is_excluded(monkeypatch) -> None:
+    """Excluded snapshot payloads (e.g. F5 team totals) do not freeze the headline; use live Top EV."""
+    game = {"game_id": 1}
+    frozen_f5 = {
+        "market_key": "first_five_team_total_away",
+        "bet_side": "over",
+        "selection_label": "F5 SNAP",
+        "weighted_ev": 0.9,
+    }
+    live = {
+        "market_key": "run_line",
+        "bet_side": "away",
+        "selection_label": "RL LIVE",
+        "weighted_ev": 0.1,
+    }
+    monkeypatch.setattr(app_logic, "_top_ev_pick_for_board_row", lambda g, m: live)
+    out = app_logic._resolve_top_ev_pick_with_snapshots(game, {}, {1: frozen_f5}, {})
+    assert out is not None
+    assert out["selection_label"] == "RL LIVE"
+    assert out.get("top_ev_frozen") is False
+
+
+def test_top_ev_run_snapshot_skips_excluded_f5_pick(monkeypatch) -> None:
+    from src.utils.settings import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED", "true")
+    get_settings.cache_clear()
+    target = date(2026, 4, 17)
+    inserted: list[int] = []
+
+    def capture_insert(td: date, gid: int, payload: dict) -> None:
+        inserted.append(int(gid))
+
+    far_start = datetime.now(timezone.utc) + timedelta(hours=3)
+    board_row = {
+        "game_id": 202,
+        "game_start_ts": far_start,
+    }
+    monkeypatch.setattr(app_logic, "_table_exists", lambda name: name == "board_top_ev_run_snapshots")
+    monkeypatch.setattr(app_logic, "_fetch_board_top_ev_run_snapshots_map", lambda d: {})
+    monkeypatch.setattr(app_logic, "_fetch_latest_game_market_rows", lambda d: [])
+    monkeypatch.setattr(app_logic, "_is_game_top_ev_snapshot_lock_active", lambda row: False)
+    monkeypatch.setattr(app_logic, "is_before_scheduled_first_pitch", lambda ts: True)
+    monkeypatch.setattr(
+        app_logic,
+        "_top_ev_pick_for_board_row",
+        lambda gr, markets: {
+            "market_key": "first_five_team_total_away",
+            "bet_side": "over",
+            "selection_label": "F5",
+            "weighted_ev": 0.1,
+        },
+    )
+    monkeypatch.setattr(app_logic, "_insert_board_top_ev_run_snapshot_row", capture_insert)
+
+    app_logic._maybe_insert_board_top_ev_run_snapshots(target, [board_row], force=True)
+    assert inserted == []
+
+    monkeypatch.setenv("BOARD_SNAPSHOT_EXCLUDE_F5_TEAM_TOTALS", "false")
+    app_logic._maybe_insert_board_top_ev_run_snapshots(target, [board_row], force=True)
+    assert inserted == [202]
+
+    monkeypatch.delenv("BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED", raising=False)
+    monkeypatch.delenv("BOARD_SNAPSHOT_EXCLUDE_F5_TEAM_TOTALS", raising=False)
+    get_settings.cache_clear()

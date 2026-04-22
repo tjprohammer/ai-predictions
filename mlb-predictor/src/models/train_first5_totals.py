@@ -17,7 +17,18 @@ from src.features.contracts import (
     feature_columns_for_roles,
     feature_field_roles,
 )
-from src.models.common import chronological_split, compute_sample_weights, encode_frame, fit_market_calibrator, load_feature_snapshots, save_artifact, save_report
+from src.models.common import (
+    chronological_split,
+    compute_sample_weights,
+    encode_frame,
+    fit_market_calibrator,
+    load_feature_snapshots,
+    mean_pinball_loss,
+    regression_metrics_by_month,
+    regression_val_temporal_halves_mae,
+    save_artifact,
+    save_report,
+)
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
@@ -193,6 +204,15 @@ def main() -> int:
         )
     lane_status = "below_baseline" if model_mae > best_baseline_mae else "above_baseline"
 
+    validation_metrics = {
+        "fundamental_val_mae": float(mean_absolute_error(y_val, best_predictions)),
+        "pinball_median": float(mean_pinball_loss(y_val.values, best_predictions, tau=0.5)),
+        "validation_by_month": regression_metrics_by_month(
+            val_frame["game_date"], y_val.values, best_predictions
+        ),
+        "temporal_halves_mae": regression_val_temporal_halves_mae(y_val.values, best_predictions),
+    }
+
     artifact_name = f"first5_totals_{settings.model_version_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     residual_std = float((y_val - best_predictions).std()) if len(y_val) else 1.0
 
@@ -269,6 +289,7 @@ def main() -> int:
         "metrics": metrics,
         "baselines": baselines,
         "calibration_metrics": calibration_metrics,
+        "validation_metrics": validation_metrics,
         "residual_std": residual_std if residual_std > 0 else 1.0,
         "market_calibrator": market_calibrator,
         "enhanced_calibrator": enhanced_calibrator,

@@ -2832,6 +2832,7 @@ def _fetch_game_board(
         is_final = _is_final_game_status(record.get("status"))
         away_recent_bullpen = recent_bullpen_map.get(str(record["away_team"]) or "", {}) or {}
         home_recent_bullpen = recent_bullpen_map.get(str(record["home_team"]) or "", {}) or {}
+        away_exp_runs, home_exp_runs = _team_expected_runs_coherent_with_game_total(record)
         games_by_id[game_id] = {
             "game_id": game_id,
             "game_date": record["game_date"],
@@ -2876,8 +2877,8 @@ def _fetch_game_board(
                 "confidence_level": record.get("confidence_level"),
                 "suppress_reason": record.get("suppress_reason"),
                 "lane_status": record.get("lane_status", "research_only"),
-                "away_expected_runs": record["away_expected_runs"],
-                "home_expected_runs": record["home_expected_runs"],
+                "away_expected_runs": away_exp_runs,
+                "home_expected_runs": home_exp_runs,
                 "away_bullpen_pitches_last3": away_recent_bullpen.get("pitches_last3", record["away_bullpen_pitches_last3"]),
                 "home_bullpen_pitches_last3": home_recent_bullpen.get("pitches_last3", record["home_bullpen_pitches_last3"]),
                 "away_bullpen_innings_last3": away_recent_bullpen.get("innings_last3", record["away_bullpen_innings_last3"]),
@@ -3095,12 +3096,26 @@ def _fetch_game_board(
             market_freezes.get((int(game["game_id"]), "first_five_total"), {}),
         )
         game["data_quality"] = _compute_data_quality_badge(game, ingest_freshness, readiness_map)
+        extra_prop_cards: list[dict[str, Any]] = []
+        for side in ("away", "home"):
+            st = (game.get("starters") or {}).get(side)
+            if st:
+                extra_prop_cards.extend(
+                    best_bets_utils.build_pitcher_strikeouts_ev_cards_from_starter(game, st),
+                )
+        for _team_key, players in (game.get("hit_targets") or {}).items():
+            for pl in players or []:
+                extra_prop_cards.extend(
+                    best_bets_utils.build_batter_total_bases_ev_cards_from_row(game, pl),
+                )
         market_cards, best_bets = _build_market_cards_for_game(
             game,
             market_rows_by_game.get(int(game["game_id"]), {}),
         )
-        game["market_cards"] = _drop_first_five_team_total_cards(market_cards)
-        game["best_bets"] = _drop_first_five_team_total_best_bets(best_bets)
+        game["market_cards"], game["best_bets"] = _apply_first_five_team_total_board_visibility(
+            list(market_cards) + extra_prop_cards,
+            best_bets,
+        )
 
     board_rows_ordered = [games_by_id[gid] for gid in games_by_id]
     _maybe_insert_board_top_ev_run_snapshots(target_date, board_rows_ordered)
@@ -3196,6 +3211,25 @@ def _scale_expected_run_split(
     home_weight: Any,
 ) -> tuple[float | None, float | None]:
     return best_bets_utils.scale_expected_run_split(predicted_total, away_weight, home_weight)
+
+
+def _team_expected_runs_coherent_with_game_total(row: dict[str, Any]) -> tuple[Any, Any]:
+    """Split the predicted game total across teams using feature run-rate weights.
+
+    Raw ``away_runs_rate_blended`` / ``home_runs_rate_blended`` are team environment
+    rates and do not generally sum to ``predicted_total_runs`` (market-calibrated).
+    Team-total market cards and moneyline use these means, so we rescale to match
+    the same primary total as the game-total card (blended, else fundamentals).
+    """
+    raw_away = row.get("away_expected_runs")
+    raw_home = row.get("home_expected_runs")
+    primary = _to_float(row.get("predicted_total_runs"))
+    if primary is None:
+        primary = _to_float(row.get("predicted_total_fundamentals"))
+    away_s, home_s = _scale_expected_run_split(primary, raw_away, raw_home)
+    if away_s is not None and home_s is not None:
+        return away_s, home_s
+    return raw_away, raw_home
 
 
 def _apply_market_freeze_payload(payload: dict[str, Any], freeze_row: dict[str, Any] | None) -> dict[str, Any]:
@@ -3695,6 +3729,8 @@ def _best_bet_market_display_name(market: str | None) -> str:
         "first_five_spread": "First 5 Run Line",
         "first_five_team_total_away": "First 5 Away Team Total",
         "first_five_team_total_home": "First 5 Home Team Total",
+        "pitcher_strikeouts": "Pitcher Strikeouts",
+        best_bets_utils.BATTER_TOTAL_BASES_MARKET_KEY: "Batter Total Bases",
     }
     return mapping.get(str(market or ""), str(market or "Best Bet"))
 
@@ -4316,6 +4352,8 @@ def _summarize_board_rows(games: list[dict[str, Any]], target_date: date) -> dic
     certainty_weights: list[float] = []
     games_with_targets = 0
     games_with_inferred = 0
+    games_missing_totals_model = 0
+    game_ids_missing_totals_model_sample: list[int] = []
 
     for game in games:
         totals = game.get("totals") or {}
@@ -4326,6 +4364,15 @@ def _summarize_board_rows(games: list[dict[str, Any]], target_date: date) -> dic
 
         if market_total is not None:
             summary["market_games"] += 1
+
+        pred_runs = _to_float(totals.get("predicted_total_runs"))
+        pred_fun = _to_float(totals.get("predicted_total_fundamentals"))
+        if totals.get("prediction_ts") is None and pred_runs is None and pred_fun is None:
+            games_missing_totals_model += 1
+            if len(game_ids_missing_totals_model_sample) < 32:
+                gid_m = int(game.get("game_id") or 0)
+                if gid_m:
+                    game_ids_missing_totals_model_sample.append(gid_m)
 
         if actual.get("is_final"):
             summary["final_games"] += 1
@@ -4432,6 +4479,8 @@ def _summarize_board_rows(games: list[dict[str, Any]], target_date: date) -> dic
         slate["avg_certainty_weight"] = round(sum(certainty_weights) / len(certainty_weights), 4)
     slate["games_with_hit_targets"] = games_with_targets
     slate["games_with_any_inferred_hitter"] = games_with_inferred
+    slate["games_missing_totals_model"] = games_missing_totals_model
+    slate["game_ids_missing_totals_model_sample"] = game_ids_missing_totals_model_sample
 
     slate_notes: list[str] = []
     total_games = int(summary["total_games"] or 0)
@@ -4446,6 +4495,11 @@ def _summarize_board_rows(games: list[dict[str, Any]], target_date: date) -> dic
     avg_ts = slate.get("avg_input_trust_score")
     if avg_ts is not None and float(avg_ts) < 0.52 and total_games >= 2:
         slate_notes.append("Slate-wide input trust is thin — expect fewer strict green edges.")
+    if games_missing_totals_model > 0:
+        slate_notes.append(
+            f"{games_missing_totals_model} game(s) have no totals model row yet — run totals features + predict_totals "
+            f"for the full slate (Rebuild / pipeline) so later matchups get green/PoD inputs."
+        )
     if slate_notes:
         slate["slate_note"] = " ".join(slate_notes)
 
@@ -4896,6 +4950,7 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
             p.over_probability,
             p.under_probability,
             p.edge,
+            p.lane_status AS first5_lane_status,
             CAST(f.feature_payload ->> 'away_runs_rate_blended' AS DOUBLE PRECISION) AS away_context_runs,
             CAST(f.feature_payload ->> 'home_runs_rate_blended' AS DOUBLE PRECISION) AS home_context_runs
         FROM games g
@@ -4932,8 +4987,11 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
                 home_expected_runs,
             )
         )
+        f5_lane_status = row.get("first5_lane_status")
         recommended_side = _recommended_side(primary_total, market_total)
         actual_side = _actual_side(actual_total, market_total) if actual_total is not None else None
+        if str(f5_lane_status or "") == "below_baseline":
+            recommended_side = None
         payload = {
             "supported": supported,
             "model_name": row.get("model_name"),
@@ -4945,6 +5003,7 @@ def _fetch_first5_totals_map(target_date: date) -> dict[int, dict[str, Any]]:
             "over_probability": row.get("over_probability"),
             "under_probability": row.get("under_probability"),
             "edge": row.get("edge"),
+            "lane_status": f5_lane_status,
             "market_backed": market_total is not None,
             "away_expected_runs": away_expected_runs,
             "home_expected_runs": home_expected_runs,
@@ -5406,11 +5465,24 @@ def _drop_first_five_team_total_best_bets(rows: list[dict[str, Any]]) -> list[di
     return [r for r in rows if str(r.get("market_key") or "") not in _F5_TEAM_TOTAL_MARKET_KEYS]
 
 
+def _apply_first_five_team_total_board_visibility(
+    market_cards: list[dict[str, Any]],
+    best_bets: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Keep or strip F5 per-team totals on the main board per ``BOARD_INCLUDE_FIRST_FIVE_TEAM_TOTALS``."""
+    if get_settings().board_include_first_five_team_totals:
+        return list(market_cards), list(best_bets)
+    return (
+        _drop_first_five_team_total_cards(market_cards),
+        _drop_first_five_team_total_best_bets(best_bets),
+    )
+
+
 def _build_top_ev_pick_for_game_detail(
     detail: dict[str, Any],
     game_market_rows_by_type: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any] | None:
-    """Highest weighted-EV priced line among team markets, 1+ hit, and pitcher K O/U for this game."""
+    """Highest weighted-EV priced line among team markets, batter TB O/U, pitcher K O/U, and 1+ hit for this game."""
     return select_top_weighted_ev_pick(
         collect_top_ev_candidates(detail, game_market_rows_by_type),
     )
@@ -5469,7 +5541,9 @@ def _build_top_ev_snapshot_info_for_board(game: dict[str, Any]) -> dict[str, Any
     """Explain automatic Top EV snapshot timing for the API (no runtime env toggle required)."""
     pick = game.get("top_ev_pick")
     lock_m = _effective_top_ev_snapshot_lock_minutes()
-    run_on = bool(get_settings().board_top_ev_run_snapshot_enabled)
+    settings = get_settings()
+    run_on = bool(settings.board_top_ev_run_snapshot_enabled)
+    eager_run = bool(settings.board_top_ev_run_snapshot_eager)
     freeze_after = _top_ev_snapshot_freeze_eligible_after_iso(game)
     ts = game.get("game_start_ts")
     before_pitch = bool(is_before_scheduled_first_pitch(ts)) if ts is not None else False
@@ -5481,20 +5555,24 @@ def _build_top_ev_snapshot_info_for_board(game: dict[str, Any]) -> dict[str, Any
         state = "frozen_lock" if kind == "lock" else "frozen_run"
     elif not run_on:
         state = "snapshots_disabled"
-    elif lock_m <= 0:
-        state = "no_lock_clock_configured"
-    elif before_pitch and lock_active:
+    elif before_pitch and (eager_run or lock_active):
         state = "eligible_now"
     elif before_pitch:
-        state = "live_until_lock_window"
+        state = "no_lock_clock_configured" if lock_m <= 0 else "live_until_lock_window"
     else:
         state = "catch_up_pending"
 
-    summary = (
-        "Top EV run snapshot freezes automatically at the first board load after the lock window opens "
-        f"(see first_freeze_eligible_after_utc, typically T-{lock_m}m to first pitch when configured). "
-        "Until then the headline can move with markets/models. After first pitch without a row, the next load catch-up-freezes."
-    )
+    if eager_run:
+        summary = (
+            "Top EV run snapshot freezes on the first pregame board load (eager mode, same timing as green run). "
+            "The headline can still move until that load. After first pitch without a row, the next load catch-up-freezes."
+        )
+    else:
+        summary = (
+            "Top EV run snapshot freezes automatically at the first board load after the lock window opens "
+            f"(see first_freeze_eligible_after_utc, typically T-{lock_m}m to first pitch when configured). "
+            "Until then the headline can move with markets/models. After first pitch without a row, the next load catch-up-freezes."
+        )
     return {
         "run_snapshots_enabled": run_on,
         "effective_lock_minutes": lock_m if lock_m > 0 else None,
@@ -5589,6 +5667,78 @@ def _fetch_board_green_run_snapshots_map(target_date: date) -> dict[int, dict[st
     return out
 
 
+def _fetch_board_green_snapshots_for_range(start_date: date, end_date: date) -> dict[tuple[date, int], dict[str, Any]]:
+    """Lock-time green strip payloads between ``start_date`` and ``end_date`` (inclusive)."""
+    if not _table_exists("board_green_snapshots"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT game_date, game_id, snapshot_payload
+        FROM board_green_snapshots
+        WHERE game_date BETWEEN :start_date AND :end_date
+        """,
+        {"start_date": start_date, "end_date": end_date},
+    )
+    if frame.empty:
+        return {}
+    out: dict[tuple[date, int], dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        gd = row.get("game_date")
+        if gd is None:
+            continue
+        try:
+            gday = date.fromisoformat(str(gd)[:10])
+        except ValueError:
+            continue
+        gid = int(row.get("game_id") or 0)
+        raw = row.get("snapshot_payload")
+        if not gid or raw is None:
+            continue
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            out[(gday, gid)] = payload
+    return out
+
+
+def _fetch_board_green_run_snapshots_for_range(start_date: date, end_date: date) -> dict[tuple[date, int], dict[str, Any]]:
+    """Green run snapshot payloads between ``start_date`` and ``end_date`` (inclusive)."""
+    if not _table_exists("board_green_run_snapshots"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT game_date, game_id, snapshot_payload
+        FROM board_green_run_snapshots
+        WHERE game_date BETWEEN :start_date AND :end_date
+        """,
+        {"start_date": start_date, "end_date": end_date},
+    )
+    if frame.empty:
+        return {}
+    out: dict[tuple[date, int], dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        gd = row.get("game_date")
+        if gd is None:
+            continue
+        try:
+            gday = date.fromisoformat(str(gd)[:10])
+        except ValueError:
+            continue
+        gid = int(row.get("game_id") or 0)
+        raw = row.get("snapshot_payload")
+        if not gid or raw is None:
+            continue
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            out[(gday, gid)] = payload
+    return out
+
+
 def _insert_board_green_run_snapshot_row(target_date: date, game_id: int, payload: dict[str, Any]) -> None:
     raw = json.dumps(jsonable_encoder(payload), default=str)
     frozen_at = datetime.now(timezone.utc)
@@ -5622,6 +5772,8 @@ def _maybe_insert_board_green_run_snapshots(
     target_date: date,
     rows: list[dict[str, Any]],
     live_green: list[dict[str, Any]],
+    *,
+    force: bool = False,
 ) -> None:
     if not get_settings().board_green_run_snapshot_enabled:
         return
@@ -5634,7 +5786,19 @@ def _maybe_insert_board_green_run_snapshots(
         if not gid or gid in existing:
             continue
         gr = row_by.get(gid)
-        if gr is None or not is_before_scheduled_first_pitch(gr.get("game_start_ts")):
+        if gr is None:
+            continue
+        ts = gr.get("game_start_ts")
+        before_pitch = is_before_scheduled_first_pitch(ts)
+        lock_active = _is_game_top_ev_snapshot_lock_active(gr)
+        eager = bool(get_settings().board_green_run_snapshot_eager)
+        # Pregame: eager (default) = first qualifying load any time before first pitch; else align with Top EV (inside T−N).
+        # ``force`` (manual snapshot) bypasses the eager/lock gate so operators can freeze before leaving for the day.
+        # After first pitch: catch-up once if still no row (avoid freezing a different market than an earlier pregame view).
+        if before_pitch:
+            if not force and not eager and not lock_active:
+                continue
+        if best_bets_utils._excluded_from_main_us_book_snapshots(card):
             continue
         _insert_board_green_run_snapshot_row(target_date, gid, card)
 
@@ -5659,6 +5823,8 @@ def _maybe_insert_board_green_snapshots(
             continue
         if not is_before_scheduled_first_pitch(gr.get("game_start_ts")):
             continue
+        if best_bets_utils._excluded_from_main_us_book_snapshots(card):
+            continue
         _insert_board_green_snapshot_row(target_date, gid, card)
 
 
@@ -5675,6 +5841,16 @@ def _merge_board_green_snapshots_into_live(
     run_snaps: dict[int, dict[str, Any]] = {}
     if settings.board_green_run_snapshot_enabled and table_exists("board_green_run_snapshots"):
         run_snaps = _fetch_board_green_run_snapshots_map(target_date)
+    lock_snaps = {
+        gid: p
+        for gid, p in lock_snaps.items()
+        if not best_bets_utils._excluded_from_main_us_book_snapshots(p)
+    }
+    run_snaps = {
+        gid: p
+        for gid, p in run_snaps.items()
+        if not best_bets_utils._excluded_from_main_us_book_snapshots(p)
+    }
     if not lock_snaps and not run_snaps:
         return live_green
 
@@ -5684,7 +5860,7 @@ def _merge_board_green_snapshots_into_live(
             return None
         if lock_snaps and gid in lock_snaps and _is_game_board_green_locked(gr):
             return dict(lock_snaps[gid]), "lock"
-        if run_snaps and gid in run_snaps and is_before_scheduled_first_pitch(gr.get("game_start_ts")):
+        if run_snaps and gid in run_snaps:
             return dict(run_snaps[gid]), "run"
         return None
 
@@ -5722,6 +5898,240 @@ def _merge_board_green_snapshots_into_live(
         reverse=True,
     )
     return out
+
+
+def _fetch_board_pick_of_day_run_snapshots_map(target_date: date) -> dict[int, dict[str, Any]]:
+    if not table_exists("board_pick_of_day_run_snapshots"):
+        return {}
+    frame = _safe_frame(
+        """
+        SELECT game_id, snapshot_payload
+        FROM board_pick_of_day_run_snapshots
+        WHERE game_date = :gd
+        """,
+        {"gd": target_date},
+    )
+    if frame.empty:
+        return {}
+    out: dict[int, dict[str, Any]] = {}
+    for row in _frame_records(frame):
+        gid = int(row.get("game_id") or 0)
+        raw = row.get("snapshot_payload")
+        if not gid or raw is None:
+            continue
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            out[gid] = payload
+    return out
+
+
+def _pick_of_day_run_snapshot_is_strict_improvement(
+    prev_payload: dict[str, Any] | None, new_card: dict[str, Any], *, force: bool
+) -> bool:
+    """True if we should replace a stored run snapshot with ``new_card`` (or there is no prior row)."""
+    if force:
+        return True
+    if not prev_payload:
+        return True
+    settings = get_settings()
+    mode = getattr(settings, "board_green_selection_mode", "composite_v1") or "composite_v1"
+    if mode not in ("ev_gates", "composite_v1"):
+        mode = "composite_v1"
+    old_sk = best_bets_utils._pick_of_the_day_sort_key(prev_payload, mode=mode)
+    new_sk = best_bets_utils._pick_of_the_day_sort_key(new_card, mode=mode)
+    return new_sk > old_sk
+
+
+def _insert_board_pick_of_day_run_snapshot_row(
+    target_date: date, game_id: int, payload: dict[str, Any]
+) -> None:
+    """Insert or replace this game's PoD run snapshot (upgrade when a strictly better pick appears)."""
+    raw = json.dumps(jsonable_encoder(payload), default=str)
+    frozen_at = datetime.now(timezone.utc)
+    dia = get_dialect_name()
+    params = {
+        "game_id": game_id,
+        "game_date": target_date.isoformat() if dia == "sqlite" else target_date,
+        "snapshot_payload": raw,
+        "frozen_at": frozen_at,
+    }
+    if dia == "sqlite":
+        run_sql(
+            """
+            INSERT OR REPLACE INTO board_pick_of_day_run_snapshots (game_id, game_date, snapshot_payload, frozen_at)
+            VALUES (:game_id, :game_date, :snapshot_payload, :frozen_at)
+            """,
+            params,
+        )
+    else:
+        run_sql(
+            """
+            INSERT INTO board_pick_of_day_run_snapshots (game_id, game_date, snapshot_payload, frozen_at)
+            VALUES (:game_id, :game_date, :snapshot_payload, :frozen_at)
+            ON CONFLICT (game_id, game_date) DO UPDATE SET
+                snapshot_payload = EXCLUDED.snapshot_payload,
+                frozen_at = EXCLUDED.frozen_at
+            """,
+            params,
+        )
+
+
+def _maybe_insert_board_pick_of_day_run_snapshots(
+    target_date: date,
+    rows: list[dict[str, Any]],
+    live_picks: list[dict[str, Any]],
+    *,
+    for_live_slate_date: date | None = None,
+    force: bool = False,
+) -> None:
+    """Freeze each game's best qualifying PoD card (pregame); upgrade stored snapshot when live pick strictly improves."""
+    if not get_settings().board_pick_of_day_run_snapshot_enabled:
+        return
+    if not table_exists("board_pick_of_day_run_snapshots"):
+        return
+    # Allow today and upcoming slate dates (e.g. run Prepare Slate for tomorrow tonight).
+    if target_date < date.today():
+        return
+    row_by = {int(r["game_id"]): r for r in rows if r.get("game_id") is not None}
+    existing = _fetch_board_pick_of_day_run_snapshots_map(target_date)
+    eager = bool(get_settings().board_pick_of_day_run_snapshot_eager)
+    for card in live_picks:
+        gid = int(card.get("game_id") or 0)
+        if not gid:
+            continue
+        prev = existing.get(gid)
+        if not _pick_of_day_run_snapshot_is_strict_improvement(prev, card, force=force):
+            continue
+        gr = row_by.get(gid)
+        if gr is None:
+            continue
+        if for_live_slate_date is not None and for_live_slate_date == date.today():
+            if best_bets_utils._skip_row_started_game_on_live_slate(
+                gr, for_live_slate_date=for_live_slate_date
+            ):
+                continue
+        ts = gr.get("game_start_ts")
+        before_pitch = is_before_scheduled_first_pitch(ts)
+        lock_active = _is_game_top_ev_snapshot_lock_active(gr)
+        if before_pitch:
+            if not force and not eager and not lock_active:
+                continue
+        if best_bets_utils._excluded_from_main_us_book_snapshots(card):
+            continue
+        _insert_board_pick_of_day_run_snapshot_row(target_date, gid, dict(card))
+        existing[gid] = dict(card)
+
+
+def _merge_board_pick_of_day_run_snapshots_into_live(
+    target_date: date,
+    rows: list[dict[str, Any]],
+    live: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Combine per-game run snapshots with live PoD picks.
+
+    **Full slate** (``PICK_OF_THE_DAY_FULL_SLATE_PER_GAME``): all frozen games plus all live games
+    that are not frozen, then re-ranked globally (no ``PICK_OF_THE_DAY_MAX`` truncation).
+
+    **Legacy** short list: frozen rows stay (by saved rank), then live fills only until the
+    effective cap (``max(PICK_OF_THE_DAY_MAX, #frozen)``).
+    """
+    if not get_settings().board_pick_of_day_run_snapshot_enabled:
+        return live
+    if not table_exists("board_pick_of_day_run_snapshots"):
+        return live
+    run_snaps = {
+        gid: p
+        for gid, p in _fetch_board_pick_of_day_run_snapshots_map(target_date).items()
+        if not best_bets_utils._excluded_from_main_us_book_snapshots(p)
+    }
+    if not run_snaps:
+        return live
+    _, max_n = best_bets_utils._pick_of_the_day_config()
+    row_by = {int(r["game_id"]): r for r in rows if r.get("game_id") is not None}
+    settings = get_settings()
+    mode = getattr(settings, "board_green_selection_mode", "composite_v1") or "composite_v1"
+    if mode not in ("ev_gates", "composite_v1"):
+        mode = "composite_v1"
+
+    def _decorate(card: dict[str, Any], *, frozen: bool) -> dict[str, Any]:
+        out = dict(card)
+        if frozen:
+            out["pick_of_day_frozen"] = True
+            out["pick_of_day_snapshot_kind"] = "run"
+        else:
+            out.pop("pick_of_day_frozen", None)
+            out.pop("pick_of_day_snapshot_kind", None)
+        return out
+
+    frozen_gids = {int(g) for g in run_snaps.keys() if int(g) in row_by}
+    frozen_items: list[tuple[int, int, dict[str, Any]]] = []
+    for gid, payload in run_snaps.items():
+        gid_i = int(gid)
+        if gid_i not in row_by:
+            continue
+        pr = int(payload.get("pick_of_day_rank") or 999)
+        frozen_items.append((pr, gid_i, _decorate(dict(payload), frozen=True)))
+    frozen_items.sort(key=lambda t: (t[0], t[1]))
+    frozen_list = [t[2] for t in frozen_items]
+
+    live_only: list[dict[str, Any]] = []
+    for c in live:
+        gid = int(c.get("game_id") or 0)
+        if not gid or gid in frozen_gids:
+            continue
+        live_only.append(_decorate(dict(c), frozen=False))
+    live_only.sort(
+        key=lambda c: best_bets_utils._pick_of_the_day_sort_key(c, mode=mode),
+        reverse=True,
+    )
+
+    if best_bets_utils._pick_of_the_day_full_slate_per_game_enabled():
+        merged = frozen_list + live_only
+        merged.sort(
+            key=lambda c: best_bets_utils._pick_of_the_day_sort_key(c, mode=mode),
+            reverse=True,
+        )
+        for i, c in enumerate(merged, start=1):
+            c["pick_of_day_rank"] = i
+        return merged
+
+    effective_cap = max(max_n, len(frozen_list))
+    live_slots = max(0, effective_cap - len(frozen_list))
+    merged = frozen_list + live_only[:live_slots]
+    for i, c in enumerate(merged, start=1):
+        c["pick_of_day_rank"] = i
+    return merged
+
+
+def _resolve_picks_of_the_day_for_board(
+    target_date: date,
+    rows: list[dict[str, Any]],
+    *,
+    for_live_slate_date: date | None,
+) -> list[dict[str, Any]]:
+    """Live short list plus optional per-game run snapshots (stable picks across refresh)."""
+    live = best_bets_utils.select_picks_of_the_day(
+        rows,
+        for_live_slate_date=for_live_slate_date,
+        slate_game_date=target_date,
+    )
+    settings = get_settings()
+    if not settings.board_pick_of_day_run_snapshot_enabled or not table_exists(
+        "board_pick_of_day_run_snapshots"
+    ):
+        return live
+    if target_date >= date.today():
+        _maybe_insert_board_pick_of_day_run_snapshots(
+            target_date,
+            rows,
+            live,
+            for_live_slate_date=for_live_slate_date,
+            force=False,
+        )
+    return _merge_board_pick_of_day_run_snapshots_into_live(target_date, rows, live)
 
 
 def _fetch_board_top_ev_snapshots_map(target_date: date) -> dict[int, dict[str, Any]]:
@@ -5909,13 +6319,19 @@ def _insert_board_top_ev_run_snapshot_row(target_date: date, game_id: int, paylo
         )
 
 
-def _maybe_insert_board_top_ev_run_snapshots(target_date: date, board_rows: list[dict[str, Any]]) -> None:
+def _maybe_insert_board_top_ev_run_snapshots(
+    target_date: date,
+    board_rows: list[dict[str, Any]],
+    *,
+    force: bool = False,
+) -> None:
     """Persist Top EV run snapshots automatically (no manual toggle at runtime).
 
-    - **Pregame (predictable):** First successful pick once the game is inside the Top EV lock window and
-      still before first pitch — same clock as ``BOARD_TOP_EV_SNAPSHOT_LOCK_MINUTES`` / ``MLB_PREGAME_INGEST_LOCK_MINUTES``.
-      Markets/lineups can move freely until that window; then the first board load freezes.
-    - **Catch-up:** If the window was missed, write once after first pitch so Daily Results still stabilizes.
+    - **Pregame (eager, default):** Same idea as green run — first board load while still before first pitch
+      freezes Top EV so headlines are available hours early, not only inside T−N.
+    - **Pregame (non-eager):** First pick only once inside the Top EV lock window (still before first pitch).
+    - **Catch-up:** If nothing was stored pregame, write once after first pitch so Daily Results still stabilizes.
+    - **Manual:** ``force=True`` skips the eager/lock gate (``INSERT OR IGNORE``).
     """
     if not get_settings().board_top_ev_run_snapshot_enabled:
         return
@@ -5943,11 +6359,12 @@ def _maybe_insert_board_top_ev_run_snapshots(target_date: date, board_rows: list
         ts = gr.get("game_start_ts")
         before_pitch = is_before_scheduled_first_pitch(ts)
         lock_active = _is_game_top_ev_snapshot_lock_active(gr)
-        # Live until lock window: still pregame but outside T−lock_minutes → do not freeze yet.
-        if before_pitch and not lock_active:
-            continue
+        eager = bool(get_settings().board_top_ev_run_snapshot_eager)
+        if before_pitch:
+            if not force and not eager and not lock_active:
+                continue
         pick = _top_ev_pick_for_board_row(gr, market_rows_by_game.get(gid, {}))
-        if not pick:
+        if not pick or best_bets_utils._excluded_from_main_us_book_snapshots(pick):
             continue
         _insert_board_top_ev_run_snapshot_row(target_date, gid, pick)
 
@@ -5980,7 +6397,7 @@ def _maybe_insert_board_top_ev_snapshots(target_date: date, board_rows: list[dic
         if not is_before_scheduled_first_pitch(gr.get("game_start_ts")):
             continue
         pick = _top_ev_pick_for_board_row(gr, market_rows_by_game.get(gid, {}))
-        if not pick:
+        if not pick or best_bets_utils._excluded_from_main_us_book_snapshots(pick):
             continue
         _insert_board_top_ev_snapshot_row(target_date, gid, pick)
 
@@ -5991,7 +6408,8 @@ def _flatten_best_bets(
     *,
     target_date: date | None = None,
 ) -> list[dict[str, Any]]:
-    live = best_bets_utils.flatten_best_bets(rows, limit)
+    live_for = target_date if target_date is not None and target_date == date.today() else None
+    live = best_bets_utils.flatten_best_bets(rows, limit, for_live_slate_date=live_for)
     if target_date is None:
         return live
     _maybe_insert_board_top_ev_run_snapshots(target_date, rows)
@@ -6001,14 +6419,67 @@ def _flatten_best_bets(
     return _merge_board_green_snapshots_into_live(target_date, rows, live)
 
 
+def manual_snapshot_board_run_picks(
+    target_date: date,
+    board_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Write missing ``board_*_run_snapshots`` rows from the current board state.
+
+    Intended when you refresh early and cannot load the board again inside the pregame lock window.
+    Never overwrites existing snapshot rows for a game/date.
+    """
+    te_before = set(_fetch_board_top_ev_run_snapshots_map(target_date).keys())
+    gr_before = set(_fetch_board_green_run_snapshots_map(target_date).keys())
+    pod_before = set(_fetch_board_pick_of_day_run_snapshots_map(target_date).keys())
+    live_for = target_date if target_date == date.today() else None
+    live = best_bets_utils.flatten_best_bets(board_rows, None, for_live_slate_date=live_for)
+    live_pod = best_bets_utils.select_picks_of_the_day(
+        board_rows,
+        for_live_slate_date=live_for,
+        slate_game_date=target_date,
+    )
+    settings = get_settings()
+    if settings.board_top_ev_run_snapshot_enabled and _table_exists("board_top_ev_run_snapshots"):
+        _maybe_insert_board_top_ev_run_snapshots(target_date, board_rows, force=True)
+    if settings.board_green_run_snapshot_enabled and table_exists("board_green_run_snapshots"):
+        _maybe_insert_board_green_run_snapshots(target_date, board_rows, live, force=True)
+    if settings.board_pick_of_day_run_snapshot_enabled and table_exists(
+        "board_pick_of_day_run_snapshots"
+    ):
+        _maybe_insert_board_pick_of_day_run_snapshots(
+            target_date,
+            board_rows,
+            live_pod,
+            for_live_slate_date=live_for,
+            force=True,
+        )
+    te_after = set(_fetch_board_top_ev_run_snapshots_map(target_date).keys())
+    gr_after = set(_fetch_board_green_run_snapshots_map(target_date).keys())
+    pod_after = set(_fetch_board_pick_of_day_run_snapshots_map(target_date).keys())
+    return {
+        "target_date": target_date.isoformat(),
+        "top_ev_run_inserted_game_ids": sorted(te_after - te_before),
+        "green_run_inserted_game_ids": sorted(gr_after - gr_before),
+        "pick_of_day_run_inserted_game_ids": sorted(pod_after - pod_before),
+        "top_ev_run_inserted_count": len(te_after - te_before),
+        "green_run_inserted_count": len(gr_after - gr_before),
+        "pick_of_day_run_inserted_count": len(pod_after - pod_before),
+    }
+
+
 def _flatten_watchlist_markets(
     rows: list[dict[str, Any]],
     limit: int = best_bets_utils.BOARD_WATCHLIST_LIMIT,
     *,
     secondary_lines_only: bool = False,
+    target_date: date | None = None,
 ) -> list[dict[str, Any]]:
+    live_for = target_date if target_date is not None and target_date == date.today() else None
     return best_bets_utils.flatten_watchlist_markets(
-        rows, limit, secondary_lines_only=secondary_lines_only
+        rows,
+        limit,
+        secondary_lines_only=secondary_lines_only,
+        for_live_slate_date=live_for,
     )
 
 
@@ -6935,6 +7406,8 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
     market_freezes = _fetch_market_freeze_map(target_date)
     total_freeze = market_freezes.get((int(game_id), "total"), {})
 
+    away_exp_detail, home_exp_detail = _team_expected_runs_coherent_with_game_total(game)
+
     detail = {
         "game_id": int(game["game_id"]),
         "game_date": game["game_date"],
@@ -6980,8 +7453,8 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
             "over_probability": game["over_probability"],
             "under_probability": game["under_probability"],
             "edge": game["edge"],
-            "away_expected_runs": game["away_expected_runs"],
-            "home_expected_runs": game["home_expected_runs"],
+            "away_expected_runs": away_exp_detail,
+            "home_expected_runs": home_exp_detail,
             "away_bullpen_pitches_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("pitches_last3", game["away_bullpen_pitches_last3"]),
             "home_bullpen_pitches_last3": (recent_bullpen_map.get(str(game["home_team"]) or "", {}) or {}).get("pitches_last3", game["home_bullpen_pitches_last3"]),
             "away_bullpen_innings_last3": (recent_bullpen_map.get(str(game["away_team"]) or "", {}) or {}).get("innings_last3", game["away_bullpen_innings_last3"]),
@@ -7144,9 +7617,12 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         if pvt_row:
             st_side["pitcher_vs_opponent_team"] = pvt_row
 
+    tb_pred_map_detail = _fetch_total_bases_prediction_map(target_date)
     for player in lineup_records:
         player.update(_build_hit_actual_meta(player.get("actual_hits"), is_final))
         player_id = player.get("player_id")
+        if player_id is not None:
+            player["total_bases"] = tb_pred_map_detail.get((int(game_id), int(player_id)))
         live_history = [] if player_id is None else hit_history_map.get(int(player_id), [])
         _overlay_live_batting_stats(player, live_history)
         player["recent_hit_history"] = live_history[:10]
@@ -7248,9 +7724,23 @@ def _fetch_game_detail(game_id: int, target_date: date, include_inferred: bool =
         detail["first5_totals"],
         market_freezes.get((int(game_id), "first_five_total"), {}),
     )
+    extra_detail_props: list[dict[str, Any]] = []
+    for side in ("away", "home"):
+        st = (detail.get("starters") or {}).get(side)
+        if st:
+            extra_detail_props.extend(
+                best_bets_utils.build_pitcher_strikeouts_ev_cards_from_starter(detail, st),
+            )
+    for side in ("away", "home"):
+        for pl in (detail.get("teams") or {}).get(side, {}).get("lineup") or []:
+            extra_detail_props.extend(
+                best_bets_utils.build_batter_total_bases_ev_cards_from_row(detail, pl),
+            )
     market_cards, best_bets = _build_market_cards_for_game(detail, game_market_rows_by_type)
-    detail["market_cards"] = _drop_first_five_team_total_cards(market_cards)
-    detail["best_bets"] = _drop_first_five_team_total_best_bets(best_bets)
+    detail["market_cards"], detail["best_bets"] = _apply_first_five_team_total_board_visibility(
+        list(market_cards) + extra_detail_props,
+        best_bets,
+    )
     detail["top_ev_pick"] = _build_top_ev_pick_for_game_detail(detail, game_market_rows_by_type)
 
     gid_int = int(detail["game_id"])
@@ -8183,6 +8673,13 @@ def _daily_results_pick_label(
         selection_label = meta.get("selection_label")
         if selection_label:
             return str(selection_label)
+        if market == "pitcher_strikeouts":
+            side = str(recommended_side or "").strip().lower()
+            ln = line_value if line_value is not None else market_line
+            pname = str(meta.get("pitcher_name") or "").strip()
+            if ln is not None and side in ("over", "under"):
+                frag = f"{side.title()} {ln:.1f} K"
+                return f"{pname} · {frag}" if pname else frag
         return _best_bet_selection_label(market, recommended_side, away_team, home_team, line_value)
     if market in EXPERIMENTAL_CAROUSEL_MARKETS:
         selection_label = meta.get("selection_label") or meta.get("market_label")
@@ -8471,6 +8968,14 @@ def _recommendation_result_sort_key(row: dict[str, Any], rank_field: str | None 
     confidence = _coerce_float(row.get("confidence"))
     start_ts = str(row.get("game_start_ts") or "")
     game_id = int(row.get("game_id") or 0)
+    if rank_field == "pick_of_day_rank":
+        return (
+            9999.0 if rank_value is None else float(rank_value),
+            -999.0 if edge_value is None else float(edge_value),
+            -999.0 if confidence is None else float(confidence),
+            start_ts,
+            -game_id,
+        )
     return (
         9999.0 if rank_value is None else -float(rank_value),
         -999.0 if edge_value is None else float(edge_value),
@@ -8558,6 +9063,10 @@ def _fetch_game_recommendation_results(
         record["game_final"] = _is_final_game_status(record.get("game_status"))
         meta = _review_meta_payload(record.get("meta_payload"))
         market = str(record.get("market") or "")
+        if market == "pitcher_strikeouts":
+            pname = record.get("pitcher_name") or meta.get("pitcher_name")
+            if pname:
+                meta = {**meta, "pitcher_name": pname}
         if market not in TRACKED_RECOMMENDATION_MARKETS:
             continue
         away_team = meta.get("away_team") or record.get("away_team")
@@ -8581,10 +9090,14 @@ def _fetch_game_recommendation_results(
             meta.get("is_board_watchlist_pick") or meta.get("is_hr_slate_pick")
         )
         is_experimental_pick = bool(meta.get("is_experimental_pick")) or market in EXPERIMENTAL_CAROUSEL_MARKETS
+        is_pick_of_day = bool(meta.get("is_pick_of_day"))
+        pick_of_day_rank = meta.get("pick_of_day_rank")
         green_rank = meta.get("board_green_pick_rank") or meta.get("green_pick_rank")
         watchlist_rank = meta.get("board_watchlist_rank")
         recommendation_reason = meta.get("green_reason")
-        if not recommendation_reason and is_green_pick:
+        if is_pick_of_day and pick_of_day_rank is not None:
+            recommendation_reason = f"Pick of the day #{pick_of_day_rank}"
+        elif not recommendation_reason and is_green_pick:
             recommendation_reason = "Green board pick"
         if not recommendation_reason and is_watchlist_pick:
             recommendation_reason = str(meta.get("hr_slate_reason") or "Watchlist pick")
@@ -8651,6 +9164,8 @@ def _fetch_game_recommendation_results(
                 "is_green_pick": is_green_pick,
                 "is_watchlist_pick": is_watchlist_pick,
                 "is_experimental_pick": is_experimental_pick,
+                "is_pick_of_day": is_pick_of_day,
+                "pick_of_day_rank": pick_of_day_rank,
                 "green_rank": green_rank,
                 "watchlist_rank": watchlist_rank,
                 "green_reason": recommendation_reason,
@@ -8675,6 +9190,11 @@ def _fetch_game_recommendation_results(
         if str(row.get("market") or "").lower() not in EXPERIMENTAL_CAROUSEL_MARKETS
         and not _daily_results_excluded_from_team_best_picks(str(row.get("market") or ""))
     ]
+
+    if bucket == "pick_of_day":
+        pod_rows = [row for row in board_rows if row.get("is_pick_of_day")]
+        pod_rows.sort(key=lambda row: _recommendation_result_sort_key(row, "pick_of_day_rank"))
+        return pod_rows if limit is None else pod_rows[:limit]
 
     has_snapshot_flags = any(
         row.get("is_green_pick") or row.get("is_watchlist_pick") for row in board_rows
@@ -8876,13 +9396,21 @@ def _resolve_top_ev_pick_with_snapshots(
     gid = int(game.get("game_id") or 0)
     live = _top_ev_pick_for_board_row(game, market_rows_by_type)
     snap_lock = lock_by_gid.get(gid) if gid else None
-    if isinstance(snap_lock, dict) and snap_lock:
+    if (
+        isinstance(snap_lock, dict)
+        and snap_lock
+        and not best_bets_utils._excluded_from_main_us_book_snapshots(snap_lock)
+    ):
         out = dict(snap_lock)
         out["top_ev_snapshot_kind"] = "lock"
         out["top_ev_frozen"] = True
         return out
     snap_run = run_by_gid.get(gid) if gid else None
-    if isinstance(snap_run, dict) and snap_run:
+    if (
+        isinstance(snap_run, dict)
+        and snap_run
+        and not best_bets_utils._excluded_from_main_us_book_snapshots(snap_run)
+    ):
         out = dict(snap_run)
         out["top_ev_snapshot_kind"] = "run"
         out["top_ev_frozen"] = True
@@ -8940,11 +9468,19 @@ def _live_top_ev_rows_for_daily_results(
         snap_kind: str | None = None
         snap_lock = frozen_lock.get(game_id)
         snap_run = frozen_run.get(game_id)
-        if isinstance(snap_lock, dict) and snap_lock:
+        if (
+            isinstance(snap_lock, dict)
+            and snap_lock
+            and not best_bets_utils._excluded_from_main_us_book_snapshots(snap_lock)
+        ):
             pick = dict(snap_lock)
             frozen = True
             snap_kind = "lock"
-        elif isinstance(snap_run, dict) and snap_run:
+        elif (
+            isinstance(snap_run, dict)
+            and snap_run
+            and not best_bets_utils._excluded_from_main_us_book_snapshots(snap_run)
+        ):
             pick = dict(snap_run)
             frozen = True
             snap_kind = "run"
@@ -9176,6 +9712,112 @@ def _live_green_board_rows_for_daily_results(
     return out
 
 
+def _live_pick_of_day_board_rows_for_daily_results(
+    target_date: date,
+    *,
+    board_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Daily Results: short-list picks matching ``select_picks_of_the_day`` (live slate)."""
+    if board_rows is None:
+        board_rows = _fetch_game_board(
+            target_date,
+            hit_limit_per_team=GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM,
+            min_probability=GAME_BOARD_UI_DEFAULT_MIN_HIT_PROBABILITY,
+            confirmed_only=GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY,
+            include_inferred=GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED,
+        )
+    pod_live = target_date if target_date == date.today() else None
+    picks = _resolve_picks_of_the_day_for_board(
+        target_date, board_rows, for_live_slate_date=pod_live
+    )
+    game_by_id: dict[int, dict[str, Any]] = {}
+    for row in board_rows:
+        gid = row.get("game_id")
+        if gid is not None:
+            game_by_id[int(gid)] = row
+
+    out: list[dict[str, Any]] = []
+    for card in picks:
+        gid = int(card.get("game_id") or 0)
+        game = game_by_id.get(gid, {})
+        market = str(card.get("market_key") or "")
+        if market not in BEST_BET_MARKET_KEYS:
+            continue
+        away_team = card.get("away_team") or game.get("away_team")
+        home_team = card.get("home_team") or game.get("home_team")
+        matchup = f"{away_team or '?'} at {home_team or '?'}" if away_team or home_team else None
+
+        line_value = _coerce_float(card.get("line_value"))
+        meta = {
+            "selection_label": card.get("selection_label"),
+            "market_label": card.get("market_label"),
+            "weighted_ev": card.get("weighted_ev"),
+            "probability_edge": card.get("probability_edge"),
+            "price": card.get("price"),
+            "sportsbook": card.get("sportsbook"),
+            "away_team": away_team,
+            "home_team": home_team,
+        }
+        record, pick_result, meta = _grade_live_best_bet_card_for_daily_results(card, game, meta)
+        market_label = _daily_results_market_display_name(market)
+        confidence = _daily_results_confidence(record, market)
+        edge_value = _daily_results_edge_value(record, market, meta)
+        rank = card.get("pick_of_day_rank")
+
+        out.append(
+            {
+                "game_id": gid,
+                "game_date": target_date.isoformat(),
+                "game_start_ts": game.get("game_start_ts"),
+                "market": market,
+                "market_label": market_label,
+                "subject_label": matchup or market_label,
+                "subject_subtitle": market_label,
+                "pick_label": _daily_results_pick_label(
+                    market,
+                    record.get("recommended_side"),
+                    line_value,
+                    line_value,
+                    away_team,
+                    home_team,
+                    meta,
+                ),
+                "model_display": _daily_results_model_display(record, market, confidence),
+                "actual_display": _daily_results_actual_display(record, market, away_team, home_team, meta),
+                "notes_display": _daily_results_notes_display(
+                    record,
+                    market,
+                    market_label,
+                    confidence,
+                    edge_value,
+                    meta,
+                ),
+                "confidence": confidence,
+                "edge": edge_value,
+                "result": pick_result,
+                "market_backed": bool(
+                    meta.get("sportsbook") is not None
+                    or line_value is not None
+                    or meta.get("price") is not None
+                ),
+                "is_green_pick": False,
+                "is_watchlist_pick": False,
+                "is_experimental_pick": False,
+                "is_pick_of_day": True,
+                "pick_of_day_rank": rank,
+                "green_rank": None,
+                "watchlist_rank": None,
+                "green_reason": "Pick of the day (live slate — run Rebuild learning tables for archived tracking)",
+                "input_trust_grade": (card.get("input_trust") or {}).get("grade"),
+                "promotion_tier": card.get("promotion_tier"),
+                "green_strip_tier": "strict" if card.get("positive") else None,
+            }
+        )
+
+    out.sort(key=lambda row: _recommendation_result_sort_key(row, "pick_of_day_rank"))
+    return out
+
+
 def _daily_results_row_identity(row: dict[str, Any]) -> tuple[int, str, str]:
     return (
         int(row.get("game_id") or 0),
@@ -9198,7 +9840,9 @@ def _live_watchlist_board_rows_for_daily_results(
             confirmed_only=GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY,
             include_inferred=GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED,
         )
-    cards = _flatten_watchlist_markets(board_rows, secondary_lines_only=True)
+    cards = _flatten_watchlist_markets(
+        board_rows, secondary_lines_only=True, target_date=target_date
+    )
     game_by_id: dict[int, dict[str, Any]] = {}
     for row in board_rows:
         gid = row.get("game_id")
@@ -9320,7 +9964,48 @@ def _merge_green_daily_results(
     live_rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], bool]:
     """Prefer archived green picks; add live board rows not already present (pre–product_surfaces slates)."""
-    return _merge_archived_and_live_daily_pick_rows(archived_rows, live_rows, rank_field="green_rank")
+    archived_green_gids = {
+        int(r.get("game_id") or 0)
+        for r in archived_rows
+        if r.get("is_green_pick") and int(r.get("game_id") or 0)
+    }
+    filtered_live = [
+        r
+        for r in live_rows
+        if not (
+            r.get("is_green_pick")
+            and int(r.get("game_id") or 0) in archived_green_gids
+        )
+    ]
+    return _merge_archived_and_live_daily_pick_rows(
+        archived_rows, filtered_live, rank_field="green_rank"
+    )
+
+
+def _merge_pick_of_day_daily_results(
+    archived_rows: list[dict[str, Any]],
+    live_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Prefer archived pick-of-day rows; add live short-list rows not already present.
+
+    Live fallback is only for games missing from archived (one strict pick-of-day row per game).
+    Ranks are renumbered 1..N after merge so archived + supplemental rows do not repeat #1–#3.
+    """
+    archived_gids = {int(r.get("game_id") or 0) for r in archived_rows if r.get("game_id")}
+    filtered_live = [
+        r for r in live_rows if int(r.get("game_id") or 0) not in archived_gids
+    ]
+    merged, supplemental = _merge_archived_and_live_daily_pick_rows(
+        archived_rows, filtered_live, rank_field="pick_of_day_rank"
+    )
+    merged.sort(key=lambda r: _recommendation_result_sort_key(r, "pick_of_day_rank"))
+    for i, row in enumerate(merged, start=1):
+        row["pick_of_day_rank"] = i
+    return merged, supplemental
+
+
+def _fetch_pick_of_day_results(target_date: date, limit: int | None = None) -> list[dict[str, Any]]:
+    return _fetch_game_recommendation_results(target_date, bucket="pick_of_day", limit=limit)
 
 
 def _experimental_market_display_name(market: str | None) -> str:
@@ -10440,8 +11125,11 @@ def _fetch_daily_results(
     hitter_top_n: int = 24,
 ) -> dict[str, Any]:
     # Single board fetch for green + watchlist + Top EV (was 3× identical work per request).
-    # Green best-bets: prefer ``prediction_outcomes_daily`` (written by product_surfaces) so picks do not
-    # drift when models/markets are re-run; supplement with live board only for games not yet archived.
+    # Same defaults as ``GET /api/games/board`` / index.html so EV cards and strip match the main app.
+    #
+    # **Calendar today:** green strip, picks of the day, and watchlist use **live board rows only**.
+    # Merging archived ``prediction_outcomes_daily`` caused stale/partial archives to disagree with
+    # what the board shows (e.g. 5 PoD vs 3 archived). Past slates still merge archive + live supplement.
     daily_results_board_rows = _fetch_game_board(
         target_date,
         hit_limit_per_team=GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM,
@@ -10454,16 +11142,33 @@ def _fetch_daily_results(
         target_date,
         board_rows=daily_results_board_rows,
     )
-    ai_pick_rows, live_green_fallback = _merge_green_daily_results(archived_green, live_green)
+    archived_pick_of_day = _fetch_pick_of_day_results(target_date)
+    live_pick_of_day = _live_pick_of_day_board_rows_for_daily_results(
+        target_date,
+        board_rows=daily_results_board_rows,
+    )
     watchlist_archived = _fetch_watchlist_pick_results(target_date)
     live_watchlist = _live_watchlist_board_rows_for_daily_results(
         target_date,
         board_rows=daily_results_board_rows,
     )
-    watchlist_rows, live_watchlist_fallback = _merge_watchlist_daily_results(
-        watchlist_archived,
-        live_watchlist,
-    )
+    if target_date == date.today():
+        ai_pick_rows = live_green
+        live_green_fallback = True
+        pick_of_day_rows = live_pick_of_day
+        live_pick_of_day_fallback = True
+        watchlist_rows = live_watchlist
+        live_watchlist_fallback = True
+    else:
+        ai_pick_rows, live_green_fallback = _merge_green_daily_results(archived_green, live_green)
+        pick_of_day_rows, live_pick_of_day_fallback = _merge_pick_of_day_daily_results(
+            archived_pick_of_day,
+            live_pick_of_day,
+        )
+        watchlist_rows, live_watchlist_fallback = _merge_watchlist_daily_results(
+            watchlist_archived,
+            live_watchlist,
+        )
     experimental_rows = _fetch_experimental_pick_results(target_date)
     _maybe_insert_board_top_ev_run_snapshots(target_date, daily_results_board_rows)
     _maybe_insert_board_top_ev_snapshots(target_date, daily_results_board_rows)
@@ -10803,6 +11508,9 @@ def _fetch_daily_results(
     ai_pick_summary = _summarize_category(ai_pick_rows)
     ai_pick_summary["green_picks"] = len(ai_pick_rows)
     ai_pick_summary["live_board_fallback"] = live_green_fallback
+    pick_of_day_summary = _summarize_category(pick_of_day_rows)
+    pick_of_day_summary["picks_total"] = len(pick_of_day_rows)
+    pick_of_day_summary["live_board_fallback"] = live_pick_of_day_fallback
     watchlist_summary = _summarize_category(watchlist_rows)
     watchlist_summary["live_board_supplement"] = live_watchlist_fallback
     experimental_summary = _summarize_category(experimental_rows)
@@ -10817,7 +11525,9 @@ def _fetch_daily_results(
             "total_games": total_games,
             "live_green_board_fallback": live_green_fallback,
             "live_watchlist_board_supplement": live_watchlist_fallback,
+            "live_pick_of_day_board_fallback": live_pick_of_day_fallback,
             "ai_picks": ai_pick_summary,
+            "picks_of_the_day": pick_of_day_summary,
             "watchlist": watchlist_summary,
             "experimental": experimental_summary,
             "top_ev": top_ev_summary,
@@ -10828,6 +11538,7 @@ def _fetch_daily_results(
             "home_runs": _summarize_category(home_run_rows),
         },
         "ai_picks": ai_pick_rows,
+        "picks_of_the_day": pick_of_day_rows,
         "watchlist": watchlist_rows,
         "experimental": experimental_rows,
         "top_ev": top_ev_rows,
@@ -11185,6 +11896,56 @@ def _get_update_job(job_id: str) -> dict[str, Any] | None:
         return None if job is None else _public_update_job(job)
 
 
+_PUBLISH_WARM_BOARD_SNAPSHOT_ACTIONS: frozenset[str] = frozenset(
+    {
+        "prepare_slate",
+        "import_manual_inputs",
+        "update_lineups_only",
+        "update_markets_only",
+        "rebuild_predictions",
+        "retrain_models",
+        "refresh_everything",
+    }
+)
+
+
+def _maybe_warm_board_snapshots_after_publish(action_key: str, target_date_raw: str | None) -> None:
+    """After a publish pipeline succeeds, load the board once so run snapshots can freeze without a browser hit."""
+    if action_key not in _PUBLISH_WARM_BOARD_SNAPSHOT_ACTIONS or not target_date_raw:
+        return
+    try:
+        td = date.fromisoformat(str(target_date_raw).strip()[:10])
+    except ValueError:
+        return
+    try:
+        rows = _fetch_game_board(td, 4, 0.0, False, True)
+        if not rows:
+            return
+        _flatten_best_bets(rows, target_date=td)
+        pod_live = td if td == date.today() else None
+        live_pod = best_bets_utils.select_picks_of_the_day(
+            rows,
+            for_live_slate_date=pod_live,
+            slate_game_date=td,
+        )
+        st = get_settings()
+        if (
+            st.board_pick_of_day_run_snapshot_enabled
+            and table_exists("board_pick_of_day_run_snapshots")
+            and td >= date.today()
+        ):
+            _maybe_insert_board_pick_of_day_run_snapshots(
+                td, rows, live_pod, for_live_slate_date=pod_live, force=False
+            )
+    except Exception as exc:
+        log.warning(
+            "Board snapshot warm-up after %s for %s failed: %s",
+            action_key,
+            target_date_raw,
+            exc,
+        )
+
+
 def _run_update_job_background(job_id: str) -> None:
     with UPDATE_JOB_LOCK:
         job = UPDATE_JOBS.get(job_id)
@@ -11312,6 +12073,7 @@ def _run_update_job_background(job_id: str) -> None:
         _trim_finished_jobs_locked()
         _persist_pipeline_run(job)
     _persist_update_jobs()
+    _maybe_warm_board_snapshots_after_publish(action_key, target_date)
 
 
 def _launch_update_job(job_id: str) -> None:

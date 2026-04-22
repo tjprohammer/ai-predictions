@@ -53,3 +53,21 @@ def test_calibrate_with_market_skips_negative_weight_calibrator():
 
     assert np.array_equal(calibrated, raw_predictions)
     assert not mask.any()
+
+
+def test_mean_pinball_median_is_half_mae_for_tau_half():
+    y = np.array([1.0, 2.0, 3.0])
+    p = np.array([1.1, 1.9, 3.2])
+    pin = common_module.mean_pinball_loss(y, p, tau=0.5)
+    mae = float(np.mean(np.abs(y - p)))
+    assert abs(pin - 0.5 * mae) < 1e-9
+
+
+def test_log_loss_ou_vs_market_line_returns_metrics_when_enough_rows():
+    y = np.array([9.0, 6.0, 10.0])
+    pred = np.array([8.5, 6.5, 9.5])
+    mkt = pd.Series([8.0, 7.5, 9.0])
+    out = common_module.log_loss_ou_vs_market_line(y, pred, mkt, std=1.0, min_rows=3)
+    assert out is not None
+    assert out["n"] == 3.0
+    assert 0.0 <= out["log_loss"] <= 2.0

@@ -50,6 +50,15 @@ def test_feature_columns_for_roles_excludes_calibration_inputs_from_totals_train
     assert "home_runs_rate_blended" in selected
 
 
+def test_feature_columns_for_roles_includes_first5_market_total_as_core_predictor():
+    selected = feature_columns_for_roles(
+        "first5_totals",
+        [FIELD_ROLE_CORE_PREDICTOR],
+    )
+
+    assert "market_total" in selected
+
+
 def test_feature_columns_for_roles_excludes_non_core_hits_fields_from_training():
     selected = feature_columns_for_roles(
         "hits",

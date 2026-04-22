@@ -1,5 +1,16 @@
-from src.features.common import build_hitter_priors, build_pitcher_priors, bullpen_snapshot, coerce_utc_timestamp_series, hitter_snapshot, latest_market_snapshot, pitcher_snapshot
+from src.features.common import (
+    build_hitter_priors,
+    build_pitcher_priors,
+    bullpen_snapshot,
+    coerce_utc_timestamp_series,
+    default_cutoff,
+    hitter_snapshot,
+    infer_lineup_from_prior_game_lineups,
+    latest_market_snapshot,
+    pitcher_snapshot,
+)
 from datetime import date, datetime, timezone
+from unittest.mock import patch
 import sqlite3
 
 import pandas as pd
@@ -8,7 +19,6 @@ import pytest
 from types import SimpleNamespace
 
 from src.features import common as feature_common
-from src.features.common import build_hitter_priors, build_pitcher_priors, hitter_snapshot, latest_market_snapshot, pitcher_snapshot
 from src.utils import db as db_utils
 
 
@@ -77,6 +87,54 @@ def test_bullpen_snapshot_surfaces_recent_run_prevention_metrics():
     assert result["late_earned_runs_last3"] == 3
     assert result["late_hits_allowed_last3"] == 6
     assert result["late_era_last3"] == pytest.approx(7.36, rel=1e-2)
+
+
+def test_default_cutoff_final_games_use_first_pitch_not_now():
+    d = date(2024, 6, 1)
+    first_pitch = datetime(2024, 6, 1, 23, 5, tzinfo=timezone.utc)
+    out = default_cutoff(d, pd.Timestamp(first_pitch), game_status="final")
+    assert out == first_pitch
+
+
+def test_default_cutoff_live_past_start_uses_now():
+    d = date(2024, 6, 1)
+    first_pitch = datetime(2024, 6, 1, 23, 5, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)
+    real_datetime = datetime
+    with patch.object(feature_common, "datetime") as mock_dt:
+        mock_dt.now = lambda tz=None: fake_now
+        mock_dt.combine = real_datetime.combine
+        mock_dt.min = real_datetime.min
+        out = default_cutoff(d, pd.Timestamp(first_pitch), game_status="live")
+    assert out == fake_now
+
+
+def test_latest_market_snapshot_filters_market_type_when_column_present():
+    markets = pd.DataFrame(
+        [
+            {
+                "game_id": 7,
+                "market_type": "total",
+                "sportsbook": "DraftKings",
+                "line_value": 8.5,
+                "over_price": -110,
+                "under_price": -110,
+                "snapshot_ts": pd.Timestamp("2026-04-02T16:00:00Z"),
+            },
+            {
+                "game_id": 7,
+                "market_type": "moneyline",
+                "sportsbook": "DraftKings",
+                "line_value": None,
+                "over_price": -150,
+                "under_price": 130,
+                "snapshot_ts": pd.Timestamp("2026-04-02T17:00:00Z"),
+            },
+        ]
+    )
+    cutoff = datetime(2026, 4, 2, 18, 0, tzinfo=timezone.utc)
+    result = latest_market_snapshot(7, cutoff, markets, market_type="total")
+    assert result["market_total"] == 8.5
 
 
 def test_latest_market_snapshot_returns_selected_sportsbook():
@@ -344,3 +402,46 @@ def test_persist_entity_features_replaces_selected_date_rows(
 
     db_utils.get_engine.cache_clear()
     assert rows == [(824461, "2026-04-04", row_key + 1)]
+
+
+def test_infer_lineup_from_prior_game_lineups_reuses_latest_prior_game():
+    ts_old = datetime(2026, 4, 14, 18, 0, tzinfo=timezone.utc)
+    ts_new = datetime(2026, 4, 15, 19, 0, tzinfo=timezone.utc)
+    lineups = pd.DataFrame(
+        [
+            {
+                "game_id": 1,
+                "game_date": date(2026, 4, 14),
+                "team": "NYM",
+                "player_id": 10,
+                "player_name": "A",
+                "lineup_slot": 1,
+                "field_position": "2B",
+                "snapshot_ts": ts_old,
+            },
+            {
+                "game_id": 2,
+                "game_date": date(2026, 4, 15),
+                "team": "NYM",
+                "player_id": 20,
+                "player_name": "B",
+                "lineup_slot": 1,
+                "field_position": "SS",
+                "snapshot_ts": ts_new,
+            },
+            {
+                "game_id": 2,
+                "game_date": date(2026, 4, 15),
+                "team": "NYM",
+                "player_id": 99,
+                "player_name": "Pitcher",
+                "lineup_slot": 9,
+                "field_position": "P",
+                "snapshot_ts": ts_new,
+            },
+        ]
+    )
+    out = infer_lineup_from_prior_game_lineups("NYM", date(2026, 4, 16), lineups)
+    assert len(out) == 1
+    assert int(out.iloc[0]["player_id"]) == 20
+    assert not bool(out.iloc[0]["is_confirmed"])

@@ -67,7 +67,7 @@ def main() -> int:
 
     rows = []
     for game in games.itertuples(index=False):
-        cutoff_ts = default_cutoff(game.game_date, game.game_start_ts)
+        cutoff_ts = default_cutoff(game.game_date, game.game_start_ts, game_status=getattr(game, "status", None))
         game_lineups = frames["lineups"][
             (frames["lineups"]["game_id"] == game.game_id) & (frames["lineups"]["snapshot_ts"] <= cutoff_ts)
         ].copy()

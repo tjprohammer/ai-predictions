@@ -469,7 +469,7 @@ FIRST5_TOTALS_FIELD_ROLES = {
     "precipitation_pct": FIELD_ROLE_ENVIRONMENT_CONTEXT,
     "cloud_cover_pct": FIELD_ROLE_ENVIRONMENT_CONTEXT,
     "ump_run_value": FIELD_ROLE_ENVIRONMENT_CONTEXT,
-    "market_total": FIELD_ROLE_CALIBRATION_INPUT,
+    "market_total": FIELD_ROLE_CORE_PREDICTOR,
     "market_over_price": FIELD_ROLE_CALIBRATION_INPUT,
     "market_under_price": FIELD_ROLE_CALIBRATION_INPUT,
     "line_movement": FIELD_ROLE_CALIBRATION_INPUT,

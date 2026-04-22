@@ -15,7 +15,7 @@ TARGET_DATE ?= $(END_DATE)
 .PHONY: help venv install db-up db-down db-migrate db-reset \
 	load-reference-data prepare-slate-inputs ingest-today refresh-aggregates features-today predict-today pipeline \
 	train-totals train-first5-totals train-inning1-nrfi train-hits train-hr train-total-bases retrain-models train-strikeouts backtest compare-prior-modes start-app start-app-stable run-desktop install-desktop build-desktop build-installer build-release test lint clean pipeline-range product-surfaces \
-	rollout-strikeouts
+	rollout-strikeouts backfill-inning1 backfill-markets-range audit-model-plan
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -117,6 +117,19 @@ pipeline: ingest-today refresh-aggregates features-today predict-today ## Full d
 
 pipeline-range: ## Backfill a date range: make pipeline-range START_DATE=YYYY-MM-DD END_DATE=YYYY-MM-DD
 	"$(PYTHON_BIN)" -m src.utils.pipeline_range --start-date $(START_DATE) --end-date $(END_DATE)
+
+audit-model-plan: ## Phase 0 metrics for MODEL_IMPROVEMENT_PLAN.md (pass START_DATE/END_DATE via: python scripts/audit_model_improvement_plan.py --start-date ... --end-date ...)
+	"$(PYTHON_BIN)" scripts/audit_model_improvement_plan.py
+
+backfill-inning1: ## Boxscores for final games missing inning-1 only: make backfill-inning1 START_DATE=YYYY-MM-DD END_DATE=YYYY-MM-DD
+	@if "$(START_DATE)"=="" (echo START_DATE is required & exit /b 1)
+	@if "$(END_DATE)"=="" (echo END_DATE is required & exit /b 1)
+	"$(PYTHON_BIN)" -m src.ingestors.boxscores --start-date $(START_DATE) --end-date $(END_DATE) --final-missing-inning1-only
+
+backfill-markets-range: ## Historical game_markets / odds for a range: make backfill-markets-range START_DATE=YYYY-MM-DD END_DATE=YYYY-MM-DD
+	@if "$(START_DATE)"=="" (echo START_DATE is required & exit /b 1)
+	@if "$(END_DATE)"=="" (echo END_DATE is required & exit /b 1)
+	"$(PYTHON_BIN)" -m src.ingestors.market_totals --start-date $(START_DATE) --end-date $(END_DATE)
 
 train-totals: ## Train totals baseline from feature snapshots
 	"$(PYTHON_BIN)" -m src.models.train_totals

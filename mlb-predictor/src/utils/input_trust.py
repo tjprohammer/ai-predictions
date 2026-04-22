@@ -69,16 +69,22 @@ def _to_nonneg_int(value: Any) -> int:
 
 
 def input_trust_from_certainty(certainty: dict[str, Any]) -> dict[str, Any]:
-    """Separate **input trust** from raw projection (see docs/MODEL_REWORK_PLAN.md)."""
+    """Separate **input trust** from raw projection (see docs/MODEL_REWORK_PLAN.md).
+
+    The weighted composite (``score``) reflects the same five signals as the board certainty chip.
+    ``missing_fallback_count`` counts NaNs in separate *model numeric* fields (e.g. blended xwoba
+    columns); those can be sparse while freshness scores are still strong. Grade is driven
+    primarily by ``score``; high ``missing`` only tightens the letter when the composite is weak.
+    """
     score = composite_certainty_score_for_input_trust(certainty)
     missing = _to_nonneg_int(certainty.get("missing_fallback_count"))
     board = str(certainty.get("board_state") or "").strip().lower()
 
-    if missing >= 8 or score < 0.28:
+    if score < 0.28 or (missing >= 8 and score < 0.40):
         grade = "D"
-    elif missing >= 4 or score < 0.42:
+    elif score < 0.42 or (missing >= 4 and score < 0.52):
         grade = "C"
-    elif missing >= 2 or score < 0.62:
+    elif score < 0.62 or (missing >= 2 and score < 0.52):
         grade = "B"
     else:
         grade = "A"

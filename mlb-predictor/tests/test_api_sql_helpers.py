@@ -223,6 +223,19 @@ def test_scale_expected_run_split_keeps_first5_total_consistent():
     assert round(away + home, 3) == 5.074
 
 
+def test_team_expected_runs_coherent_with_game_total_rescales_feature_rates():
+    row = {
+        "predicted_total_runs": 8.0,
+        "predicted_total_fundamentals": 9.29,
+        "away_expected_runs": 5.3,
+        "home_expected_runs": 5.17,
+    }
+    away, home = app_module._team_expected_runs_coherent_with_game_total(row)
+
+    assert away is not None and home is not None
+    assert round(float(away) + float(home), 2) == 8.0
+
+
 def test_apply_market_freeze_payload_overlays_frozen_line_and_grading():
     payload = {
         "predicted_total_runs": 5.07,

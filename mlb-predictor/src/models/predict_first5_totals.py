@@ -238,6 +238,7 @@ def main() -> int:
         calibration_mask = np.zeros(len(predictions), dtype=bool)
         calibration_residual_std = residual_std
     prediction_ts = datetime.now(timezone.utc)
+    artifact_lane_status = str(artifact.get("lane_status") or "").strip() or None
     rows = []
     suppressed_count = 0
     for idx, (row, raw_pred, cal_pred, was_calibrated) in enumerate(
@@ -282,6 +283,7 @@ def main() -> int:
                 "edge": edge,
                 "confidence_level": confidence_level,
                 "suppress_reason": suppress_reason,
+                "lane_status": artifact_lane_status,
                 "asymmetry_bucket": bucket,
             }
         )

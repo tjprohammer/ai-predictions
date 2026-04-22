@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -18,6 +18,7 @@ from src.features.common import (
     default_cutoff,
     hitter_snapshot,
     infer_lineup_from_history,
+    infer_lineup_from_prior_game_lineups,
     latest_market_snapshot,
     latest_weather_snapshot,
     offense_snapshot,
@@ -40,10 +41,12 @@ log = get_logger(__name__)
 def _load_frames(start_date, end_date, settings):
     """Shared by ``hits_builder`` and ``hr_builder`` (same raw tables)."""
     history_start = f"{settings.prior_season}-01-01"
+    sd = pd.Timestamp(start_date).date()
+    lineup_history_start = sd - timedelta(days=7)
     return {
         "games": query_df(
             """
-            SELECT game_id, game_date, game_start_ts, season, home_team, away_team
+            SELECT game_id, game_date, game_start_ts, status, season, home_team, away_team
             FROM games
             WHERE game_date BETWEEN :start_date AND :end_date
             """,
@@ -53,9 +56,9 @@ def _load_frames(start_date, end_date, settings):
             """
             SELECT *
             FROM lineups
-            WHERE game_date BETWEEN :start_date AND :end_date
+            WHERE game_date BETWEEN :lineup_start AND :end_date
             """,
-            {"start_date": start_date, "end_date": end_date},
+            {"lineup_start": lineup_history_start, "end_date": end_date},
         ),
         "players": query_df(
             """
@@ -146,7 +149,7 @@ def main() -> int:
 
     rows = []
     for game in games.itertuples(index=False):
-        cutoff_ts = default_cutoff(game.game_date, game.game_start_ts)
+        cutoff_ts = default_cutoff(game.game_date, game.game_start_ts, game_status=getattr(game, "status", None))
         game_lineups = frames["lineups"][
             (frames["lineups"]["game_id"] == game.game_id) & (frames["lineups"]["snapshot_ts"] <= cutoff_ts)
         ].copy()
@@ -164,6 +167,13 @@ def main() -> int:
                 frames["player_batting"],
                 frames["players"],
             )
+            if inferred.empty:
+                inferred = infer_lineup_from_prior_game_lineups(
+                    lineup_team,
+                    game.game_date,
+                    frames["lineups"],
+                    frames["players"],
+                )
             if not inferred.empty:
                 latest_lineup_frames.append(inferred)
 

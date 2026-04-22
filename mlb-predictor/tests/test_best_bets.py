@@ -1,3 +1,5 @@
+from datetime import date
+
 from src.utils import best_bets
 from src.utils.settings import get_settings
 
@@ -619,3 +621,369 @@ def test_build_player_hits_board_card_and_tiers():
     ann = best_bets.annotate_market_card_for_display(card)
     assert ann.get("board_pick_tier")
     assert isinstance(ann.get("board_badges"), list)
+
+
+def test_first_five_lane_research_only_gates_green_strip():
+    assert best_bets.first_five_lane_research_only({"lane_status": "below_baseline"}) is True
+    assert best_bets.first_five_lane_research_only({"lane_status": "above_baseline"}) is False
+    card = {
+        "market_key": "first_five_total",
+        "positive": True,
+        "weighted_ev": 0.2,
+        "probability_edge": 0.1,
+        "certainty_weight": 0.9,
+        "model_probability": 0.58,
+        "game_certainty_pct": 90.0,
+        "input_trust": {"grade": "A", "score": 0.9},
+        "lane_research_only": True,
+    }
+    assert best_bets.qualifies_board_green_strip(card) is False
+
+
+def test_select_picks_of_the_day_filters_soft_and_trust_and_prob_floor(monkeypatch):
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    soft = _card(1, 0.08, positive=False)
+    strict_low_mp = {**_card(2, 0.08, positive=True), "model_probability": 0.54}
+    strict_ok = _card(3, 0.10, positive=True)
+    strict_c_trust = {**_card(4, 0.10, positive=True), "input_trust": {"grade": "C", "score": 0.5}}
+    rows = [
+        {"game_id": 1, "best_bets": [soft], "market_cards": []},
+        {"game_id": 2, "best_bets": [strict_low_mp], "market_cards": []},
+        {"game_id": 3, "best_bets": [strict_ok], "market_cards": []},
+        {"game_id": 4, "best_bets": [strict_c_trust], "market_cards": []},
+    ]
+    out = best_bets.select_picks_of_the_day(rows)
+    assert len(out) == 2
+    assert [int(x["game_id"]) for x in out] == [3, 4]
+    assert out[0]["pick_of_day_rank"] == 1
+    assert out[0].get("pick_of_day_trust_tier") == "primary"
+    assert out[1].get("pick_of_day_trust_tier") == "relaxed"
+
+
+def test_select_picks_of_the_day_relaxes_trust_when_only_c_strict(monkeypatch):
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    strict_c = {**_card(9, 0.12, positive=True), "input_trust": {"grade": "C", "score": 0.48}}
+    rows = [{"game_id": 9, "best_bets": [strict_c], "market_cards": []}]
+    out = best_bets.select_picks_of_the_day(rows)
+    assert len(out) == 1
+    assert int(out[0]["game_id"]) == 9
+    assert out[0]["pick_of_day_trust_tier"] == "relaxed"
+    assert "relaxed" in str(out[0].get("pick_of_day_note") or "")
+
+
+def test_select_picks_of_the_day_still_empty_when_only_d_trust(monkeypatch):
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    strict_d = {
+        **_card(8, 0.12, positive=True),
+        "input_trust": {"grade": "D", "score": 0.25},
+        "game_certainty_pct": 70.0,
+    }
+    rows = [{"game_id": 8, "best_bets": [strict_d], "market_cards": []}]
+    assert best_bets.select_picks_of_the_day(rows) == []
+
+
+def test_select_picks_of_the_day_includes_d_when_game_certainty_high(monkeypatch):
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    strict_d = {
+        **_card(8, 0.12, positive=True),
+        "input_trust": {"grade": "D", "score": 0.25},
+        "game_certainty_pct": 94.0,
+    }
+    rows = [{"game_id": 8, "best_bets": [strict_d], "market_cards": []}]
+    out = best_bets.select_picks_of_the_day(rows)
+    assert len(out) == 1
+    assert int(out[0]["game_id"]) == 8
+    assert out[0].get("pick_of_day_trust_tier") == "relaxed"
+
+
+def test_select_picks_of_the_day_respects_disable_high_certainty_d(monkeypatch):
+    monkeypatch.setenv("PICK_OF_THE_DAY_ALLOW_HIGH_CERTAINTY_D", "false")
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    strict_d = {
+        **_card(8, 0.12, positive=True),
+        "input_trust": {"grade": "D", "score": 0.25},
+        "game_certainty_pct": 94.0,
+    }
+    rows = [{"game_id": 8, "best_bets": [strict_d], "market_cards": []}]
+    assert best_bets.select_picks_of_the_day(rows) == []
+
+
+def test_select_picks_of_the_day_backfills_second_game_after_ab_then_d(monkeypatch):
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    a_pick = _card(1, 0.12, positive=True)
+    d_pick = {
+        **_card(2, 0.11, positive=True),
+        "input_trust": {"grade": "D", "score": 0.2},
+        "game_certainty_pct": 94.0,
+    }
+    rows = [
+        {"game_id": 1, "best_bets": [a_pick], "market_cards": []},
+        {"game_id": 2, "best_bets": [d_pick], "market_cards": []},
+    ]
+    out = best_bets.select_picks_of_the_day(rows)
+    assert len(out) == 2
+    assert [int(x["game_id"]) for x in out] == [1, 2]
+
+
+def test_select_picks_of_the_day_relaxation_env_off_requires_ab(monkeypatch):
+    monkeypatch.setenv("PICK_OF_THE_DAY_TRUST_RELAXATION", "false")
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    strict_c = {**_card(11, 0.12, positive=True), "input_trust": {"grade": "C", "score": 0.48}}
+    rows = [{"game_id": 11, "best_bets": [strict_c], "market_cards": []}]
+    assert best_bets.select_picks_of_the_day(rows) == []
+
+
+def test_flatten_best_bets_and_picks_skip_started_games_on_live_slate(monkeypatch):
+    """Today's slate: no green strip / pick-of-day for games past scheduled first pitch."""
+    slate_day = date(2026, 4, 16)
+
+    class _FixedToday:
+        @staticmethod
+        def today():
+            return slate_day
+
+    monkeypatch.setattr(best_bets, "date", _FixedToday)
+    monkeypatch.setattr(best_bets, "is_before_scheduled_first_pitch", lambda _ts: False)
+    row = {
+        "game_id": 1,
+        "game_start_ts": "2026-04-16T17:00:00Z",
+        "best_bets": [_card(1, 0.9, positive=True)],
+        "market_cards": [],
+    }
+    assert best_bets.flatten_best_bets([row], for_live_slate_date=slate_day) == []
+    assert best_bets.select_picks_of_the_day([row], for_live_slate_date=slate_day) == []
+    monkeypatch.setattr(best_bets, "is_before_scheduled_first_pitch", lambda _ts: True)
+    assert len(best_bets.flatten_best_bets([row], for_live_slate_date=slate_day)) == 1
+    assert len(best_bets.select_picks_of_the_day([row], for_live_slate_date=slate_day)) == 1
+    assert len(best_bets.flatten_best_bets([row], for_live_slate_date=None)) == 1
+    assert len(best_bets.flatten_best_bets([row], for_live_slate_date=date(2026, 4, 15))) == 1
+
+
+def test_headline_picks_trust_preview_status_over_clock_near_first_pitch(monkeypatch):
+    """StatsAPI still says preview — keep strip even if wall clock thinks first pitch passed (skew)."""
+    slate_day = date(2026, 4, 16)
+
+    class _FixedToday:
+        @staticmethod
+        def today():
+            return slate_day
+
+    monkeypatch.setattr(best_bets, "date", _FixedToday)
+    monkeypatch.setattr(best_bets, "is_before_scheduled_first_pitch", lambda _ts: False)
+    row = {
+        "game_id": 1,
+        "status": "preview",
+        "game_start_ts": "2026-04-16T17:00:00Z",
+        "best_bets": [_card(1, 0.9, positive=True)],
+        "market_cards": [],
+    }
+    assert len(best_bets.flatten_best_bets([row], for_live_slate_date=slate_day)) == 1
+    assert len(best_bets.select_picks_of_the_day([row], for_live_slate_date=slate_day)) == 1
+
+
+def test_headline_picks_hide_when_status_live_even_if_clock_pregame(monkeypatch):
+    slate_day = date(2026, 4, 16)
+
+    class _FixedToday:
+        @staticmethod
+        def today():
+            return slate_day
+
+    monkeypatch.setattr(best_bets, "date", _FixedToday)
+    monkeypatch.setattr(best_bets, "is_before_scheduled_first_pitch", lambda _ts: True)
+    row = {
+        "game_id": 1,
+        "status": "live",
+        "game_start_ts": "2026-04-16T23:00:00Z",
+        "best_bets": [_card(1, 0.9, positive=True)],
+        "market_cards": [],
+    }
+    assert best_bets.flatten_best_bets([row], for_live_slate_date=slate_day) == []
+    assert best_bets.select_picks_of_the_day([row], for_live_slate_date=slate_day) == []
+
+
+def test_headline_picks_unparseable_start_time_not_suppressed(monkeypatch):
+    slate_day = date(2026, 4, 16)
+
+    class _FixedToday:
+        @staticmethod
+        def today():
+            return slate_day
+
+    monkeypatch.setattr(best_bets, "date", _FixedToday)
+    monkeypatch.setattr(best_bets, "is_before_scheduled_first_pitch", lambda _ts: False)
+    row = {
+        "game_id": 1,
+        "game_start_ts": "not-a-timestamp",
+        "best_bets": [_card(1, 0.9, positive=True)],
+        "market_cards": [],
+    }
+    assert len(best_bets.flatten_best_bets([row], for_live_slate_date=slate_day)) == 1
+
+
+def test_select_picks_of_the_day_soft_slate_allows_soft_numeric_ev(monkeypatch):
+    """Board date today or later: soft numeric band can enter PoD (not only strict ``positive``)."""
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    fixed_today = date(2026, 4, 16)
+    slate = date(2026, 4, 22)
+
+    class _FixedDate:
+        today = staticmethod(lambda: fixed_today)
+        fromisoformat = staticmethod(date.fromisoformat)
+
+    monkeypatch.setattr(best_bets, "date", _FixedDate)
+    soft = {
+        "game_id": 1,
+        "away_team": "A1",
+        "home_team": "H1",
+        "market_key": "moneyline",
+        "selection_label": "A1 ML",
+        "weighted_ev": 0.02,
+        "probability_edge": 0.03,
+        "certainty_weight": 0.71,
+        "model_probability": 0.52,
+        "positive": False,
+        "input_trust": {"grade": "A", "score": 0.82},
+        "game_certainty_pct": 90.0,
+    }
+    rows = [{"game_id": 1, "best_bets": [soft], "market_cards": []}]
+    out = best_bets.select_picks_of_the_day(rows, slate_game_date=slate)
+    assert len(out) == 1
+    assert "Game-day/future slate" in str(out[0].get("pick_of_day_note") or "")
+
+    out_today = best_bets.select_picks_of_the_day(rows, slate_game_date=fixed_today)
+    assert len(out_today) == 1
+
+    out_past = best_bets.select_picks_of_the_day(rows, slate_game_date=fixed_today.replace(day=15))
+    assert out_past == []
+
+    monkeypatch.setenv("PICK_OF_THE_DAY_ALLOW_SOFT_GREEN_ON_FUTURE_SLATE", "false")
+    assert best_bets.select_picks_of_the_day(rows, slate_game_date=slate) == []
+    monkeypatch.delenv("PICK_OF_THE_DAY_ALLOW_SOFT_GREEN_ON_FUTURE_SLATE", raising=False)
+
+
+def test_select_picks_soft_slate_c_trust_soft_numeric_not_on_green_strip(monkeypatch):
+    """Thin trust (C): PoD soft-slate path can take the card; green strip still rejects."""
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    fixed_today = date(2026, 4, 22)
+
+    class _FixedDate:
+        today = staticmethod(lambda: fixed_today)
+        fromisoformat = staticmethod(date.fromisoformat)
+
+    monkeypatch.setattr(best_bets, "date", _FixedDate)
+    soft_c = {
+        "game_id": 1,
+        "away_team": "A1",
+        "home_team": "H1",
+        "market_key": "moneyline",
+        "selection_label": "A1 ML",
+        "weighted_ev": 0.02,
+        "probability_edge": 0.03,
+        "certainty_weight": 0.71,
+        "model_probability": 0.55,
+        "positive": False,
+        "input_trust": {"grade": "C", "score": 0.5},
+        "game_certainty_pct": 90.0,
+    }
+    rows = [{"game_id": 1, "best_bets": [soft_c], "market_cards": []}]
+    assert best_bets.qualifies_board_green_strip(soft_c) is False
+    out = best_bets.select_picks_of_the_day(rows, slate_game_date=fixed_today)
+    assert len(out) == 1
+
+
+def test_select_picks_of_the_day_excludes_batter_tb_under_when_overs_only(monkeypatch):
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    monkeypatch.setenv("PICK_OF_THE_DAY_BATTER_TB_OVERS_ONLY", "true")
+    tb_under = {
+        **_card(1, 0.15, positive=True),
+        "market_key": "batter_total_bases",
+        "bet_side": "under",
+        "selection_label": "Under 1.5 TB",
+    }
+    tb_over = {
+        **_card(2, 0.10, positive=True),
+        "market_key": "batter_total_bases",
+        "bet_side": "over",
+        "selection_label": "Over 1.5 TB",
+    }
+    rows = [
+        {"game_id": 1, "best_bets": [tb_under], "market_cards": []},
+        {"game_id": 2, "best_bets": [tb_over], "market_cards": []},
+    ]
+    out = best_bets.select_picks_of_the_day(rows)
+    assert len(out) == 1
+    assert int(out[0]["game_id"]) == 2
+    assert str(out[0].get("bet_side") or "").lower() == "over"
+
+    monkeypatch.setenv("PICK_OF_THE_DAY_BATTER_TB_OVERS_ONLY", "false")
+    out2 = best_bets.select_picks_of_the_day(rows)
+    assert len(out2) == 2
+
+
+def test_select_picks_of_the_day_one_per_game_and_respects_default_max(monkeypatch):
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    rows = []
+    for gid in range(1, 9):
+        c = _card(gid, 0.05 + gid * 0.01, positive=True)
+        alt = {**c, "selection_label": f"alt {gid}", "weighted_ev": 0.99}
+        rows.append({"game_id": gid, "best_bets": [c], "market_cards": [alt]})
+    out = best_bets.select_picks_of_the_day(rows)
+    assert len(out) == 8
+    assert {int(x["game_id"]) for x in out} == set(range(1, 9))
+    assert sorted(int(x["pick_of_day_rank"]) for x in out) == list(range(1, 9))
+    assert all(str(x.get("selection_label") or "").startswith("alt ") for x in out)
+
+
+def test_pick_of_the_day_max_env_clamped_at_ten(monkeypatch):
+    monkeypatch.setenv("PICK_OF_THE_DAY_MAX", "99")
+    _, max_n = best_bets._pick_of_the_day_config()
+    assert max_n == 10
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+
+
+def test_select_picks_time_quartile_spread_keeps_late_games_in_short_list(monkeypatch):
+    """When spread is on, reserve slots across start-time quartiles before second pick from same window."""
+    monkeypatch.delenv("PICK_OF_THE_DAY_MIN_MODEL_PROB", raising=False)
+    monkeypatch.setenv("PICK_OF_THE_DAY_FULL_SLATE_PER_GAME", "false")
+    monkeypatch.setenv("PICK_OF_THE_DAY_MAX", "3")
+    monkeypatch.setenv("PICK_OF_THE_DAY_TIME_BUCKET_SPREAD", "true")
+
+    def row(gid: int, wev: float, hour: int) -> dict:
+        c = _card(gid, wev, positive=True)
+        return {
+            "game_id": gid,
+            "game_start_ts": f"2026-07-15T{hour:02d}:05:00Z",
+            "best_bets": [c],
+            "market_cards": [],
+        }
+
+    rows = [
+        row(1, 0.20, 10),
+        row(2, 0.19, 11),
+        row(3, 0.12, 15),
+        row(4, 0.08, 18),
+        row(5, 0.05, 22),
+    ]
+    out = best_bets.select_picks_of_the_day(rows)
+    assert {int(x["game_id"]) for x in out} == {1, 3, 4}
+    assert "quartile spread" in str(out[0].get("pick_of_day_note") or "").lower()
+
+    monkeypatch.setenv("PICK_OF_THE_DAY_TIME_BUCKET_SPREAD", "false")
+    out_flat = best_bets.select_picks_of_the_day(rows)
+    assert [int(x["game_id"]) for x in out_flat] == [1, 2, 3]
+
+    monkeypatch.delenv("PICK_OF_THE_DAY_MAX", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_TIME_BUCKET_SPREAD", raising=False)
+    monkeypatch.delenv("PICK_OF_THE_DAY_FULL_SLATE_PER_GAME", raising=False)

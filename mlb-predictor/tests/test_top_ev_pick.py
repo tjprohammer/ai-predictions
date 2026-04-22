@@ -40,3 +40,20 @@ def test_select_top_weighted_ev_excludes_hr_yes_even_with_high_ev():
     assert out is not None
     assert out["market_key"] == "moneyline"
     assert out["top_ev_candidate_count"] == 1
+
+
+def test_select_top_weighted_ev_f5_team_total_fallback_when_only_priced_rows(monkeypatch):
+    """F5 team totals are excluded from the primary pool; fallback fills when that is all we have."""
+    cands = [
+        {
+            "market_key": "first_five_team_total_away",
+            "weighted_ev": 0.08,
+            "probability_edge": 0.04,
+        },
+    ]
+    assert select_top_weighted_ev_pick(cands)["market_key"] == "first_five_team_total_away"
+    assert select_top_weighted_ev_pick(cands, allow_f5_team_total_fallback=False) is None
+
+    monkeypatch.setenv("TOP_EV_F5_TEAM_TOTAL_FALLBACK", "false")
+    assert select_top_weighted_ev_pick(cands) is None
+    monkeypatch.delenv("TOP_EV_F5_TEAM_TOTAL_FALLBACK", raising=False)

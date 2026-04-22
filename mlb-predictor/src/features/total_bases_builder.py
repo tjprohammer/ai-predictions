@@ -7,7 +7,7 @@ batter_total_bases prop market line.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -24,6 +24,7 @@ from src.features.common import (
     default_cutoff,
     hitter_snapshot,
     infer_lineup_from_history,
+    infer_lineup_from_prior_game_lineups,
     latest_market_snapshot,
     latest_weather_snapshot,
     offense_snapshot,
@@ -53,18 +54,23 @@ _TB_META = TOTAL_BASES_META_COLUMNS
 
 def _load_frames(start_date, end_date, settings):
     history_start = f"{settings.prior_season}-01-01"
+    sd = pd.Timestamp(start_date).date()
+    lineup_history_start = sd - timedelta(days=7)
     return {
         "games": query_df(
             """
-            SELECT game_id, game_date, game_start_ts, season, home_team, away_team
+            SELECT game_id, game_date, game_start_ts, status, season, home_team, away_team
             FROM games
             WHERE game_date BETWEEN :start_date AND :end_date
             """,
             {"start_date": start_date, "end_date": end_date},
         ),
         "lineups": query_df(
-            """SELECT * FROM lineups WHERE game_date BETWEEN :start_date AND :end_date""",
-            {"start_date": start_date, "end_date": end_date},
+            """
+            SELECT * FROM lineups
+            WHERE game_date BETWEEN :lineup_start AND :end_date
+            """,
+            {"lineup_start": lineup_history_start, "end_date": end_date},
         ),
         "players": query_df("SELECT player_id, full_name, team_abbr FROM dim_players"),
         "player_batting": query_df(
@@ -239,7 +245,7 @@ def main() -> int:
 
     rows = []
     for game in games.itertuples(index=False):
-        cutoff_ts = default_cutoff(game.game_date, game.game_start_ts)
+        cutoff_ts = default_cutoff(game.game_date, game.game_start_ts, game_status=getattr(game, "status", None))
         game_lineups = frames["lineups"][
             (frames["lineups"]["game_id"] == game.game_id) & (frames["lineups"]["snapshot_ts"] <= cutoff_ts)
         ].copy()
@@ -251,6 +257,13 @@ def main() -> int:
                 latest_lineup_frames.append(tlu[tlu["snapshot_ts"] == snap].copy())
             else:
                 inf = infer_lineup_from_history(lu_team, game.game_date, frames["player_batting"], frames["players"])
+                if inf.empty:
+                    inf = infer_lineup_from_prior_game_lineups(
+                        lu_team,
+                        game.game_date,
+                        frames["lineups"],
+                        frames["players"],
+                    )
                 if not inf.empty:
                     latest_lineup_frames.append(inf)
         if not latest_lineup_frames:

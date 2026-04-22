@@ -46,7 +46,7 @@ def _load_frames(start_date, end_date, settings):
     return {
         "games": query_df(
             """
-            SELECT game_id, game_date, game_start_ts, season, home_team, away_team
+            SELECT game_id, game_date, game_start_ts, status, season, home_team, away_team
             FROM games
             WHERE game_date BETWEEN :start_date AND :end_date
             ORDER BY game_date, game_id
@@ -478,7 +478,7 @@ def main() -> int:
 
     rows = []
     for game in games.itertuples(index=False):
-        cutoff_ts = default_cutoff(game.game_date, game.game_start_ts)
+        cutoff_ts = default_cutoff(game.game_date, game.game_start_ts, game_status=getattr(game, "status", None))
         starters = frames["pitcher_starts"][frames["pitcher_starts"]["game_id"] == game.game_id].copy()
         if starters.empty:
             continue

@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.pipeline import Pipeline
@@ -58,6 +59,12 @@ def main(argv: list[str] | None = None) -> int:
         default=540,
         help="Train on outcomes from [today-lookback, yesterday]",
     )
+    parser.add_argument(
+        "--holdout-fraction",
+        type=float,
+        default=0.2,
+        help="Time-ordered holdout fraction for ROC-AUC (most recent rows); 0 disables",
+    )
     args = parser.parse_args(argv)
 
     settings = get_settings()
@@ -78,23 +85,27 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    X_list = []
-    y_list = []
-    for _, row in frame.iterrows():
+    records: list[tuple[date, int, np.ndarray, int]] = []
+    for seq, (_, row) in enumerate(frame.iterrows()):
         rd = row.to_dict()
         try:
             xv = feature_vector_from_outcome_row(rd)
-            X_list.append(xv[0])
-            y_list.append(1 if bool(rd.get("success")) else 0)
+            gd = rd.get("game_date")
+            if isinstance(gd, datetime):
+                gday = gd.date()
+            else:
+                gday = pd.to_datetime(gd).date()
+            records.append((gday, seq, xv[0], 1 if bool(rd.get("success")) else 0))
         except Exception:
             continue
 
-    if len(y_list) < args.min_rows:
-        log.warning("train_board_action_score: too few rows after feature build (%s)", len(y_list))
+    if len(records) < args.min_rows:
+        log.warning("train_board_action_score: too few rows after feature build (%s)", len(records))
         return 0
 
-    X = np.vstack(X_list)
-    y = np.array(y_list, dtype=np.int32)
+    records.sort(key=lambda r: (r[0], r[1]))
+    y = np.array([r[3] for r in records], dtype=np.int32)
+    X = np.vstack([r[2] for r in records])
     pos_rate = float(y.mean())
     log.info(
         "train_board_action_score: samples=%s positive_rate=%.3f date_range=%s..%s",
@@ -103,6 +114,39 @@ def main(argv: list[str] | None = None) -> int:
         start,
         end,
     )
+
+    hold_frac = float(args.holdout_fraction)
+    if hold_frac > 0 and len(records) >= 40:
+        hold_n = max(1, int(round(len(records) * hold_frac)))
+        train_X = X[:-hold_n]
+        train_y = y[:-hold_n]
+        hold_X = X[-hold_n:]
+        hold_y = y[-hold_n:]
+        hold_pipe = Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    LogisticRegression(
+                        max_iter=2000,
+                        class_weight="balanced",
+                        random_state=42,
+                    ),
+                ),
+            ]
+        )
+        hold_pipe.fit(train_X, train_y)
+        try:
+            hold_proba = hold_pipe.predict_proba(hold_X)[:, 1]
+            hold_auc = roc_auc_score(hold_y, hold_proba)
+            log.info(
+                "train_board_action_score: time-holdout ROC-AUC=%.4f (hold_n=%s, train_n=%s)",
+                hold_auc,
+                hold_n,
+                len(train_y),
+            )
+        except Exception as exc:
+            log.warning("train_board_action_score: holdout metric failed: %s", exc)
 
     pipe = Pipeline(
         [
@@ -121,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         proba = pipe.predict_proba(X)[:, 1]
         auc = roc_auc_score(y, proba)
-        log.info("train_board_action_score: train-set ROC-AUC=%.4f", auc)
+        log.info("train_board_action_score: train-set ROC-AUC=%.4f (in-sample; see holdout above)", auc)
     except Exception as exc:
         log.warning("train_board_action_score: metric failed: %s", exc)
 

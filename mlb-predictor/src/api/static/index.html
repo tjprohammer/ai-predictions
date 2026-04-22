@@ -537,6 +537,31 @@
         margin-top: 22px;
       }
 
+      .picks-of-day {
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid rgba(22, 36, 29, 0.1);
+      }
+
+      .picks-of-day-under-green {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+        margin-bottom: 12px;
+      }
+
+      .picks-of-day-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .best-bet-card.pick-of-day {
+        border-color: rgba(46, 125, 50, 0.38);
+        box-shadow: 0 1px 0 rgba(46, 125, 50, 0.12);
+      }
+
       .mini-stat {
         padding: 14px 16px;
         border-radius: 18px;
@@ -1275,20 +1300,20 @@
         color: var(--accent-deep);
       }
 
-      /* Soft green: alternate EV band so the strip is not empty on thin slates (see best_bets.flatten_best_bets). */
+      /* Soft green: relaxed gates vs strict — mint/emerald so it still reads “green” (strict uses deeper forest below). */
       .best-bet-card.soft-green {
-        border-color: rgba(180, 83, 9, 0.22);
+        border-color: rgba(5, 150, 105, 0.28);
         background: linear-gradient(
           180deg,
-          rgba(245, 158, 11, 0.12),
-          rgba(255, 255, 255, 0.76)
+          rgba(52, 211, 153, 0.14),
+          rgba(255, 255, 255, 0.78)
         );
       }
 
       .best-bet-card.soft-green .best-bet-kicker {
-        background: rgba(245, 158, 11, 0.16);
-        border-color: rgba(180, 83, 9, 0.22);
-        color: #92400e;
+        background: rgba(16, 185, 129, 0.18);
+        border-color: rgba(5, 150, 105, 0.28);
+        color: #047857;
       }
 
       .best-bet-card.experimental .best-bet-kicker {
@@ -2471,6 +2496,10 @@
             The slate stays dense enough to scan quickly, then each game expands
             into full lineup context, recent hitter form, recent team offense,
             starter form, and actual outcomes when you review older dates.
+            Day-to-day edge is concentrated in <strong>hits</strong>,
+            <strong>home runs</strong>, and <strong>strikeouts</strong>; full-game
+            and first-five totals stay supporting context until those lanes clear
+            higher validation bars.
           </p>
           <p class="hero-note">
             <strong>Update flow:</strong> use Update Center for daily slate and
@@ -2511,6 +2540,14 @@
               <div class="field">
                 <label for="targetDate">Target Date</label>
                 <input id="targetDate" type="date" />
+                <div class="date-quick-row" style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.35rem">
+                  <button class="secondary tiny" id="targetDateTodayButton" type="button" title="Jump to today (local)">
+                    Today
+                  </button>
+                  <button class="secondary tiny" id="targetDateTomorrowButton" type="button" title="Jump to tomorrow (local) — run Prepare Slate for this date, then refresh">
+                    Tomorrow
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -2526,6 +2563,14 @@
                 title="Box scores, batting logs, observed weather. Does not re-import odds or rebuild features — use while games are live or after games for results only."
               >
                 &#x21bb; Update Scores
+              </button>
+              <button
+                class="secondary"
+                id="snapshotBoardRunButton"
+                type="button"
+                title="Saves current Top EV and green-strip picks into run-snapshot tables for any game that does not already have a row (safe before you leave; does not overwrite existing snapshots)."
+              >
+                Freeze picks (snapshots)
               </button>
             </div>
 
@@ -2889,7 +2934,7 @@
           </div>
         </div>
         <div class="summary-copy" id="dashboardViewCopy">
-          Use Live Board for pregame decisions and Review Workspace for
+          Live Board: lead with hits, HR, and strikeouts; Review Workspace:
           scorecards, misses, CLV, and final outcomes.
         </div>
       </section>
@@ -2986,6 +3031,25 @@
           hidden
           style="margin-bottom: 0.65rem; font-size: 0.88rem; line-height: 1.35"
         ></div>
+        <section class="panel best-bets-panel" id="picksOfTheDaySection" hidden>
+          <div class="panel-head">
+            <div>
+              <div class="section-tag">Picks of the day</div>
+              <h2 class="panel-title">Strict short list</h2>
+            </div>
+            <span class="panel-subtitle" id="picksOfTheDayPanelSubtitle"
+              >Loading…</span
+            >
+          </div>
+          <p class="summary-copy" style="margin: 0 0 0.75rem">
+            Headline picks — <strong>frozen snapshots stay listed</strong> as more games qualify (see <code>PICK_OF_THE_DAY_MAX</code>). On many books, <strong>batter TB</strong> and <strong>F5 team totals</strong> are <strong>overs-only</strong> (unders hidden by default via <code>BOARD_*_OVERS_ONLY</code> in <code>.env</code>):
+            full strict EV gates, higher model-P floor,
+            <strong>A/B</strong> input trust, one per game. Tracked in
+            <strong>Daily Results</strong> after <strong>Rebuild learning tables</strong>.
+            This is <em>stricter</em> than the green strip (no soft-green backfill).
+          </p>
+          <div class="picks-of-day-grid" id="picksOfTheDayGrid"></div>
+        </section>
         <section class="panel best-bets-panel" id="bestBetsPanel" hidden>
           <div class="panel-head">
             <div>
@@ -3224,11 +3288,25 @@
         return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
       }
 
+      function localDatePlusDays(days) {
+        const now = new Date();
+        now.setDate(now.getDate() + Number(days || 0));
+        const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+        return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+      }
+
       function detectAppBase() {
         const { pathname } = window.location;
         if (pathname.endsWith("/hot-hitters")) {
           const base = pathname.slice(0, -"/hot-hitters".length);
           return base || "/";
+        }
+        // Opening the shell as /index.html (or /foo/index.html) must not make API
+        // URLs resolve under .../index.html/api/... (404). Anchor relative URLs to
+        // the HTML directory instead.
+        if (pathname.endsWith(".html")) {
+          const dir = pathname.slice(0, pathname.lastIndexOf("/") + 1);
+          return dir || "/";
         }
         return pathname.endsWith("/") ? pathname : `${pathname}/`;
       }
@@ -3296,6 +3374,9 @@
       const today = localDateValue();
       const targetDateInput = document.getElementById("targetDate");
       const refreshButton = document.getElementById("refreshButton");
+      const snapshotBoardRunButton = document.getElementById(
+        "snapshotBoardRunButton",
+      );
       const updateActionButtons = Array.from(
         document.querySelectorAll("[data-update-action]"),
       );
@@ -3405,6 +3486,7 @@
         boardSummary: null,
         bestBets: [],
         greenPicks: [],
+        picksOfTheDay: [],
         archivedGreenPicks: [],
         experimentalMarkets: [],
         sluggerHrBets: [],
@@ -4592,7 +4674,7 @@
         };
       }
 
-      /** Best-bets / green strip / watchlist: team & game markets only (no hitter props). */
+      /** Best-bets / green strip / watchlist: team markets + TB/K props (exclude yes/no hit & HR). */
       function filterTeamBestBetBoardRows(rows) {
         const excluded = new Set(["player_hits", "player_home_run"]);
         return (Array.isArray(rows) ? rows : []).filter(
@@ -4608,6 +4690,7 @@
           { value: "game_total", label: "Game total" },
           { value: "team_totals", label: "Team totals" },
           { value: "first5", label: "First 5" },
+          { value: "props", label: "TB & pitcher K" },
         ];
       }
 
@@ -4628,6 +4711,9 @@
           market === "first5"
         ) {
           return "first5";
+        }
+        if (market === "pitcher_strikeouts" || market === "batter_total_bases") {
+          return "props";
         }
         return "other";
       }
@@ -7701,7 +7787,7 @@
             : "Highest weighted EV among priced team markets, 1+ hit, HR yes, and pitcher K for this game — same logic as matchup page and Daily Results.");
         const stripTitle = frozen
           ? `${snapTitle} Before the lock window, lines can still move; after snapshot, this pick stays fixed.`
-          : "Highest weighted EV among priced team markets, 1+ hit, HR yes, and pitcher K for this game — same logic as matchup page and Daily Results. Lines move freely until the pregame lock window.";
+          : "Highest weighted EV among priced team markets, batter TB O/U, pitcher K O/U, 1+ hit, and HR yes for this game — same logic as matchup page and Daily Results. Lines move freely until the pregame lock window.";
         const snapshotBadge = frozen
           ? `<span class="section-tag top-ev-snapshot-badge" title="${escapeHtml(snapTitle)}">${escapeHtml(snapLabel)}</span>`
           : "";
@@ -7715,6 +7801,117 @@
             </span>
           </div>
         `;
+      }
+
+      function ouSideLabelHtml(bet) {
+        const mk = String(bet.market_key || "");
+        const side = String(bet.bet_side || "").toLowerCase();
+        const ouMarkets = new Set([
+          "batter_total_bases",
+          "first_five_team_total_away",
+          "first_five_team_total_home",
+          "game_total",
+          "away_team_total",
+          "home_team_total",
+          "first_five_total",
+        ]);
+        if (!side || !ouMarkets.has(mk)) {
+          return "";
+        }
+        const lab = side === "over" ? "Over" : "Under";
+        return ` <span class="section-tag" title="Bet side (Over vs Under)">${lab}</span>`;
+      }
+
+      function renderPicksOfTheDay() {
+        const section = document.getElementById("picksOfTheDaySection");
+        const subtitle = document.getElementById("picksOfTheDayPanelSubtitle");
+        const grid = document.getElementById("picksOfTheDayGrid");
+        if (!section || !grid) {
+          return;
+        }
+        section.hidden = false;
+        const picks = Array.isArray(state.picksOfTheDay)
+          ? state.picksOfTheDay
+          : [];
+        if (subtitle) {
+          subtitle.textContent = picks.length
+            ? `${picks.length} pick${picks.length === 1 ? "" : "s"} · strict EV · A/B trust · model P floor`
+            : "0 picks · stricter bar than green strip & watchlist";
+        }
+        if (!picks.length) {
+          const future = isFutureSlateDate();
+          const greens = Array.isArray(state.greenPicks) ? state.greenPicks : [];
+          const watchlist = Array.isArray(state.bestBets) ? state.bestBets : [];
+          const hasStrict = greens.some(
+            (b) =>
+              b.green_strip_tier === "strict" ||
+              b.positive === true,
+          );
+          const hasSoftOnly = greens.length > 0 && !hasStrict;
+          let detail = future
+            ? "Set <strong>Target Date</strong> to this slate, run <strong>Prepare Slate</strong> (then <strong>Rebuild Predictions</strong> if needed), and <strong>Refresh board</strong>. Future slates also allow the same <strong>soft green</strong> band as the strip for picks of the day when strict EV is still thin — tune via <code>PICK_OF_THE_DAY_ALLOW_SOFT_GREEN_ON_FUTURE_SLATE</code> in <code>.env</code>."
+            : "No matchup on this slate met every pick-of-day gate.";
+          if (!future && hasSoftOnly) {
+            detail =
+              "The green strip below may show <strong>soft</strong> picks. Picks of the day only use <strong>strict</strong> full EV gates, plus <strong>A/B</strong> input trust and model P ≥ 56%.";
+          } else if (!future && hasStrict) {
+            detail =
+              "Strict greens exist, but pick-of-day also requires <strong>A/B input trust</strong> and <strong>model probability ≥ 56%</strong> (tunable via <code>PICK_OF_THE_DAY_MIN_MODEL_PROB</code> in <code>.env</code>).";
+          } else if (!future && !greens.length && watchlist.length > 0) {
+            detail =
+              "The <strong>watchlist</strong> below lists next-best team markets, but picks of the day need <strong>strict</strong> green EV gates plus <strong>A/B</strong> trust and a higher model-P floor — so this panel can be empty even when the watchlist is full.";
+          }
+          grid.innerHTML = `
+            <div class="summary-card" style="flex:1 1 100%; max-width: none">
+              <div class="summary-copy">
+                <strong>No picks of the day for ${escapeHtml(targetDateInput.value)}.</strong>
+                ${detail}
+              </div>
+            </div>`;
+          return;
+        }
+        grid.innerHTML = picks
+          .map((bet) => {
+            const matchupHref = appUrl(
+              `game?game_id=${encodeURIComponent(bet.game_id)}&target_date=${encodeURIComponent(targetDateInput.value)}&include_inferred=${encodeURIComponent(String(getHitFilters().includeInferred))}`,
+            );
+            const title =
+              bet.selection_label ||
+              bet.pick_label ||
+              bet.subject_label ||
+              "Pick";
+            const subtitle = `${bet.away_team || "Away"} at ${bet.home_team || "Home"}`;
+            const mp =
+              bet.model_probability != null &&
+              Number.isFinite(Number(bet.model_probability))
+                ? `${(Number(bet.model_probability) * 100).toFixed(1)}%`
+                : "—";
+            const ev =
+              bet.weighted_ev != null && Number.isFinite(Number(bet.weighted_ev))
+                ? `${formatSigned(Number(bet.weighted_ev) * 100, 1)}% wEV`
+                : "";
+            const rank = Number(bet.pick_of_day_rank) || 1;
+            const note = bet.pick_of_day_note
+              ? escapeHtml(String(bet.pick_of_day_note))
+              : "";
+            return `
+              <a class="best-bet-card pick-of-day" href="${matchupHref}">
+                <div class="best-bet-topline">
+                  <span class="best-bet-kicker">Pick of the day #${rank}</span>
+                  ${
+                    bet.pick_of_day_frozen
+                      ? `<span class="section-tag" title="Frozen pick-of-the-day snapshot — pregame refresh will not swap this ticket">PoD snapshot</span>`
+                      : ""
+                  }
+                  <span class="section-tag">${escapeHtml(bet.market_label || "Team market")}</span>
+                </div>
+                <div class="best-bet-title">${escapeHtml(title)}${ouSideLabelHtml(bet)}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""}</div>
+                <div class="best-bet-meta">${escapeHtml(subtitle)} · Model ${mp}${ev ? ` · ${escapeHtml(ev)}` : ""}</div>
+                ${note ? `<div class="best-bet-copy">${note}</div>` : ""}
+              </a>
+            `;
+          })
+          .join("");
       }
 
       function renderSlateTrustBanner() {
@@ -7836,7 +8033,7 @@
                   <span class="best-bet-kicker">${escapeHtml(greenKicker)}</span>
                   <span class="section-tag">${escapeHtml(marketLabel)}</span>
                 </div>
-                <div class="best-bet-title">${escapeHtml(title)}</div>
+                <div class="best-bet-title">${escapeHtml(title)}${ouSideLabelHtml(bet)}</div>
                 <div class="best-bet-meta">${escapeHtml(subtitle)}</div>
                 <div class="best-bet-copy">${escapeHtml(ticket)}</div>
                 <div class="best-bet-copy">${escapeHtml(notesLine)}</div>
@@ -7894,7 +8091,7 @@
                   <span class="best-bet-kicker">${escapeHtml(wlKicker)}</span>
                   <span class="section-tag">${escapeHtml(marketLabel)}</span>
                 </div>
-                <div class="best-bet-title">${escapeHtml(title)}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""}</div>
+                <div class="best-bet-title">${escapeHtml(title)}${ouSideLabelHtml(bet)}${bet.price != null ? ` ${formatPrice(bet.price)}` : ""}</div>
                 <div class="best-bet-meta">${escapeHtml(subtitle)} · ${escapeHtml(bet.sportsbook || "sportsbook")}</div>
                 <div class="best-bet-copy">${escapeHtml(notesLine)}</div>
                 <div class="best-bet-copy">${escapeHtml(modelLine)}</div>
@@ -8182,7 +8379,7 @@
           meta: state.games.length
             ? `${state.games.length} games loaded with compact matchup cards.`
             : "Compact matchup cards stay front and center.",
-          copy: "Use Live Board for pregame scanning, lineup certainty, totals rationale, and starter context before first pitch.",
+          copy: "Pregame scanning: prioritize hits, HR, and Ks cards; use totals and first-five as context while those market lanes mature.",
         };
       }
 
@@ -8224,6 +8421,7 @@
         renderClvReviewPanel();
         renderHistoricalReview();
         renderSlateTrustBanner();
+        renderPicksOfTheDay();
         renderBestBetsBoard();
         renderWatchlistBoard();
         renderSluggerHrBoard();
@@ -8265,10 +8463,76 @@
         // Green board = live positive-EV cards (same as API `best_bets`). `green_picks` is archived
         // graded rows from prediction_outcomes_daily — empty for today's slate until surfaces run.
         state.greenPicks = filterTeamBestBetBoardRows(payload.best_bets || []);
+        state.picksOfTheDay = filterTeamBestBetBoardRows(
+          payload.picks_of_the_day || [],
+        );
         state.archivedGreenPicks = filterTeamBestBetBoardRows(
           payload.green_picks || [],
         );
         state.games = payload.games || [];
+      }
+
+      async function snapshotBoardRunPicks() {
+        const date = targetDateInput.value;
+        const filters = getHitFilters();
+        const params = new URLSearchParams({
+          target_date: date,
+          hit_limit_per_team: String(filters.limit),
+          min_probability: String(filters.minProbability),
+          confirmed_only: String(filters.confirmedOnly),
+          include_inferred: String(filters.includeInferred),
+        });
+        setBusyButton(snapshotBoardRunButton, true, "Saving snapshots...");
+        setActivityState({
+          visible: true,
+          title: `Saving run snapshots for ${date}`,
+          detail: "Writing Top EV and green-strip run rows where missing.",
+          tone: "running",
+          spinning: true,
+          progressVisible: false,
+          progressStep: "POST /api/games/board/snapshot-run",
+        });
+        try {
+          const response = await fetch(
+            appUrl(`api/games/board/snapshot-run?${params.toString()}`),
+            { method: "POST", cache: "no-store" },
+          );
+          if (!response.ok) {
+            throw new Error(`Snapshot request failed: ${response.status}`);
+          }
+          const payload = await response.json();
+          const te = Number(payload.top_ev_run_inserted_count || 0);
+          const gr = Number(payload.green_run_inserted_count || 0);
+          const pod = Number(payload.pick_of_day_run_inserted_count || 0);
+          setLog(
+            `Run snapshots for ${date}: Top EV +${te} game(s), green +${gr}, picks of the day +${pod}. Reloading board.`,
+          );
+          setActivityState({
+            visible: true,
+            title: `Snapshots saved for ${date}`,
+            detail: `Top EV rows added: ${te} · Green run rows added: ${gr} · Pick-of-day rows added: ${pod}`,
+            tone: "good",
+            spinning: false,
+            progressVisible: false,
+            progressStep: "Refreshing board to show frozen picks.",
+          });
+          await loadBoard();
+          renderBoard();
+        } catch (error) {
+          setActivityState({
+            visible: true,
+            title: `Snapshot save failed for ${date}`,
+            detail: describeError(error),
+            tone: "warn",
+            spinning: false,
+            progressVisible: false,
+            progressStep: describeError(error),
+          });
+          setLog(`Snapshot save failed: ${describeError(error)}`);
+          throw error;
+        } finally {
+          setBusyButton(snapshotBoardRunButton, false);
+        }
       }
 
       async function loadScorecards() {
@@ -8434,6 +8698,7 @@
             state.bestBets = [];
             state.sluggerHrBets = [];
             state.greenPicks = [];
+            state.picksOfTheDay = [];
             state.archivedGreenPicks = [];
             state.games = [];
             problems.push(`Board: ${describeError(boardResult.reason)}`);
@@ -8954,10 +9219,31 @@
         renderBestBetHistoryPanel();
       });
 
+      snapshotBoardRunButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        snapshotBoardRunPicks().catch(() => {});
+      });
+
       refreshButton.addEventListener("click", (event) => {
         event.preventDefault();
         refreshBoard();
       });
+      const targetDateTodayButton = document.getElementById("targetDateTodayButton");
+      const targetDateTomorrowButton = document.getElementById("targetDateTomorrowButton");
+      if (targetDateTodayButton) {
+        targetDateTodayButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          targetDateInput.value = localDateValue();
+          targetDateInput.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+      }
+      if (targetDateTomorrowButton) {
+        targetDateTomorrowButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          targetDateInput.value = localDatePlusDays(1);
+          targetDateInput.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+      }
       updateActionButtons.forEach((button) => {
         button.addEventListener("click", (event) => {
           event.preventDefault();

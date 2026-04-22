@@ -62,3 +62,19 @@ def test_card_input_trust_from_nested_certainty():
     }
     assert card_input_trust_from_game(game)["grade"] == "B"
 
+
+def test_input_trust_strong_chip_not_grade_d_when_feature_row_sparse():
+    """Many NaNs in totals certainty key fields can coexist with strong freshness scores."""
+    cert = {
+        "starter_certainty": 0.95,
+        "lineup_certainty": 0.90,
+        "market_freshness": 0.92,
+        "weather_freshness": 0.88,
+        "bullpen_completeness": 0.90,
+        "missing_fallback_count": 6,
+        "board_state": "minimal",
+    }
+    out = input_trust_from_certainty(cert)
+    assert out["grade"] == "B"
+    assert out["grade"] != "D"
+

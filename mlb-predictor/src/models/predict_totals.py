@@ -187,6 +187,15 @@ def main() -> int:
             calibrated_predictions[i] = mkt + _FALLBACK_RESIDUAL_SCALE * residual
             calibration_mask[i] = True  # treated as "calibrated" for std selection
 
+    market_shrink = float(artifact.get("market_shrink") or 0.0)
+    if market_shrink > 0.0:
+        for i in range(len(calibrated_predictions)):
+            mv = market_vals.iloc[i]
+            if mv is not None and not pd.isna(mv):
+                calibrated_predictions[i] = (1.0 - market_shrink) * float(
+                    calibrated_predictions[i]
+                ) + market_shrink * float(mv)
+
     calibration_residual_std = (
         max(float(market_calibrator["calibration_residual_std"]), 1.0)
         if market_calibrator is not None

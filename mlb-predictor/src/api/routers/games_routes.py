@@ -9,8 +9,13 @@ from fastapi import APIRouter
 from src.utils.matchup_keys import team_abbr_to_opponent_id
 
 from src.utils.slugger_hr_selection import SLUGGER_BOARD_MAX_CARDS
+from src.utils import best_bets as best_bets_utils
 
 from src.api.constants import (
+    GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY,
+    GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM,
+    GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED,
+    GAME_BOARD_UI_DEFAULT_MIN_HIT_PROBABILITY,
     MATCHUP_BVP_ADEQUATE_MIN_AB,
     MATCHUP_BVP_STRONG_MIN_AB,
     MATCHUP_PLATOON_ADEQUATE_MIN_PA,
@@ -34,19 +39,27 @@ def _tier_three_way(value: float | int | None, adequate: float | int, strong: fl
 @router.get("/api/games/board")
 def games_board(
     target_date: app_logic.date = app_logic.Query(default_factory=app_logic.date.today),
-    hit_limit_per_team: int = app_logic.Query(default=4, ge=1, le=9),
-    min_probability: float = app_logic.Query(default=0.0, ge=0.0, le=1.0),
-    confirmed_only: bool = app_logic.Query(default=False),
-    include_inferred: bool = app_logic.Query(default=True),
+    hit_limit_per_team: int = app_logic.Query(
+        default=GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM, ge=1, le=9
+    ),
+    min_probability: float = app_logic.Query(
+        default=GAME_BOARD_UI_DEFAULT_MIN_HIT_PROBABILITY, ge=0.0, le=1.0
+    ),
+    confirmed_only: bool = app_logic.Query(default=GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY),
+    include_inferred: bool = app_logic.Query(default=GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED),
 ) -> app_logic.JSONResponse:
     rows = app_logic._fetch_game_board(target_date, hit_limit_per_team, min_probability, confirmed_only, include_inferred)
     green_pick_limit = app_logic._green_pick_board_limit(target_date)
+    live_slate = target_date if target_date == app_logic.date.today() else None
     return app_logic._json_response(
         {
             "target_date": target_date.isoformat(),
             "summary": app_logic._summarize_board_rows(rows, target_date),
             "best_bets": app_logic._flatten_best_bets(rows, target_date=target_date),
-            "watchlist_markets": app_logic._flatten_watchlist_markets(rows),
+            "picks_of_the_day": app_logic._resolve_picks_of_the_day_for_board(
+                target_date, rows, for_live_slate_date=live_slate
+            ),
+            "watchlist_markets": app_logic._flatten_watchlist_markets(rows, target_date=target_date),
             # HR P(HR) is ~0.02–0.25; never reuse hitter min-probability (often 0.5) or the strip is empty.
             "slugger_hr_bets": app_logic._fetch_slugger_hr_bets(
                 target_date,
@@ -61,6 +74,27 @@ def games_board(
             "games": rows,
         }
     )
+
+
+@router.post("/api/games/board/snapshot-run")
+def games_board_snapshot_run(
+    target_date: app_logic.date = app_logic.Query(default_factory=app_logic.date.today),
+    hit_limit_per_team: int = app_logic.Query(
+        default=GAME_BOARD_UI_DEFAULT_HIT_LIMIT_PER_TEAM, ge=1, le=9
+    ),
+    min_probability: float = app_logic.Query(
+        default=GAME_BOARD_UI_DEFAULT_MIN_HIT_PROBABILITY, ge=0.0, le=1.0
+    ),
+    confirmed_only: bool = app_logic.Query(default=GAME_BOARD_UI_DEFAULT_CONFIRMED_ONLY),
+    include_inferred: bool = app_logic.Query(default=GAME_BOARD_UI_DEFAULT_INCLUDE_INFERRED),
+) -> app_logic.JSONResponse:
+    """Persist missing run snapshots (Top EV + green strip) from the current board state.
+
+    Bypasses the Top EV lock-window gate so an early refresh can be frozen before you step away.
+    """
+    rows = app_logic._fetch_game_board(target_date, hit_limit_per_team, min_probability, confirmed_only, include_inferred)
+    payload = app_logic.manual_snapshot_board_run_picks(target_date, rows)
+    return app_logic._json_response(payload)
 
 
 @router.get("/api/games/{game_id}/detail")

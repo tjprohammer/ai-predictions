@@ -6,7 +6,10 @@ from pathlib import Path
 import sys
 from typing import Any
 
+import numpy as np
 import pandas as pd
+from sklearn.linear_model import Ridge as _CalibrationRidge
+from sklearn.metrics import brier_score_loss, log_loss as sk_log_loss
 
 from src.utils.settings import get_settings
 
@@ -215,6 +218,144 @@ def load_latest_artifact(lane: str) -> dict[str, Any]:
     raise FileNotFoundError(f"No model artifacts found for {lane}")
 
 
+def mean_pinball_loss(y_true: np.ndarray | pd.Series, y_pred: np.ndarray | pd.Series, *, tau: float = 0.5) -> float:
+    """Pinball loss for quantile regression; ``tau=0.5`` equals ``0.5 * MAE`` for symmetric errors."""
+    y = np.asarray(y_true, dtype=float)
+    p = np.asarray(y_pred, dtype=float)
+    e = y - p
+    t = float(tau)
+    return float(np.mean(np.maximum(t * e, (t - 1.0) * e)))
+
+
+def regression_metrics_by_month(
+    game_dates: pd.Series,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    min_rows: int = 8,
+) -> dict[str, dict[str, float]]:
+    """Validation MAE/RMSE by calendar month (YYYY-MM)."""
+    if game_dates is None or len(game_dates) != len(y_true):
+        return {}
+    months = pd.to_datetime(game_dates, errors="coerce").dt.strftime("%Y-%m")
+    out: dict[str, dict[str, float]] = {}
+    for m in sorted(months.dropna().unique()):
+        mask = (months == m).values
+        if int(mask.sum()) < min_rows:
+            continue
+        yt = y_true[mask]
+        yp = y_pred[mask]
+        out[str(m)] = {
+            "n": float(int(mask.sum())),
+            "mae": float(np.mean(np.abs(yt - yp))),
+            "rmse": float(np.sqrt(np.mean((yt - yp) ** 2))),
+        }
+    return out
+
+
+def regression_val_temporal_halves_mae(y_true: np.ndarray, y_pred: np.ndarray, *, min_total: int = 40) -> dict[str, float] | None:
+    """Split validation (already time-ordered) into first/second half MAE — quick drift check."""
+    n = len(y_true)
+    if n < min_total:
+        return None
+    h = n // 2
+    return {
+        "first_half_mae": float(np.mean(np.abs(y_true[:h] - y_pred[:h]))),
+        "second_half_mae": float(np.mean(np.abs(y_true[h:] - y_pred[h:]))),
+        "n_first": float(h),
+        "n_second": float(n - h),
+    }
+
+
+def reliability_bins_binary(
+    y_true: np.ndarray | pd.Series,
+    probabilities: np.ndarray | pd.Series,
+    *,
+    n_bins: int = 10,
+    min_bin_n: int = 5,
+) -> list[dict[str, float]]:
+    """Histogram-style reliability: mean predicted prob vs empirical positive rate per bin."""
+    y = np.asarray(y_true, dtype=int)
+    p = np.asarray(probabilities, dtype=float)
+    if len(y) != len(p) or len(y) < n_bins * min_bin_n:
+        return []
+    edges = np.quantile(p, np.linspace(0.0, 1.0, n_bins + 1))
+    edges[0] = float(np.min(p)) - 1e-9
+    edges[-1] = float(np.max(p)) + 1e-9
+    rows: list[dict[str, float]] = []
+    for i in range(n_bins):
+        lo, hi = edges[i], edges[i + 1]
+        if i == n_bins - 1:
+            mask = (p >= lo) & (p <= hi)
+        else:
+            mask = (p >= lo) & (p < hi)
+        if int(mask.sum()) < min_bin_n:
+            continue
+        rows.append(
+            {
+                "bin": float(i),
+                "n": float(int(mask.sum())),
+                "mean_p": float(np.mean(p[mask])),
+                "positive_rate": float(np.mean(y[mask])),
+            }
+        )
+    return rows
+
+
+def classification_metrics_by_month(
+    game_dates: pd.Series,
+    y_true: np.ndarray,
+    probabilities: np.ndarray,
+    *,
+    min_rows: int = 20,
+) -> dict[str, dict[str, float]]:
+    months = pd.to_datetime(game_dates, errors="coerce").dt.strftime("%Y-%m")
+    out: dict[str, dict[str, float]] = {}
+    y = np.asarray(y_true, dtype=int)
+    p = np.clip(np.asarray(probabilities, dtype=float), 1e-6, 1.0 - 1e-6)
+    for m in sorted(months.dropna().unique()):
+        mask = (months == m).values
+        if int(mask.sum()) < min_rows:
+            continue
+        try:
+            out[str(m)] = {
+                "n": float(int(mask.sum())),
+                "brier": float(brier_score_loss(y[mask], p[mask])),
+                "log_loss": float(sk_log_loss(y[mask], p[mask], labels=[0, 1])),
+            }
+        except Exception:
+            continue
+    return out
+
+
+def log_loss_ou_vs_market_line(
+    y_true: np.ndarray | pd.Series,
+    y_pred: np.ndarray | pd.Series,
+    market_total: pd.Series,
+    *,
+    std: float,
+    min_rows: int = 30,
+) -> dict[str, float] | None:
+    """Binary log loss for P(over) vs posted total, using a logistic on (pred − line) / std."""
+    y = np.asarray(y_true, dtype=float)
+    p = np.asarray(y_pred, dtype=float)
+    mkt = pd.to_numeric(market_total, errors="coerce")
+    mask = mkt.notna().values
+    if int(mask.sum()) < min_rows:
+        return None
+    m = mkt[mask].astype(float).values
+    yt = y[mask]
+    yp = p[mask]
+    y_over = (yt > m).astype(int)
+    scale = max(float(std), 0.5)
+    logits = (yp - m) / scale
+    prob = np.clip(1.0 / (1.0 + np.exp(-logits)), 1e-6, 1.0 - 1e-6)
+    return {
+        "n": float(int(mask.sum())),
+        "log_loss": float(sk_log_loss(y_over, prob, labels=[0, 1])),
+    }
+
+
 def save_report(lane: str, report_name: str, payload: dict[str, Any]) -> Path:
     settings = get_settings()
     output_dir = settings.report_dir / lane
@@ -268,11 +409,6 @@ def compute_sample_weights(
 # ---------------------------------------------------------------------------
 # Market calibration layer
 # ---------------------------------------------------------------------------
-
-import math
-
-import numpy as np
-from sklearn.linear_model import Ridge as _CalibrationRidge
 
 
 def fit_market_calibrator(

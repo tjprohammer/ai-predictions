@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -953,6 +953,59 @@ def _best_bet_closing_probability(card: dict[str, Any], closing_market: dict[str
     return None
 
 
+def _apply_board_green_snapshots_to_recommendation_tiers(
+    recommendation_snapshots_by_date: dict[Any, dict[str, Any]],
+    *,
+    lock_by: dict[tuple[date, int], dict[str, Any]],
+    run_by: dict[tuple[date, int], dict[str, Any]],
+) -> None:
+    """Align ``green_cards`` / ``green_lookup`` with board lock + run snapshots (same as live API).
+
+    Without this, ``product_surfaces`` rebuild would re-rank greens from fresh markets after Update Scores.
+    """
+    frozen: dict[tuple[date, int], dict[str, Any]] = dict(run_by)
+    frozen.update(lock_by)
+    if not frozen:
+        return
+
+    from src.utils.settings import get_settings
+
+    settings = get_settings()
+    mode = getattr(settings, "board_green_selection_mode", "composite_v1")
+    if mode not in ("ev_gates", "composite_v1"):
+        mode = "composite_v1"
+
+    for gday, snap in recommendation_snapshots_by_date.items():
+        gday_d: date | None
+        if isinstance(gday, date):
+            gday_d = gday
+        else:
+            try:
+                gday_d = pd.to_datetime(gday).date()
+            except Exception:
+                continue
+        greens = list(snap.get("green_cards") or [])
+        by_gid: dict[int, dict[str, Any]] = {}
+        for c in greens:
+            gid = int(c.get("game_id") or 0)
+            if gid:
+                by_gid[gid] = dict(c)
+        for (gd, gid), card in frozen.items():
+            if gd != gday_d:
+                continue
+            by_gid[gid] = dict(card)
+        merged = list(by_gid.values())
+        merged.sort(
+            key=lambda c: best_bets_utils._green_strip_sort_key(c, mode=mode),
+            reverse=True,
+        )
+        snap["green_cards"] = merged
+        snap["green_lookup"] = {
+            best_bets_utils.recommendation_card_identity(c): i + 1
+            for i, c in enumerate(merged)
+        }
+
+
 def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[str, dict[str, Any]]]) -> list[dict[str, Any]]:
     totals_records = _fetch_best_bet_totals_inputs(start_date, end_date)
     if not totals_records:
@@ -1046,6 +1099,28 @@ def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[s
         for game_date, day_rows in recommendation_rows_by_date.items()
     }
 
+    import src.api.app_logic as app_logic
+
+    pick_of_day_ranks_by_date: dict[Any, dict[tuple[Any, ...], int]] = {}
+    for game_date, day_rows in recommendation_rows_by_date.items():
+        pod_live = game_date if game_date == date.today() else None
+        pod_cards = app_logic._resolve_picks_of_the_day_for_board(
+            game_date, day_rows, for_live_slate_date=pod_live
+        )
+        pick_of_day_ranks_by_date[game_date] = {
+            best_bets_utils.recommendation_card_identity(c): int(c.get("pick_of_day_rank") or 0)
+            for c in pod_cards
+            if int(c.get("pick_of_day_rank") or 0) > 0
+        }
+
+    green_lock_by = app_logic._fetch_board_green_snapshots_for_range(start_date, end_date)
+    green_run_by = app_logic._fetch_board_green_run_snapshots_for_range(start_date, end_date)
+    _apply_board_green_snapshots_to_recommendation_tiers(
+        recommendation_snapshots_by_date,
+        lock_by=green_lock_by,
+        run_by=green_run_by,
+    )
+
     for context in game_contexts:
         record = context["record"]
         game_date = context["game_date"]
@@ -1055,6 +1130,10 @@ def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[s
         for card in context.get("best_bets") or []:
             cards_to_persist[best_bets_utils.recommendation_card_identity(card)] = card
         for card in recommendation_snapshot.get("watchlist_cards") or []:
+            if int(card.get("game_id") or 0) != game_id:
+                continue
+            cards_to_persist.setdefault(best_bets_utils.recommendation_card_identity(card), card)
+        for card in recommendation_snapshot.get("green_cards") or []:
             if int(card.get("game_id") or 0) != game_id:
                 continue
             cards_to_persist.setdefault(best_bets_utils.recommendation_card_identity(card), card)
@@ -1112,6 +1191,8 @@ def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[s
         recommendation_key = best_bets_utils.recommendation_card_identity(card)
         green_rank = (recommendation_snapshot.get("green_lookup") or {}).get(recommendation_key)
         watchlist_rank = (recommendation_snapshot.get("watchlist_lookup") or {}).get(recommendation_key)
+        pod_lookup = pick_of_day_ranks_by_date.get(game_date) or {}
+        pick_of_day_rank = pod_lookup.get(recommendation_key)
 
         grading = best_bets_utils.grade_best_bet_pick(
             card,
@@ -1206,6 +1287,8 @@ def _build_best_bet_outcomes(start_date, end_date, weather_map: dict[int, dict[s
                     "board_green_pick_rank": green_rank,
                     "is_board_watchlist_pick": bool(watchlist_rank is not None),
                     "board_watchlist_rank": watchlist_rank,
+                    "is_pick_of_day": pick_of_day_rank is not None,
+                    "pick_of_day_rank": pick_of_day_rank,
                 },
                 **_weather_outcome_fields(game_id, weather_map),
             }

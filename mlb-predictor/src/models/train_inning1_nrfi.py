@@ -27,7 +27,7 @@ from src.utils.settings import get_settings
 
 log = get_logger(__name__)
 
-_MIN_LABELED_ROWS = 120
+_DEFAULT_MIN_LABELED_ROWS = 120
 _LOGIT_MAX_ITER = 3000
 _CLIP_EPS = 1e-5
 
@@ -137,7 +137,14 @@ def main() -> int:
         default=None,
         help="Use only rows with game_date on or after this date",
     )
+    parser.add_argument(
+        "--min-labeled-rows",
+        type=int,
+        default=_DEFAULT_MIN_LABELED_ROWS,
+        help="Minimum labeled rows to train (default: %s)" % _DEFAULT_MIN_LABELED_ROWS,
+    )
     args = parser.parse_args()
+    min_labeled = max(1, int(args.min_labeled_rows))
 
     settings = get_settings()
     frame = load_feature_snapshots("inning1_nrfi")
@@ -156,11 +163,11 @@ def main() -> int:
         gd = pd.to_datetime(trainable["game_date"]).dt.date
         trainable = trainable[gd <= cutoff].copy()
         log.info("Filtered to game_date <= %s → %s rows", cutoff, len(trainable))
-    if len(trainable) < _MIN_LABELED_ROWS:
+    if len(trainable) < min_labeled:
         log.info(
             "Not enough labeled inning-1 rows (%s); need at least %s (boxscore ingest populates total_runs_inning1).",
             len(trainable),
-            _MIN_LABELED_ROWS,
+            min_labeled,
         )
         return 0
 

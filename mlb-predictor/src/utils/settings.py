@@ -92,12 +92,21 @@ class Settings:
     board_top_ev_snapshot_lock_minutes: int | None
     # First board load (pregame) — see ``board_*_run_snapshots`` migrations.
     board_green_run_snapshot_enabled: bool
+    # When true, first pregame board load freezes green (no need to wait for T−N lock). Reduces swaps to a later catch-up.
+    board_green_run_snapshot_eager: bool
     board_top_ev_run_snapshot_enabled: bool
+    # When true, first pregame board load freezes Top EV run snapshot (same timing as green run eager).
+    board_top_ev_run_snapshot_eager: bool
+    # Pick-of-the-day run snapshots (032): per-game freeze for the strict short list.
+    board_pick_of_day_run_snapshot_enabled: bool
+    board_pick_of_day_run_snapshot_eager: bool
     # Green strip: ``ev_gates`` = rank by weighted EV only (legacy). ``composite_v1`` = rank by blended
     # EV, edge, certainty, game data quality, trust, optional action_score (see ``board_pick_composite_score_v1``).
     board_green_selection_mode: str
     # Optional floor 0–1 for composite_v1; unset = no extra floor beyond qualifies_board_green_strip.
     board_green_composite_min: float | None
+    # When false, strip ``first_five_team_total_*`` from board best_bets / market_cards (legacy hide).
+    board_include_first_five_team_totals: bool
 
 
 def _parse_optional_float_env(name: str) -> float | None:
@@ -164,11 +173,32 @@ def get_settings() -> Settings:
         ),
         board_top_ev_snapshot_lock_minutes=_parse_optional_int_env("BOARD_TOP_EV_SNAPSHOT_LOCK_MINUTES"),
         board_green_run_snapshot_enabled=(
-            os.getenv("BOARD_GREEN_RUN_SNAPSHOT_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+            os.getenv("BOARD_GREEN_RUN_SNAPSHOT_ENABLED", "true").strip().lower()
+            not in ("0", "false", "no", "off")
+        ),
+        board_green_run_snapshot_eager=(
+            os.getenv("BOARD_GREEN_RUN_SNAPSHOT_EAGER", "true").strip().lower()
+            not in ("0", "false", "no", "off")
         ),
         board_top_ev_run_snapshot_enabled=(
             os.getenv("BOARD_TOP_EV_RUN_SNAPSHOT_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
         ),
+        board_top_ev_run_snapshot_eager=(
+            os.getenv("BOARD_TOP_EV_RUN_SNAPSHOT_EAGER", "true").strip().lower()
+            not in ("0", "false", "no", "off")
+        ),
+        board_pick_of_day_run_snapshot_enabled=(
+            os.getenv("BOARD_PICK_OF_DAY_RUN_SNAPSHOT_ENABLED", "true").strip().lower()
+            not in ("0", "false", "no", "off")
+        ),
+        board_pick_of_day_run_snapshot_eager=(
+            os.getenv("BOARD_PICK_OF_DAY_RUN_SNAPSHOT_EAGER", "true").strip().lower()
+            not in ("0", "false", "no", "off")
+        ),
         board_green_selection_mode=_parse_board_green_selection_mode(),
         board_green_composite_min=_parse_optional_float_env("BOARD_GREEN_COMPOSITE_MIN"),
+        board_include_first_five_team_totals=(
+            os.getenv("BOARD_INCLUDE_FIRST_FIVE_TEAM_TOTALS", "true").strip().lower()
+            not in ("0", "false", "no", "off")
+        ),
     )

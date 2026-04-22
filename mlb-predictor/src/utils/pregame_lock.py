@@ -47,6 +47,11 @@ def is_before_scheduled_first_pitch(game_start_ts: object, *, now: datetime | No
     return now_utc < parsed
 
 
+def game_start_utc_or_none(game_start_ts: object) -> datetime | None:
+    """Best-effort UTC datetime for scheduled first pitch (None if missing / unparseable)."""
+    return _parse_utc_datetime(game_start_ts)
+
+
 def _parse_utc_datetime(value: object) -> datetime | None:
     if value is None:
         return None

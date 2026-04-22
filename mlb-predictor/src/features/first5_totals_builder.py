@@ -187,7 +187,7 @@ def main() -> int:
 
     rows = []
     for game in games.itertuples(index=False):
-        cutoff_ts = default_cutoff(game.game_date, game.game_start_ts)
+        cutoff_ts = default_cutoff(game.game_date, game.game_start_ts, game_status=getattr(game, "status", None))
         starters = frames["pitcher_starts"][frames["pitcher_starts"]["game_id"] == game.game_id].copy()
         home_starter_id = None
         away_starter_id = None

@@ -335,3 +335,63 @@ def test_build_model_scorecards_normalizes_score_date(monkeypatch):
     assert result == 1
     assert captured["table_name"] == "model_scorecards_daily"
     assert captured["rows"][0]["score_date"] == date(2026, 4, 2)
+
+
+def test_apply_board_green_snapshots_lock_beats_run(monkeypatch):
+    """Frozen board greens replace live strip cards so outcomes stay stable across refresh."""
+    d = date(2026, 4, 2)
+    live = {
+        "game_id": 1,
+        "market_key": "game_total",
+        "bet_side": "over",
+        "selection_label": "O 8.5",
+        "weighted_ev": 0.05,
+        "probability_edge": 0.02,
+    }
+    run_card = {
+        "game_id": 1,
+        "market_key": "moneyline",
+        "bet_side": "home",
+        "selection_label": "HOME",
+        "weighted_ev": 0.04,
+        "probability_edge": 0.03,
+    }
+    lock_card = {
+        "game_id": 1,
+        "market_key": "run_line",
+        "bet_side": "away",
+        "selection_label": "+1.5",
+        "weighted_ev": 0.02,
+        "probability_edge": 0.01,
+    }
+    snaps: dict = {
+        d: {
+            "green_cards": [dict(live)],
+            "green_lookup": {},
+        }
+    }
+
+    class _S:
+        board_green_selection_mode = "ev_gates"
+
+    monkeypatch.setattr("src.utils.settings.get_settings", lambda: _S())
+
+    product_surfaces._apply_board_green_snapshots_to_recommendation_tiers(
+        snaps,
+        lock_by={},
+        run_by={(d, 1): dict(run_card)},
+    )
+    assert len(snaps[d]["green_cards"]) == 1
+    assert snaps[d]["green_cards"][0]["market_key"] == "moneyline"
+
+    snaps[d]["green_cards"] = [dict(live)]
+    product_surfaces._apply_board_green_snapshots_to_recommendation_tiers(
+        snaps,
+        lock_by={(d, 1): dict(lock_card)},
+        run_by={(d, 1): dict(run_card)},
+    )
+    assert snaps[d]["green_cards"][0]["market_key"] == "run_line"
+    from src.utils import best_bets as bb
+
+    key = bb.recommendation_card_identity(snaps[d]["green_cards"][0])
+    assert snaps[d]["green_lookup"][key] == 1

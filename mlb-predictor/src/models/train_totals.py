@@ -4,6 +4,7 @@ import math
 from datetime import datetime, timezone
 
 import numpy as np
+import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
@@ -17,12 +18,53 @@ from src.features.contracts import (
     feature_columns_for_roles,
     feature_field_roles,
 )
-from src.models.common import chronological_split, compute_sample_weights, encode_frame, fit_market_calibrator, load_feature_snapshots, save_artifact, save_report
+from src.models.common import (
+    calibrate_with_market,
+    chronological_split,
+    compute_sample_weights,
+    encode_frame,
+    fit_market_calibrator,
+    load_feature_snapshots,
+    log_loss_ou_vs_market_line,
+    mean_pinball_loss,
+    regression_metrics_by_month,
+    regression_val_temporal_halves_mae,
+    save_artifact,
+    save_report,
+)
 from src.utils.logging import get_logger
 from src.utils.settings import get_settings
 
 
 log = get_logger(__name__)
+
+_FALLBACK_RESIDUAL_SCALE = 0.50
+# Weak-model shrink caps: avoid w=1.0 so published totals are not identical to the posted line
+# when the model only loses to train_median / team_average (market line is a separate baseline).
+_MARKET_SHRINK_CAP = 0.85
+_MIN_MARKET_BASELINE_ROWS = 20
+
+
+def _post_calibrated_totals_val(
+    fundamentals_pred: np.ndarray,
+    val_frame: pd.DataFrame,
+    market_calibrator: dict | None,
+    residual_output: np.ndarray,
+) -> np.ndarray:
+    """Match ``predict_totals`` calibration + market-anchor fallback on validation rows."""
+    calibrated, cal_mask = calibrate_with_market(
+        fundamentals_pred, val_frame["market_total"], market_calibrator
+    )
+    out = calibrated.copy()
+    mask = cal_mask.copy()
+    market_vals = val_frame["market_total"]
+    for i in range(len(out)):
+        if mask[i]:
+            continue
+        mv = market_vals.iloc[i]
+        if mv is not None and not pd.isna(mv):
+            out[i] = float(mv) + _FALLBACK_RESIDUAL_SCALE * float(residual_output[i])
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -156,8 +198,12 @@ def main() -> int:
         mae = mean_absolute_error(y_val, final_predictions)
         rmse = math.sqrt(mean_squared_error(y_val, final_predictions))
         residual_mae = mean_absolute_error(residual_val, residual_pred)
-        metrics[name] = {"mae": mae, "rmse": rmse, "residual_mae": residual_mae}
-        log.info("  %s: MAE=%.3f RMSE=%.3f residual_MAE=%.3f", name, mae, rmse, residual_mae)
+        pinball = mean_pinball_loss(y_val.values, final_predictions, tau=0.5)
+        metrics[name] = {"mae": mae, "rmse": rmse, "residual_mae": residual_mae, "pinball_median": pinball}
+        log.info(
+            "  %s: MAE=%.3f RMSE=%.3f residual_MAE=%.3f pinball=%.3f",
+            name, mae, rmse, residual_mae, pinball,
+        )
         if rmse < best_rmse:
             best_name = name
             best_model = model
@@ -227,6 +273,91 @@ def main() -> int:
             "intercept": market_calibrator["intercept"],
         }
 
+    residual_out = best_final_predictions - baseline_val
+    post_cal = _post_calibrated_totals_val(
+        best_final_predictions, val_frame, market_calibrator, residual_out
+    )
+    cal_res_std = (
+        float(market_calibrator["calibration_residual_std"])
+        if market_calibrator is not None
+        else residual_std
+    )
+    cal_res_std = max(cal_res_std, 0.5)
+
+    validation_metrics: dict[str, object] = {
+        "fundamental_val_mae": float(mean_absolute_error(y_val, best_final_predictions)),
+        "post_calibration_val_mae": float(mean_absolute_error(y_val, post_cal)),
+        "pinball_median_fundamental": float(mean_pinball_loss(y_val.values, best_final_predictions, tau=0.5)),
+        "pinball_median_post_calibration": float(mean_pinball_loss(y_val.values, post_cal, tau=0.5)),
+        "validation_by_month_fundamental": regression_metrics_by_month(
+            val_frame["game_date"], y_val.values, best_final_predictions
+        ),
+        "temporal_halves_mae_fundamental": regression_val_temporal_halves_mae(y_val.values, best_final_predictions),
+    }
+    ou_raw = log_loss_ou_vs_market_line(
+        y_val.values, best_final_predictions, val_frame["market_total"], std=residual_std
+    )
+    if ou_raw:
+        validation_metrics["ou_log_loss_vs_line_fundamental"] = ou_raw
+    ou_post = log_loss_ou_vs_market_line(y_val.values, post_cal, val_frame["market_total"], std=cal_res_std)
+    if ou_post:
+        validation_metrics["ou_log_loss_vs_line_post_calibration"] = ou_post
+
+    best_bl_mae = min(b["mae"] for b in baselines.values() if "mae" in b)
+    market_baseline = baselines.get("market_total") or {}
+    market_bl_mae = market_baseline.get("mae")
+    market_bl_rows = int(market_baseline.get("rows") or 0)
+    model_mae_fund = float(metrics[best_name]["mae"])
+    loses_to_market_baseline = (
+        market_bl_mae is not None
+        and market_bl_rows >= _MIN_MARKET_BASELINE_ROWS
+        and model_mae_fund > float(market_bl_mae)
+    )
+    if not loses_to_market_baseline:
+        if market_bl_mae is None or market_bl_rows < _MIN_MARKET_BASELINE_ROWS:
+            validation_metrics["market_shrink_skipped"] = (
+                f"market_total baseline unavailable or rows<{_MIN_MARKET_BASELINE_ROWS} "
+                f"(rows={market_bl_rows}); no convex shrink toward line"
+            )
+        else:
+            validation_metrics["market_shrink_skipped"] = (
+                f"fundamentals MAE {model_mae_fund:.3f} does not lose to market_total baseline "
+                f"MAE {float(market_bl_mae):.3f}; shrink toward line disabled"
+            )
+
+    market_shrink = 0.0
+    market_shrink_diagnostics: dict[str, float] | None = None
+    if loses_to_market_baseline:
+        mkt_series = val_frame["market_total"]
+        has_m = mkt_series.notna().values
+        if int(has_m.sum()) >= _MIN_MARKET_BASELINE_ROWS:
+            best_w = 0.0
+            best_mae_shrink = float(mean_absolute_error(y_val, post_cal))
+            mkt_arr = mkt_series.astype(float).values
+            for w in np.linspace(0.0, _MARKET_SHRINK_CAP, 18):
+                blended = post_cal.copy()
+                blended[has_m] = (1.0 - w) * post_cal[has_m] + w * mkt_arr[has_m]
+                mae_w = float(mean_absolute_error(y_val, blended))
+                if mae_w < best_mae_shrink - 1e-9:
+                    best_mae_shrink = mae_w
+                    best_w = float(w)
+            market_shrink = best_w
+            market_shrink_diagnostics = {
+                "raw_model_mae": model_mae_fund,
+                "best_overall_baseline_mae": float(best_bl_mae),
+                "market_baseline_mae": float(market_bl_mae),
+                "post_cal_mae": float(mean_absolute_error(y_val, post_cal)),
+                "blended_mae": float(best_mae_shrink),
+                "market_shrink_cap": float(_MARKET_SHRINK_CAP),
+            }
+            log.info(
+                "Market shrink — fundamentals lose to market_total baseline; w=%.2f (cap=%.2f; post_cal MAE %.3f → blended %.3f)",
+                market_shrink,
+                _MARKET_SHRINK_CAP,
+                market_shrink_diagnostics["post_cal_mae"],
+                market_shrink_diagnostics["blended_mae"],
+            )
+
     artifact = {
         "lane": "totals",
         "architecture": "baseline_plus_residual",
@@ -246,7 +377,10 @@ def main() -> int:
         "metrics": metrics,
         "baselines": baselines,
         "calibration_metrics": calibration_metrics,
+        "validation_metrics": validation_metrics,
         "residual_std": residual_std if residual_std > 0 else 1.0,
+        "market_shrink": market_shrink,
+        "market_shrink_diagnostics": market_shrink_diagnostics,
         "market_calibrator": market_calibrator,
         "model": best_model,
     }

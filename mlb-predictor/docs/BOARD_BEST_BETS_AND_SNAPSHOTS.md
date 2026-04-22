@@ -32,7 +32,7 @@ Snapshots exist so a **later** refresh (after line move, lineup change, or boxsc
   - **Pregame:** The first board load **after** the Top EV lock window opens freezes the headline (same clock as `MLB_PREGAME_INGEST_LOCK_MINUTES` / optional `BOARD_TOP_EV_SNAPSHOT_LOCK_MINUTES`). **Before** that instant, Top EV is **live** and can move as markets/lineups update.
   - **Catch-up:** If you never loaded the board inside that window, the first load **after** first pitch still writes once (`INSERT OR IGNORE`) so Daily Results stops drifting.
   - **API:** Each game on `GET /api/games/board` includes `top_ev_snapshot_info` (`state`, `first_freeze_eligible_after_utc`, `effective_lock_minutes`, `summary`) so you can see *when* freeze becomes eligible without editing `.env` while the server runs.
-- **Green run (`board_green_run_snapshots`):** Still first qualifying board build while **before** first pitch (pregame-only), unless changed elsewhere.
+- **Green run (`board_green_run_snapshots`) — default ON (`BOARD_GREEN_RUN_SNAPSHOT_ENABLED`):** Default **eager** pregame (`BOARD_GREEN_RUN_SNAPSHOT_EAGER`, on): first board load **before** first pitch freezes the strip (no need to wait for T−N). Optional catch-up after first pitch if there was still no row. Once stored, the strip keeps that card **through live play**. **Daily Results** also drops supplemental live greens when `prediction_outcomes_daily` already has a green row for that `game_id`, so you do not get two different markets for the same game.
 
 ### 2.2 Lock snapshots (pregame freeze)
 
@@ -50,7 +50,7 @@ For **Top EV** and for **outcomes** builders:
 
 The main **game board** (`_fetch_game_board`) applies the same order to `top_ev_pick` after inserting any missing snapshot rows on that request, so the headline EV pick can stabilize **as soon as** the first run/lock row exists—including on the **same** HTTP response as the first qualifying load.
 
-Green strip merging (`_merge_board_green_snapshots_into_live`) prefers **lock** when the game is in the **ingest** lock window, else **run** while still pregame, else live.
+Green strip merging (`_merge_board_green_snapshots_into_live`) prefers **lock** when the game is in the **ingest** lock window, else **run** whenever a run snapshot row exists (including during live games), else live.
 
 ---
 
@@ -70,7 +70,7 @@ Both are **mutating** steps: they change inputs that feed `build_market_cards_fo
 
 ### 3.3 How this interacts with snapshots
 
-- **Run** snapshots can be taken **hours before** lock—as soon as someone loads the board pregame—so you have a stable “early” anchor even while ingest is still allowed to update.
+- **Run** snapshots: first qualifying load after the lock window opens (or catch-up after first pitch). Green run and Top EV run both stop the headline pick from drifting while games are **live** once a row exists.
 - **Lock** snapshots are taken when the **separate** Top EV / green lock clock fires (defaults tied to `MLB_PREGAME_INGEST_LOCK_MINUTES` unless you override `BOARD_TOP_EV_SNAPSHOT_LOCK_MINUTES`).
 
 ---
@@ -85,6 +85,7 @@ Both are **mutating** steps: they change inputs that feed `build_market_cards_fo
 2. **Green strip** can show a **run-frozen** card pregame even before the ingest-lock window (see merge rules).
 3. **Top EV on the board** uses **lock → run → live** so once a snapshot row exists, the API returns that pick without waiting for game time.
 4. **Tuning knobs** (see `config/.env.example`):
+   - **`BOARD_TOP_EV_RUN_SNAPSHOT_EAGER`** (default on): When on, **Top EV run** snapshots freeze on the **first pregame** board load (or immediately after a publish pipeline finishes — same warm-up path as the board), matching **green run** eager behavior. Turn off to freeze Top EV run only inside T−N.
    - **`BOARD_TOP_EV_SNAPSHOT_LOCK_MINUTES`** (optional): **Larger** value = snapshot taken **earlier** on the clock (more minutes **before** first pitch). **Smaller** = closer to first pitch. Unset = inherit `MLB_PREGAME_INGEST_LOCK_MINUTES`.
    - **`MLB_PREGAME_INGEST_LOCK_MINUTES`**: When **ingest** stops mutating; separate from when we **record** Top EV snapshots unless you inherit.
 
@@ -124,5 +125,16 @@ Both are **mutating** steps: they change inputs that feed `build_market_cards_fo
 | `028_board_green_snapshots.sql` | Lock-time green cards |
 | `029_board_top_ev_snapshots.sql` | Lock-time Top EV |
 | `030_board_run_snapshots.sql` | First-run green + Top EV |
+| `032_board_pick_of_day_run_snapshots.sql` | First-run **picks of the day** (strict short list) per game |
 
 Apply migrations on Postgres/SQLite seeds before relying on snapshots in production.
+
+### Pick-of-the-day run snapshots
+
+Same idea as green run: the first time a game’s strict short-list card qualifies **pregame** (eager by default, or inside T−N when `BOARD_PICK_OF_DAY_RUN_SNAPSHOT_EAGER=false`), the full card is stored in `board_pick_of_day_run_snapshots`. Later board loads **merge** frozen payloads so refresh/rebuild does not replace that ticket until after first pitch (catch-up semantics align with other run tables). Toggle with `BOARD_PICK_OF_DAY_RUN_SNAPSHOT_ENABLED` / `BOARD_PICK_OF_DAY_RUN_SNAPSHOT_EAGER` in `.env`.
+
+Snapshots **insert for the board’s `target_date` whenever that date is today or in the future** (e.g. run **Prepare Slate** for **tomorrow** while tonight’s games are still going — you can load tomorrow’s board and freeze PoD/green without waiting for the calendar to roll).
+
+**Batter TB on overs-only books:** `PICK_OF_THE_DAY_BATTER_TB_OVERS_ONLY` (default true) drops **under** plays from the strict short list only; green/watchlist are unchanged.
+
+**Future slate (board date after today):** `PICK_OF_THE_DAY_ALLOW_SOFT_GREEN_ON_FUTURE_SLATE` (default true) lets picks of the day use the same **soft green** thresholds as the strip when strict `positive` is still rare, and lowers the model-P floor for that list to **52%** so tomorrow’s board can populate after **Prepare Slate** + scoring even when lineups/books are still thin.

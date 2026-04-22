@@ -417,6 +417,82 @@ def infer_lineup_from_history(
     return inferred[columns]
 
 
+_INFER_LINEUP_SKIP_FIELD_POSITIONS = frozenset(
+    {"P", "SP", "RP", "CP", "MR", "LHP", "RHP"},
+)
+
+
+def infer_lineup_from_prior_game_lineups(
+    team: str,
+    game_date: date,
+    lineups: pd.DataFrame,
+    players: pd.DataFrame | None = None,
+    *,
+    max_players: int = 9,
+) -> pd.DataFrame:
+    """Reuse the most recent **committed** lineup rows for this team before ``game_date``.
+
+    When today's ``lineups`` table is still empty but yesterday's game is in the DB, this yields
+    a plausible batting order for feature + prop builds until the official lineup posts.
+    """
+    columns = ["team", "player_id", "player_name", "lineup_slot", "is_confirmed"]
+    if lineups.empty or "team" not in lineups.columns:
+        return pd.DataFrame(columns=columns)
+
+    df = lineups.copy()
+    df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce").dt.date
+    df = df[(df["team"] == team) & (df["game_date"].notna()) & (df["game_date"] < game_date)]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    last_date = max(df["game_date"])
+    block = df[df["game_date"] == last_date].copy()
+    if block.empty or "snapshot_ts" not in block.columns:
+        return pd.DataFrame(columns=columns)
+
+    latest_ts = block["snapshot_ts"].max()
+    block = block[block["snapshot_ts"] == latest_ts].copy()
+    if block.empty:
+        return pd.DataFrame(columns=columns)
+
+    block["lineup_slot"] = pd.to_numeric(block.get("lineup_slot"), errors="coerce")
+    block = block.sort_values("lineup_slot", na_position="last")
+    rows_out: list[dict[str, Any]] = []
+    for _, r in block.iterrows():
+        fp = str(r.get("field_position") or "").upper().strip()
+        if fp in _INFER_LINEUP_SKIP_FIELD_POSITIONS:
+            continue
+        pid = r.get("player_id")
+        if pid is None or (isinstance(pid, float) and pd.isna(pid)):
+            continue
+        slot = r.get("lineup_slot")
+        slot_i = int(slot) if slot is not None and not pd.isna(slot) else len(rows_out) + 1
+        pname = str(r.get("player_name") or "").strip()
+        if not pname and players is not None and not players.empty:
+            match = players[players["player_id"] == int(pid)]
+            if not match.empty:
+                pname = str(match.iloc[0].get("full_name") or pid)
+        if not pname:
+            pname = str(int(pid))
+        rows_out.append(
+            {
+                "team": team,
+                "player_id": int(pid),
+                "player_name": pname,
+                "lineup_slot": slot_i,
+                "is_confirmed": False,
+            }
+        )
+        if len(rows_out) >= max_players:
+            break
+
+    if not rows_out:
+        return pd.DataFrame(columns=columns)
+
+    out = pd.DataFrame(rows_out).sort_values("lineup_slot").reset_index(drop=True)
+    return out[columns]
+
+
 def hitter_snapshot(
     player_id: int,
     game_date: date,
@@ -591,6 +667,8 @@ def latest_market_snapshot(
     market_type: str | None = None,
 ) -> dict[str, Any]:
     frame = markets[(markets["game_id"] == game_id) & (markets["snapshot_ts"] <= cutoff_ts)].copy()
+    if market_type and not frame.empty and "market_type" in frame.columns:
+        frame = frame[frame["market_type"].astype(str) == str(market_type)]
     if frame.empty:
         return {
             "market_total": None,
@@ -887,21 +965,29 @@ def persist_strikeout_features(frame: pd.DataFrame, start_date: date, end_date: 
     )
 
 
-def default_cutoff(game_date: date, game_start_ts: pd.Timestamp | datetime | None) -> datetime:
+def default_cutoff(
+    game_date: date,
+    game_start_ts: pd.Timestamp | datetime | None,
+    *,
+    game_status: str | None = None,
+) -> datetime:
     """Return the feature cutoff timestamp for a game.
 
-    For games that haven't started yet (start time in the future), we use the
-    game start time.  For games whose start time is in the past — which
-    includes postponed games whose ``game_start_ts`` may be stale — we cap the
-    cutoff at ``now`` so that market/weather snapshots captured *after* the
-    original start time are still included.
+    * **Final** games: use first pitch (``game_start_ts``) so historical feature
+      rebuilds never use ``now`` and accidentally include post-game markets.
+    * **Non-final** with start in the future: use scheduled first pitch.
+    * **Non-final** with start in the past (live, postponed, etc.): use ``now``
+      so we still pick up the latest snapshots when appropriate.
     """
     now = datetime.now(timezone.utc)
+    status = str(game_status or "").strip().lower()
+    is_final = status == "final"
+
     if game_start_ts is not None and not pd.isna(game_start_ts):
         if isinstance(game_start_ts, pd.Timestamp):
             game_start_ts = game_start_ts.to_pydatetime()
         ts = game_start_ts if game_start_ts.tzinfo else game_start_ts.replace(tzinfo=timezone.utc)
-        # For unplayed / postponed games whose start time already passed,
-        # use 'now' so we still pick up the latest available snapshots.
+        if is_final:
+            return ts
         return ts if ts > now else now
     return datetime.combine(game_date, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=16)
